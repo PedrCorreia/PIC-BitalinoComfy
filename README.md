@@ -2,7 +2,7 @@
 
 ## Introduction
 
-Welcome to the PIC-BitalinoComfy repository. This project is dedicated to developing custom nodes and scripts for signal processing using PyTorch, SciPy, and other tools. The nodes are designed to be used in a signal processing pipeline to generate, manipulate, and visualize periodic signals.
+Welcome to the PIC-BitalinoComfy repository. This repository is dedicated to sharing custom nodes, scripts,  and other tools that I'll develop along this project
 
 ## Repository Structure
 
