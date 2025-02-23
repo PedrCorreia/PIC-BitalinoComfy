@@ -1,6 +1,39 @@
 import numpy as np
 import torch
-from scipy.signal import butter, filtfilt
+from scipy.signal import butter, filtfilt, firwin
+
+"""
+This module provides custom processing nodes for signal processing using PyTorch and SciPy.
+The nodes include FFT, low-pass filter, and high-pass filter functionalities.
+Classes:
+    FFTNode: Applies Fast Fourier Transform (FFT) to a given tensor and filters frequencies up to a specified maximum frequency.
+    LowPassFilterNode: Applies a low-pass filter to a given tensor using the windowed sinc method.
+    HighPassFilterNode: Applies a high-pass filter to a given tensor using the windowed sinc method.
+Methods:
+    apply_fft(tensor, max_frequency):
+        Applies FFT to the amplitude values of the input tensor and filters frequencies up to max_frequency.
+        Args:
+            tensor (torch.Tensor): Input tensor containing time and amplitude values.
+            max_frequency (float): Maximum frequency to retain in the FFT result.
+        Returns:
+            tuple: A tuple containing the filtered FFT result as a tensor.
+    apply_low_pass_filter(tensor, cutoff_frequency, num_taps):
+        Applies a low-pass filter to the amplitude values of the input tensor.
+        Args:
+            tensor (torch.Tensor): Input tensor containing time and amplitude values.
+            cutoff_frequency (float): Cutoff frequency for the low-pass filter.
+            num_taps (int): Number of filter taps.
+        Returns:
+            tuple: A tuple containing the filtered signal as a tensor.
+    apply_high_pass_filter(tensor, cutoff_frequency, num_taps):
+        Applies a high-pass filter to the amplitude values of the input tensor.
+        Args:
+            tensor (torch.Tensor): Input tensor containing time and amplitude values.
+            cutoff_frequency (float): Cutoff frequency for the high-pass filter.
+            num_taps (int): Number of filter taps.
+        Returns:
+            tuple: A tuple containing the filtered signal as a tensor.
+"""
 
 class FFTNode:
     @classmethod
@@ -46,6 +79,7 @@ class LowPassFilterNode:
             "required": {
                 "tensor": ("tensor",),
                 "cutoff_frequency": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
+                "num_taps": ("INT", {"default": 101, "min": 1, "max": 5001, "step": 1}),  # Increased max num_taps
             }
         }
 
@@ -53,23 +87,43 @@ class LowPassFilterNode:
     FUNCTION = "apply_low_pass_filter"
     CATEGORY = "Custom Nodes"
 
-    def apply_low_pass_filter(self, tensor, cutoff_frequency):
+    def apply_low_pass_filter(self, tensor, cutoff_frequency, num_taps):
         if tensor.device != torch.device('cpu'):
             tensor = tensor.cpu()
 
         time_values = tensor[0]
         amplitude_values = tensor[1]
 
+        # Ensure the tensor is contiguous
+        if not amplitude_values.is_contiguous():
+            amplitude_values = amplitude_values.contiguous()
+
         # Infer sample rate from time values
         sample_rate = 1.0 / (time_values[1] - time_values[0]).item()
+        print(f"Calculated sample rate: {sample_rate}")
 
-        # Design low-pass filter
+        # Design low-pass filter using windowed sinc method
         nyquist = 0.5 * sample_rate
         normal_cutoff = cutoff_frequency / nyquist
-        b, a = butter(4, normal_cutoff, btype='low', analog=False)
+        taps = firwin(num_taps, normal_cutoff, pass_zero=True)
+
+        # Convert amplitude values to numpy array and check strides
+        amplitude_values_np = amplitude_values.numpy()
+        print("Original strides:", amplitude_values_np.strides)
+
+        # Ensure the numpy array has positive strides by making a contiguous copy
+        amplitude_values_np = np.ascontiguousarray(amplitude_values_np)
+        print("Contiguous strides:", amplitude_values_np.strides)
 
         # Apply low-pass filter
-        filtered_signal = filtfilt(b, a, amplitude_values.numpy())
+        try:
+            filtered_signal = filtfilt(taps, [1.0], amplitude_values_np)
+            # Ensure the filtered signal has positive strides by making a contiguous copy
+            filtered_signal = np.ascontiguousarray(filtered_signal)
+            print("Filtered signal strides:", filtered_signal.strides)
+        except ValueError as e:
+            print(f"Error applying filter: {e}")
+            return (tensor,)
 
         # Combine time and filtered signal into a tensor
         combined_tensor = torch.stack([time_values, torch.tensor(filtered_signal, dtype=torch.float32)])
@@ -83,6 +137,7 @@ class HighPassFilterNode:
             "required": {
                 "tensor": ("tensor",),
                 "cutoff_frequency": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
+                "num_taps": ("INT", {"default": 101, "min": 1, "max": 1001, "step": 1}),
             }
         }
 
@@ -90,23 +145,43 @@ class HighPassFilterNode:
     FUNCTION = "apply_high_pass_filter"
     CATEGORY = "Custom Nodes"
 
-    def apply_high_pass_filter(self, tensor, cutoff_frequency):
+    def apply_high_pass_filter(self, tensor, cutoff_frequency, num_taps):
         if tensor.device != torch.device('cpu'):
             tensor = tensor.cpu()
 
         time_values = tensor[0]
         amplitude_values = tensor[1]
 
+        # Ensure the tensor is contiguous
+        if not amplitude_values.is_contiguous():
+            amplitude_values = amplitude_values.contiguous()
+
         # Infer sample rate from time values
         sample_rate = 1.0 / (time_values[1] - time_values[0]).item()
+        print(f"Calculated sample rate: {sample_rate}")
 
-        # Design high-pass filter
+        # Design high-pass filter using windowed sinc method
         nyquist = 0.5 * sample_rate
         normal_cutoff = cutoff_frequency / nyquist
-        b, a = butter(4, normal_cutoff, btype='high', analog=False)
+        taps = firwin(num_taps, normal_cutoff, pass_zero=False)
+
+        # Convert amplitude values to numpy array and check strides
+        amplitude_values_np = amplitude_values.numpy()
+        print("Original strides:", amplitude_values_np.strides)
+
+        # Ensure the numpy array has positive strides by making a contiguous copy
+        amplitude_values_np = np.ascontiguousarray(amplitude_values_np)
+        print("Contiguous strides:", amplitude_values_np.strides)
 
         # Apply high-pass filter
-        filtered_signal = filtfilt(b, a, amplitude_values.numpy())
+        try:
+            filtered_signal = filtfilt(taps, [1.0], amplitude_values_np)
+            # Ensure the filtered signal has positive strides by making a contiguous copy
+            filtered_signal = np.ascontiguousarray(filtered_signal)
+            print("Filtered signal strides:", filtered_signal.strides)
+        except ValueError as e:
+            print(f"Error applying filter: {e}")
+            return (tensor,)
 
         # Combine time and filtered signal into a tensor
         combined_tensor = torch.stack([time_values, torch.tensor(filtered_signal, dtype=torch.float32)])

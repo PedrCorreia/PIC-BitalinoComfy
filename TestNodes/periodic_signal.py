@@ -1,12 +1,17 @@
 import numpy as np
 import torch
-import matplotlib.pyplot as plt
-import io
-from PIL import Image
-import torchvision.transforms as transforms
-
-import numpy as np
-import torch
+"""
+This module defines custom nodes for generating and manipulating periodic signals using PyTorch tensors.
+It includes classes for generating sine and cosine waves, as well as summing multiple periodic signals.
+Classes:
+    SineNode: Generates a sine wave tensor based on specified frequency, amplitude, sample rate, and duration.
+    CosineNode: Generates a cosine wave tensor based on specified frequency, amplitude, sample rate, and duration.
+    PerSumNode2: Sums two periodic signal tensors, ensuring they have the same time values.
+    PerSumNode3: Sums three periodic signal tensors, ensuring they have the same time values.
+    PerSumNode4: Sums four periodic signal tensors, ensuring they have the same time values.
+Usage:
+    These nodes can be used in a signal processing pipeline to generate and combine periodic signals for various applications.
+"""
 
 class SineNode:
     @classmethod

@@ -1,5 +1,5 @@
 from .periodic_signal import SineNode, CosineNode, PerSumNode2, PerSumNode3, PerSumNode4
-from .tools import TensorBifurcation, PlotNode
+from .tools import PlotNode
 from .processing_tools import FFTNode, LowPassFilterNode, HighPassFilterNode
 
 NODE_CLASS_MAPPINGS = {
@@ -8,7 +8,6 @@ NODE_CLASS_MAPPINGS = {
     "Periodic Signals/PeriodicSum2": PerSumNode2,
     "Periodic Signals/PeriodicSum3": PerSumNode3,
     "Periodic Signals/PeriodicSum4": PerSumNode4,
-    "Tools/TensorBifurcation": TensorBifurcation,
     "Tools/SineWavePlotter": PlotNode,
     "Tools/FFT": FFTNode,
     "Tools/LowPassFilter": LowPassFilterNode,
