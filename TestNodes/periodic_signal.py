@@ -18,52 +18,45 @@ class SineNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "frequency": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
-                "amplitude": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 10.0, "step": 0.1}),
-                "sample_rate": ("INT", {"default": 100, "min": 1, "max": 50000, "step": 1}),
+                "frequency": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 2000.0, "step": 0.1}),
+                "amplitude": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
+                "phase": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2 * np.pi, "step": 0.1}),
                 "duration": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
+                "sample_rate": ("FLOAT", {"default": 100.0, "min": 10.0, "max": 10000.0, "step": 10.0}),
             }
         }
 
-    RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
-    FUNCTION = "generate_sin"
-    CATEGORY = "Custom Nodes"
+    RETURN_TYPES = ("tensor",)
+    FUNCTION = "generate_sine_wave"
+    CATEGORY = "Periodic Signals"
 
-    def generate_sin(self, frequency, amplitude, sample_rate, duration):
-        num_samples = int(sample_rate * duration)  # Total samples
-        t = np.linspace(0, duration, num_samples, endpoint=False)
-        sine_wave = amplitude * np.sin(2 * np.pi * frequency * t)  # Sine wave array
-
-        # Directly create a PyTorch tensor from numpy arrays
-        combined_tensor = torch.from_numpy(np.array([t, sine_wave], dtype=np.float32))
-
-        return (combined_tensor,)  # Return as a tuple
+    def generate_sine_wave(self, frequency, amplitude, phase, duration, sample_rate):
+        t = torch.linspace(0, duration, int(sample_rate * duration))
+        signal = amplitude * torch.sin(2 * np.pi* frequency * t + phase)
+        return (torch.stack([t, signal]),)
 
 class CosineNode:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "frequency": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 1000.0, "step": 0.1}),
-                "amplitude": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1000.0, "step": 0.1}),
-                "sample_rate": ("INT", {"default": 100, "min": 1, "max": 10000, "step": 1}),
-                "duration": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 1000.0, "step": 0.1}),
+                "frequency": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 2000.0, "step": 0.1}),
+                "amplitude": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
+                "phase": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2 * np.pi, "step": 0.1}),
+                "duration": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
+                "sample_rate": ("FLOAT", {"default": 100.0, "min": 10.0, "max": 10000.0, "step": 10.0}),
             }
         }
 
-    RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
-    FUNCTION = "generate_cos"
-    CATEGORY = "Custom Nodes"
+    RETURN_TYPES = ("tensor",)
+    FUNCTION = "generate_cosine_wave"
+    CATEGORY = "Periodic Signals"
 
-    def generate_cos(self, frequency, amplitude, sample_rate, duration):
-        num_samples = int(sample_rate * duration)  
-        t = np.linspace(0, duration, num_samples, endpoint=False)  
-        cosine_wave = amplitude * np.cos(2 * np.pi * frequency * t)  
+    def generate_cosine_wave(self, frequency, amplitude, phase, duration, sample_rate):
+        t = torch.linspace(0, duration, int(sample_rate * duration))
+        signal = amplitude * torch.cos(2 * np.pi * frequency * t + phase)
+        return (torch.stack([t, signal]),)
 
-        # Directly create a PyTorch tensor from numpy arrays
-        combined_tensor = torch.from_numpy(np.array([t, cosine_wave], dtype=np.float32))
-
-        return (combined_tensor,)  # Return as a tuple
 class PerSumNode2:
     @classmethod
     def INPUT_TYPES(cls):
@@ -160,11 +153,10 @@ class PerSumNode4:
 
         return (combined_tensor,)
 
-    
 
 
-   
-            
 
-        
-    
+
+
+
+

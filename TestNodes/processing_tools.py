@@ -4,11 +4,12 @@ from scipy.signal import butter, filtfilt, firwin
 
 """
 This module provides custom processing nodes for signal processing using PyTorch and SciPy.
-The nodes include FFT, low-pass filter, and high-pass filter functionalities.
+The nodes include FFT, low-pass filter, high-pass filter, and band-pass filter functionalities.
 Classes:
     FFTNode: Applies Fast Fourier Transform (FFT) to a given tensor and filters frequencies up to a specified maximum frequency.
     LowPassFilterNode: Applies a low-pass filter to a given tensor using the windowed sinc method.
     HighPassFilterNode: Applies a high-pass filter to a given tensor using the windowed sinc method.
+    BandPassFilterNode: Applies a band-pass filter to a given tensor using the high-pass and low-pass filters in series.
 Methods:
     apply_fft(tensor, max_frequency):
         Applies FFT to the amplitude values of the input tensor and filters frequencies up to max_frequency.
@@ -30,6 +31,15 @@ Methods:
         Args:
             tensor (torch.Tensor): Input tensor containing time and amplitude values.
             cutoff_frequency (float): Cutoff frequency for the high-pass filter.
+            num_taps (int): Number of filter taps.
+        Returns:
+            tuple: A tuple containing the filtered signal as a tensor.
+    apply_band_pass_filter(tensor, low_cutoff_frequency, high_cutoff_frequency, num_taps):
+        Applies a band-pass filter to the amplitude values of the input tensor using the high-pass and low-pass filters in series.
+        Args:
+            tensor (torch.Tensor): Input tensor containing time and amplitude values.
+            low_cutoff_frequency (float): Low cutoff frequency for the band-pass filter.
+            high_cutoff_frequency (float): High cutoff frequency for the band-pass filter.
             num_taps (int): Number of filter taps.
         Returns:
             tuple: A tuple containing the filtered signal as a tensor.
@@ -79,7 +89,7 @@ class LowPassFilterNode:
             "required": {
                 "tensor": ("tensor",),
                 "cutoff_frequency": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
-                "num_taps": ("INT", {"default": 101, "min": 1, "max": 5001, "step": 1}),  # Increased max num_taps
+                "num_taps": ("INT", {"default": 101, "min": 1, "max": 1001, "step": 1}),
             }
         }
 
@@ -105,7 +115,7 @@ class LowPassFilterNode:
         # Design low-pass filter using windowed sinc method
         nyquist = 0.5 * sample_rate
         normal_cutoff = cutoff_frequency / nyquist
-        taps = firwin(num_taps, normal_cutoff, pass_zero=True)
+        taps = firwin(num_taps, normal_cutoff)
 
         # Convert amplitude values to numpy array and check strides
         amplitude_values_np = amplitude_values.numpy()
@@ -187,3 +197,30 @@ class HighPassFilterNode:
         combined_tensor = torch.stack([time_values, torch.tensor(filtered_signal, dtype=torch.float32)])
 
         return (combined_tensor,)
+
+class BandPassFilterNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "tensor": ("tensor",),
+                "low_cutoff_frequency": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
+                "high_cutoff_frequency": ("FLOAT", {"default": 10.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
+                "num_taps": ("INT", {"default": 101, "min": 1, "max": 1001, "step": 1}),
+            }
+        }
+
+    RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
+    FUNCTION = "apply_band_pass_filter"
+    CATEGORY = "Custom Nodes"
+
+    def apply_band_pass_filter(self, tensor, low_cutoff_frequency, high_cutoff_frequency, num_taps):
+        # Apply high-pass filter first
+        high_pass_filter_node = HighPassFilterNode()
+        high_passed_tensor = high_pass_filter_node.apply_high_pass_filter(tensor, low_cutoff_frequency, num_taps)[0]
+
+        # Apply low-pass filter to the result of the high-pass filter
+        low_pass_filter_node = LowPassFilterNode()
+        band_passed_tensor = low_pass_filter_node.apply_low_pass_filter(high_passed_tensor, high_cutoff_frequency, num_taps)[0]
+
+        return (band_passed_tensor,)
