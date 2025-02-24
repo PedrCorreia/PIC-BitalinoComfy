@@ -59,3 +59,98 @@ class PlotNode:
         image_tensor = transform(image)
 
         return (image_tensor,)
+class PerSumNode2:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "tensor1": ("tensor",),
+                "tensor2": ("tensor",),
+            }
+        }
+
+    RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
+    FUNCTION = "sum_periodic"
+    CATEGORY = "Custom Nodes"
+
+    def sum_periodic(self, tensor1, tensor2=None, tensor3=None, tensor4=None):
+        tensors = [tensor for tensor in [tensor1, tensor2, tensor3, tensor4] if tensor is not None]
+
+        if not tensors:
+            raise ValueError("At least one tensor must be provided.")
+
+        for i, tensor in enumerate(tensors):
+            if not torch.equal(tensors[0][0], tensor[0]):
+                raise ValueError("All tensors must have the same time values.")
+            if tensor.device != torch.device('cpu'):
+                tensors[i] = tensor.cpu()
+
+        summed_amplitude = sum(tensor[1] for tensor in tensors)
+        combined_tensor = torch.stack([tensors[0][0], summed_amplitude])
+
+        return (combined_tensor,)
+
+class PerSumNode3:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "tensor1": ("tensor",),
+                "tensor2": ("tensor",),
+                "tensor3": ("tensor",),
+            }
+        }
+
+    RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
+    FUNCTION = "sum_periodic"
+    CATEGORY = "Custom Nodes"
+
+    def sum_periodic(self, tensor1, tensor2=None, tensor3=None, tensor4=None):
+        tensors = [tensor for tensor in [tensor1, tensor2, tensor3, tensor4] if tensor is not None]
+
+        if not tensors:
+            raise ValueError("At least one tensor must be provided.")
+
+        for i, tensor in enumerate(tensors):
+            if not torch.equal(tensors[0][0], tensor[0]):
+                raise ValueError("All tensors must have the same time values.")
+            if tensor.device != torch.device('cpu'):
+                tensors[i] = tensor.cpu()
+
+        summed_amplitude = sum(tensor[1] for tensor in tensors)
+        combined_tensor = torch.stack([tensors[0][0], summed_amplitude])
+
+        return (combined_tensor,)
+
+class PerSumNode4:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "tensor1": ("tensor",),
+                "tensor2": ("tensor",),
+                "tensor3": ("tensor",),
+                "tensor4": ("tensor",),
+            }
+        }
+
+    RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
+    FUNCTION = "sum_periodic"
+    CATEGORY = "Custom Nodes"
+
+    def sum_periodic(self, tensor1, tensor2=None, tensor3=None, tensor4=None):
+        tensors = [tensor for tensor in [tensor1, tensor2, tensor3, tensor4] if tensor is not None]
+
+        if not tensors:
+            raise ValueError("At least one tensor must be provided.")
+
+        for i, tensor in enumerate(tensors):
+            if not torch.equal(tensors[0][0], tensor[0]):
+                raise ValueError("All tensors must have the same time values.")
+            if tensor.device != torch.device('cpu'):
+                tensors[i] = tensor.cpu()
+
+        summed_amplitude = sum(tensor[1] for tensor in tensors)
+        combined_tensor = torch.stack([tensors[0][0], summed_amplitude])
+
+        return (combined_tensor,)

@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from scipy.signal import butter, filtfilt, firwin
+from scipy.signal import filtfilt, firwin
 
 """
 This module provides custom processing nodes for signal processing using PyTorch and SciPy.
@@ -10,6 +10,7 @@ Classes:
     LowPassFilterNode: Applies a low-pass filter to a given tensor using the windowed sinc method.
     HighPassFilterNode: Applies a high-pass filter to a given tensor using the windowed sinc method.
     BandPassFilterNode: Applies a band-pass filter to a given tensor using the high-pass and low-pass filters in series.
+    FilterNode: Allows selection of low-pass, high-pass, or band-pass filter to apply to a given tensor.
 Methods:
     apply_fft(tensor, max_frequency):
         Applies FFT to the amplitude values of the input tensor and filters frequencies up to max_frequency.
@@ -51,13 +52,13 @@ class FFTNode:
         return {
             "required": {
                 "tensor": ("tensor",),
-                "max_frequency": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
+                "max_frequency": ("FLOAT", {"default": 5.0, "min": 0.01, "max": 10000.0, "step": 0.1}),
             }
         }
 
     RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
     FUNCTION = "apply_fft"
-    CATEGORY = "Custom Nodes"
+    CATEGORY = "PIC/Active/Basic Signal Processing"
 
     def apply_fft(self, tensor, max_frequency):
         if tensor.device != torch.device('cpu'):
@@ -89,13 +90,13 @@ class LowPassFilterNode:
             "required": {
                 "tensor": ("tensor",),
                 "cutoff_frequency": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
-                "num_taps": ("INT", {"default": 101, "min": 1, "max": 1001, "step": 1}),
+                "num_taps": ("INT", {"default": 101, "min": 1, "max": 5001, "step": 1}),
             }
         }
 
     RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
     FUNCTION = "apply_low_pass_filter"
-    CATEGORY = "Custom Nodes"
+    CATEGORY = "PIC/Obsolete/Basic Signal Processing"
 
     def apply_low_pass_filter(self, tensor, cutoff_frequency, num_taps):
         if tensor.device != torch.device('cpu'):
@@ -147,13 +148,13 @@ class HighPassFilterNode:
             "required": {
                 "tensor": ("tensor",),
                 "cutoff_frequency": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
-                "num_taps": ("INT", {"default": 101, "min": 1, "max": 1001, "step": 1}),
+                "num_taps": ("INT", {"default": 101, "min": 1, "max": 5001, "step": 1}),
             }
         }
 
     RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
     FUNCTION = "apply_high_pass_filter"
-    CATEGORY = "Custom Nodes"
+    CATEGORY = "PIC/Obsolete/Basic Signal Processing"
 
     def apply_high_pass_filter(self, tensor, cutoff_frequency, num_taps):
         if tensor.device != torch.device('cpu'):
@@ -206,13 +207,13 @@ class BandPassFilterNode:
                 "tensor": ("tensor",),
                 "low_cutoff_frequency": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
                 "high_cutoff_frequency": ("FLOAT", {"default": 10.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
-                "num_taps": ("INT", {"default": 101, "min": 1, "max": 1001, "step": 1}),
+                "num_taps": ("INT", {"default": 101, "min": 1, "max": 5001, "step": 1}),
             }
         }
 
     RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
     FUNCTION = "apply_band_pass_filter"
-    CATEGORY = "Custom Nodes"
+    CATEGORY = "PIC/Obsolete/Basic Signal Processing"
 
     def apply_band_pass_filter(self, tensor, low_cutoff_frequency, high_cutoff_frequency, num_taps):
         # Apply high-pass filter first
@@ -224,3 +225,38 @@ class BandPassFilterNode:
         band_passed_tensor = low_pass_filter_node.apply_low_pass_filter(high_passed_tensor, high_cutoff_frequency, num_taps)[0]
 
         return (band_passed_tensor,)
+
+class FilterNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "tensor": ("tensor",),
+                "filter_type": (["low_pass", "high_pass", "band_pass"],),
+                "cutoff_frequency": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
+                "num_taps": ("INT", {"default": 101, "min": 1, "max": 5001, "step": 1}),
+            },
+            "optional": {
+                "low_cutoff_frequency": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
+                "high_cutoff_frequency": ("FLOAT", {"default": 10.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
+            }
+        }
+
+    RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
+    FUNCTION = "apply_filter"
+    CATEGORY = "PIC/Active/Basic Signal Processing"
+
+    def apply_filter(self, tensor, filter_type, cutoff_frequency, num_taps, low_cutoff_frequency=None, high_cutoff_frequency=None):
+        if filter_type == "low_pass":
+            low_pass_filter_node = LowPassFilterNode()
+            return low_pass_filter_node.apply_low_pass_filter(tensor, cutoff_frequency, num_taps)
+        elif filter_type == "high_pass":
+            high_pass_filter_node = HighPassFilterNode()
+            return high_pass_filter_node.apply_high_pass_filter(tensor, cutoff_frequency, num_taps)
+        elif filter_type == "band_pass":
+            if low_cutoff_frequency is None or high_cutoff_frequency is None:
+                raise ValueError("Both low_cutoff_frequency and high_cutoff_frequency must be provided for band_pass filter")
+            band_pass_filter_node = BandPassFilterNode()
+            return band_pass_filter_node.apply_band_pass_filter(tensor, low_cutoff_frequency, high_cutoff_frequency, num_taps)
+        else:
+            raise ValueError(f"Unknown filter type: {filter_type}")
