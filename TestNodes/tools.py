@@ -25,7 +25,7 @@ class PlotNode:
 
     RETURN_TYPES = ("IMAGE",)  # Returns an image tensor
     FUNCTION = "plot"
-    CATEGORY = "Custom Nodes"
+    CATEGORY = "PIC/Active/Tools"
 
     def plot(self, tensor):
         """
@@ -71,7 +71,7 @@ class PerSumNode2:
 
     RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
     FUNCTION = "sum_periodic"
-    CATEGORY = "Custom Nodes"
+    CATEGORY = "PIC/Active/Tools"
 
     def sum_periodic(self, tensor1, tensor2=None, tensor3=None, tensor4=None):
         tensors = [tensor for tensor in [tensor1, tensor2, tensor3, tensor4] if tensor is not None]
@@ -103,7 +103,7 @@ class PerSumNode3:
 
     RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
     FUNCTION = "sum_periodic"
-    CATEGORY = "Custom Nodes"
+    CATEGORY = "PIC/Active/Tools"
 
     def sum_periodic(self, tensor1, tensor2=None, tensor3=None, tensor4=None):
         tensors = [tensor for tensor in [tensor1, tensor2, tensor3, tensor4] if tensor is not None]
@@ -136,7 +136,7 @@ class PerSumNode4:
 
     RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
     FUNCTION = "sum_periodic"
-    CATEGORY = "Custom Nodes"
+    CATEGORY = "PIC/Active/Tools"
 
     def sum_periodic(self, tensor1, tensor2=None, tensor3=None, tensor4=None):
         tensors = [tensor for tensor in [tensor1, tensor2, tensor3, tensor4] if tensor is not None]

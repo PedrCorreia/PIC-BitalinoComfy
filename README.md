@@ -13,7 +13,7 @@ The repository is organized as follows:
 This directory contains the custom nodes for signal processing. The nodes are implemented in the following files:
 
 - **[`periodic_signal.py`](TestNodes/periodic_signal.py)**: Defines nodes for generating and manipulating periodic signals.
-  - `SineNode`: Generates a sine signal tensor.
+  - `SineNode`: Generates a sine signal tensor.**(Obsolete)**
   - `CosineNode`: Generates a cosine signal tensor. **(Obsolete)**
   - `NoiseNode`: Generates a modulated noise signal across the frequency spectrum.
   - `PeriodicNode`: Allows selection of sine or cosine wave to generate a modulated periodic signal.
@@ -36,8 +36,8 @@ This directory contains the custom nodes for signal processing. The nodes are im
 ### Node Categories
 
 - **Periodic Signals**
-  - `Sin`: SineNode
-  - `Cos`: CosineNode **(Obsolete)**
+  - `Sin`: SineNode   **(Obsolete)**
+  - `Cos`: CosineNode  **(Obsolete)**
   - `Noise`: NoiseNode
   - `Periodic`: PeriodicNode
   - `PeriodicSum2`: PerSumNode2
@@ -51,3 +51,26 @@ This directory contains the custom nodes for signal processing. The nodes are im
   - `HighPassFilter`: HighPassFilterNode **(Obsolete)**
   - `BandPassFilter`: BandPassFilterNode **(Obsolete)**
   - `Filter`: FilterNode
+
+- **PIC/Active/Periodic Signals**
+  - `Noise`: NoiseNode
+  - `Periodic`: PeriodicNode
+
+- **PIC/Obsolete/Periodic Signals**
+  - `Sin`: SineNode
+  - `Cos`: CosineNode
+
+- **PIC/Active/Basic Signal Processing**
+  - `FFT`: FFTNode
+  - `Filter`: FilterNode
+
+- **PIC/Obsolete/Basic Signal Processing**
+  - `LowPassFilter`: LowPassFilterNode
+  - `HighPassFilter`: HighPassFilterNode
+  - `BandPassFilter`: BandPassFilterNode
+
+- **PIC/Active/Tools**
+  - `Plotter`: PlotNode
+  - `PeriodicSum2`: PerSumNode2
+  - `PeriodicSum3`: PerSumNode3
+  - `PeriodicSum4`: PerSumNode4
