@@ -1,6 +1,10 @@
-"__pycache__/" 
-"*.pyc" 
-TestNodes/__pycache__/processing_tools.cpython-310.pyc
-TestNodes/__pycache__/__init__.cpython-310.pyc
-TestNodes/__pycache__/periodic_signal.cpython-310.pyc
-TestNodes/__pycache__/tools.cpython-310.pyc
+# Ignore Python bytecode files
+__pycache__/
+*.py[cod]
+
+# Ignore virtual environment directories
+venv/
+env/
+
+# Ignore test_nodes.py
+TestNodes/test_nodes.py

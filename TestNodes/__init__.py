@@ -1,36 +1,43 @@
-from .periodic_signal import SineNode, CosineNode, NoiseNode,PeriodicNode
-from .tools import PlotNode,PerSumNode2, PerSumNode3, PerSumNode4
+from .periodic_signal import SineNode, CosineNode, NoiseNode, PeriodicNode
+from .tools import PlotNode, PerSumNode2, PerSumNode3, PerSumNode4, SavePlot, PreviewPlot
 from .processing_tools import FFTNode, LowPassFilterNode, HighPassFilterNode, BandPassFilterNode, FilterNode
 
+
 NODE_CLASS_MAPPINGS = {
-    "Periodic Signals/Sin": SineNode,
-    "Periodic Signals/Cos": CosineNode,
-    "Periodic Signals/Noise": NoiseNode,
-    "Periodic Signals/Periodic": PeriodicNode,
-    "Periodic Signals/PeriodicSum2": PerSumNode2,
-    "Periodic Signals/PeriodicSum3": PerSumNode3,
-    "Periodic Signals/PeriodicSum4": PerSumNode4,
-    "Tools/Plotter": PlotNode,
-    "Tools/FFT": FFTNode,
-    "Tools/LowPassFilter": LowPassFilterNode,
-    "Tools/HighPassFilter": HighPassFilterNode,
-    "Tools/BandPassFilter": BandPassFilterNode,
-    "Tools/Filter": FilterNode,
+    "PIC/Obsolete/Modulated Signals/Sin": SineNode,
+    "PIC/Obsolete/Modulated Signals/Cos": CosineNode,
+    "PIC/Active/Modulated Signals/Noise": NoiseNode,
+    "PIC/Active/Modulated Signals/Periodic": PeriodicNode,
+    "PIC/Active/Tools/PeriodicSum2": PerSumNode2,
+    "PIC/Active/Tools/PeriodicSum3": PerSumNode3,
+    "PIC/Active/Tools/PeriodicSum4": PerSumNode4,
+    "PIC/Active/Tools/Plotter": PlotNode,
+    "PIC/Active/Tools/SavePlot": SavePlot,
+    "PIC/Active/Tools/PreviewPlot": PreviewPlot,
+    "PIC/Active/Basic Signal Processing/FFT": FFTNode,
+    "PIC/Obsolete/Basic Signal Processing/LowPassFilter": LowPassFilterNode,
+    "PIC/Obsolete/Basic Signal Processing/HighPassFilter": HighPassFilterNode,
+    "PIC/Obsolete/Basic Signal Processing/BandPassFilter": BandPassFilterNode,
+    "PIC/Active/Basic Signal Processing/Filter": FilterNode,
+
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "Periodic Signals/Sin": "📈 Sin",
-    "Periodic Signals/Cos": "📈 Cos",
-     "Periodic Signals/Periodic": "📈 Pure Periodic Signal",
-    "Periodic Signals/PeriodicSum2": "➕ Periodic Sum 2",
-    "Periodic Signals/PeriodicSum3": "➕ Periodic Sum 3",
-    "Periodic Signals/PeriodicSum4": "➕ Periodic Sum 4",
-    "Periodic Signals/Noise": "🔊 Noise",
-    "Tools/Plotter": "📊 Plotter",
-    "Tools/FFT": "🔍 FFT",
-    "Tools/LowPassFilter": "🔍 Low Pass Filter",
-    "Tools/HighPassFilter": "🔍 High Pass Filter",
-    "Tools/BandPassFilter": "🔍 Band Pass Filter",
-    "Tools/Filter": "🔍 Filter",
+    "PIC/Obsolete/Modulated Signals/Sin": "📈 Sin",
+    "PIC/Obsolete/Modulated Signals/Cos": "📈 Cos",
+    "PIC/Active/Modulated Signals/Noise": "🔊 Noise",
+    "PIC/Active/Modulated Signals/Periodic": "📈 Pure Periodic Signal",
+    "PIC/Active/Tools/PeriodicSum2": "➕ Periodic Sum 2",
+    "PIC/Active/Tools/PeriodicSum3": "➕ Periodic Sum 3",
+    "PIC/Active/Tools/PeriodicSum4": "➕ Periodic Sum 4",
+    "PIC/Active/Tools/Plotter": "📊 Plotter",
+    "PIC/Active/Tools/SavePlot": "💾 Save Plot",
+    "PIC/Active/Tools/PreviewPlot": "👁️ Preview Plot",
+    "PIC/Active/Basic Signal Processing/FFT": "🔍 FFT",
+    "PIC/Obsolete/Basic Signal Processing/LowPassFilter": "🔍 Low Pass Filter",
+    "PIC/Obsolete/Basic Signal Processing/HighPassFilter": "🔍 High Pass Filter",
+    "PIC/Obsolete/Basic Signal Processing/BandPassFilter": "🔍 Band Pass Filter",
+    "PIC/Active/Basic Signal Processing/Filter": "🔍 Filter",
+
 }
 
