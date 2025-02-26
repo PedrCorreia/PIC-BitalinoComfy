@@ -23,9 +23,9 @@ This directory contains the custom nodes for signal processing. The nodes are im
 
 - **[`tools.py`](TestNodes/tools.py)**: Defines a custom node for plotting signals using PyTorch tensors.
   - `PlotNode`: Plots a given tensor as a signal plot and returns the plot as an image tensor.
-  - `PerSumNode2`: Sums two periodic signal tensors.
-  - `PerSumNode3`: Sums three periodic signal tensors.
-  - `PerSumNode4`: Sums four periodic signal tensors.
+  - `PerSumNode2`: Sums two signal tensors.
+  - `PerSumNode3`: Sums three signal tensors.
+  - `PerSumNode4`: Sums four signal tensors.
   - `SavePlot`: Plots the input tensor and saves the resulting image to your ComfyUI output directory.
   - `PreviewPlot`: Plots the input tensor and previews the resulting plot.
 
@@ -52,7 +52,7 @@ This directory contains the custom nodes for signal processing. The nodes are im
 - **Periodic Signals**
   - `Sin`: SineNode
   - `Cos`: CosineNode
-  
+
 - **Tools**
   - `Plotter`: PlotNode
 
