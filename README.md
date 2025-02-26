@@ -21,8 +21,7 @@ This directory contains the custom nodes for signal processing. The nodes are im
   - `FFTNode`: Applies Fast Fourier Transform (FFT).
   - `FilterNode`: Allows selection of low-pass, high-pass, or band-pass filter to apply to a given tensor.
 
-- **[`tools.py`](TestNodes/tools.py)**: Defines a custom node for plotting signals using PyTorch tensors.
-  - `PlotNode`: Plots a given tensor as a signal plot and returns the plot as an image tensor.
+- **[`tools.py`](TestNodes/tools.py)**: Defines utility tools for plotting signals and basic data manipulation using PyTorch tensors.
   - `PerSumNode2`: Sums two signal tensors.
   - `PerSumNode3`: Sums three signal tensors.
   - `PerSumNode4`: Sums four signal tensors.
