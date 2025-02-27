@@ -21,8 +21,8 @@ class SineNode:
                 "frequency": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
                 "amplitude": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 1000.0, "step": 0.01}),
                 "phase": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2 * np.pi, "step": 0.01}),
-                "duration": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),
-                "sample_rate": ("FLOAT", {"default": 100.0, "min": 10.0, "max": 80000.0, "step": 10.0}),
+                "duration": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10000.0, "step": 0.01}),
+                "sample_rate": ("FLOAT", {"default": 100.0, "min": 10.0, "max": 8000000.0, "step": 10.0}),
             }
         }
 
@@ -43,8 +43,8 @@ class CosineNode:
                 "frequency": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
                 "amplitude": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 1000.0, "step": 0.01}),
                 "phase": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2 * np.pi, "step": 0.01}),
-                "duration": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 1000.0, "step": 0.01}),
-                "sample_rate": ("FLOAT", {"default": 100.0, "min": 10.0, "max": 80000.0, "step": 10.0}),
+                "duration": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10000.0, "step": 0.01}),
+                "sample_rate": ("FLOAT", {"default": 100.0, "min": 10.0, "max": 8000000.0, "step": 10.0}),
             }
         }
 
@@ -63,7 +63,7 @@ class NoiseNode:
             "required": {
                 "amplitude": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 1000.0, "step": 0.1}),
                 "duration": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 1000.0, "step": 0.1}),
-                "sample_rate": ("FLOAT", {"default": 100.0, "min": 10.0, "max": 80000.0, "step": 10.0}),
+                "sample_rate": ("FLOAT", {"default": 100.0, "min": 100000.0, "max": 8000000.0, "step": 10.0}),
             }
         }
 
@@ -82,10 +82,10 @@ class PeriodicNode:
             "required": {
                 "wave_type": (["sine", "cosine"],),
                 "frequency": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
-                "amplitude": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),
+                "amplitude": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 1000.0, "step": 0.01}),
                 "phase": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 2 * np.pi, "step": 0.01}),
-                "duration": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),
-                "sample_rate": ("FLOAT", {"default": 100.0, "min": 10.0, "max": 80000.0, "step": 10.0}),
+                "duration": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 1000.0, "step": 0.01}),
+                "sample_rate": ("FLOAT", {"default": 100.0, "min": 10.0, "max": 8000000.0, "step": 10.0}),
             }
         }
 

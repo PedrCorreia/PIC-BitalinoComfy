@@ -13,12 +13,18 @@ import torchvision.transforms as transforms
 
 
 """
-This module defines a custom node for plotting signals using PyTorch tensors.
-It includes a class for plotting signals and returning the plot as an image tensor.
+This module defines custom nodes for plotting signals using PyTorch tensors.
+It includes classes for plotting signals and returning the plot as an image tensor, 
+as well as classes for summing periodic signals and saving plots.
 Classes:
     PlotNode: Plots a given tensor as a signal plot and returns the plot as an image tensor.
-Usage:
-    This node can be used in a signal processing pipeline to plot signals for various applications.
+    PerSumNode2: Sums two  tensors and returns the result.
+    PerSumNode3: Sums three  tensors and returns the result.
+    PerSumNode4: Sums four  tensors and returns the result.
+    SavePlot: Plots a given tensor and saves the plot as an image file.
+    PreviewPlot: Plots a given tensor and saves the plot as a temporary image file.
+    SavePlotCustom: Plots a given tensor with custom plot settings and saves the plot as an image file.
+    PreviewPlotCustom: Plots a given tensor with custom plot settings and saves the plot as a temporary image file.
 """
 
 class PlotNode:
@@ -35,15 +41,6 @@ class PlotNode:
     CATEGORY = "PIC/Obsolete/Tools"
 
     def plot(self, tensor):
-        """
-        Plots the given tensor as a signal plot.
-
-        Parameters:
-        tensor (torch.Tensor): The input tensor containing time and amplitude.
-
-        Returns:
-        tuple: A tuple containing the image tensor.
-        """
         if tensor.device != torch.device('cpu'):
             tensor = tensor.cpu()
         tensor_np = tensor.numpy()
@@ -189,15 +186,7 @@ class SavePlot:
     DESCRIPTION = "Plots the input tensor and saves the resulting image to your ComfyUI output directory."
 
     def plot_tensor(self, tensor):
-        """
-        Plots the given tensor as a signal plot and returns the image.
 
-        Parameters:
-        tensor (torch.Tensor): The input tensor containing time and amplitude.
-
-        Returns:
-        PIL.Image: The plotted image.
-        """
         print(f"Tensor shape: {tensor.shape}")
         print(f"Tensor dtype: {tensor.dtype}")
 
@@ -228,15 +217,7 @@ class SavePlot:
 
     def save_plot(self, tensor, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
         print("Running SavePlot node...")
-        """
-        Plots the given tensor as a signal plot and saves the image.
-
-        Parameters:
-        tensor (torch.Tensor): The input tensor containing time and amplitude.
-
-        Returns:
-        dict: A dictionary containing the saved image information.
-        """
+ 
         image = self.plot_tensor(tensor)
 
         transform = transforms.ToTensor()
@@ -286,6 +267,147 @@ class PreviewPlot(SavePlot):
             },
         }
 
+class SavePlotCustom:
+    def __init__(self):
+        self.output_dir = folder_paths.get_output_directory()
+        self.type = "output"
+        self.prefix_append = ""
+        self.compress_level = 4
 
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "tensor": ("tensor", {"tooltip": "The tensor to plot and save."}),
+                "fig_width": ("FLOAT", {"default": 5.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
+                "fig_height": ("FLOAT", {"default": 3.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
+                "axis_y_upper": ("FLOAT", {"default": 5.0, "min": -200000, "max": 2000.0, "step": 0.01}),
+                "axis_y_lower": ("FLOAT", {"default": 0.0, "min": -200000, "max": 200000.0, "step": 0.01}),
+                "axis_x_upper": ("FLOAT", {"default": 5.0, "min": -200000, "max": 200000.0, "step": 0.01}),
+                "axis_x_lower": ("FLOAT", {"default": 0.0, "min": -200000, "max": 200000.0, "step": 0.01}),
+                "axis_y_name": ("STRING", {"default": "Amplitude", "tooltip": "Label for the Y-axis."}),
+                "axis_x_name": ("STRING", {"default": "Time", "tooltip": "Label for the X-axis."}),
+                "title": ("STRING", {"default": "Signal Plot", "tooltip": "Title of the plot."}),
+            },
+            "hidden": {
+                "prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"
+            },
+        }
 
+    FUNCTION = "save_plotCustom"
+    RETURN_TYPES = ()
+
+    OUTPUT_NODE = True
+
+    CATEGORY = "PIC/Active/Tools"
+    DESCRIPTION = "Plots the input tensor and saves the resulting image to your ComfyUI output directory."
+
+    def plot_tensorCustom(self, tensor, fig_width, fig_height, axis_y_upper, axis_y_lower, axis_x_upper, axis_x_lower, axis_y_name, axis_x_name, title):
+        """
+        Plots the given tensor as a signal plot and returns the image.
+
+        Parameters:
+        tensor (torch.Tensor): The input tensor containing time and amplitude.
+        fig_width (float): Width of the figure.
+        fig_height (float): Height of the figure.
+        axis_y_upper (float): Upper limit for the Y-axis.
+        axis_y_lower (float): Lower limit for the Y-axis.
+        axis_x_upper (float): Upper limit for the X-axis.
+        axis_x_lower (float): Lower limit for the X-axis.
+        axis_y_name (str): Label for the Y-axis.
+        axis_x_name (str): Label for the X-axis.
+        title (str): Title of the plot.
+
+        Returns:
+        PIL.Image: The plotted image.
+        """
+        print(f"Tensor shape: {tensor.shape}")
+        print(f"Tensor dtype: {tensor.dtype}")
+
+        if tensor.device != torch.device('cpu'):
+            tensor = tensor.cpu()
+        tensor_np = tensor.numpy()
+
+        print(f"Converted tensor shape: {tensor_np.shape}")
+        print(f"Converted tensor dtype: {tensor_np.dtype}")
+        x = tensor_np[0]
+        y = tensor_np[1]
+
+        plt.switch_backend('Agg')
+        plt.figure(figsize=(fig_width, fig_height))  # Set the figure size
+        plt.plot(x, y)
+        plt.xlabel(axis_x_name)
+        plt.ylabel(axis_y_name)
+        plt.title(title)
+        plt.ylim(axis_y_lower, axis_y_upper)
+        plt.xlim(axis_x_lower, axis_x_upper)
+
+        # Save the plot as an image
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        buf.seek(0)
+        image = Image.open(buf).convert('RGB')  # Ensure image is in RGB mode
+        plt.close()
+
+        return image
+
+    def save_plotCustom(self, tensor, fig_width, fig_height, axis_y_upper, axis_y_lower, axis_x_upper, axis_x_lower, axis_y_name, axis_x_name, title, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+        print("Running SavePlotC node...")
+
+        image = self.plot_tensorCustom(tensor, fig_width, fig_height, axis_y_upper, axis_y_lower, axis_x_upper, axis_x_lower, axis_y_name, axis_x_name, title)
+        transform = transforms.ToTensor()
+        image_tensor = transform(image)
+        filename_prefix += self.prefix_append
+        full_output_folder, filename, counter, subfolder, filename_prefix = folder_paths.get_save_image_path(filename_prefix, self.output_dir, image_tensor[0].shape[1], image_tensor[0].shape[0])
+        results = list()
+
+        for (batch_number, image) in enumerate(image_tensor):
+            i = 255. * image.cpu().numpy()
+            img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
+            metadata = None
+            if not args.disable_metadata:
+                metadata = PngInfo()
+                if prompt is not None:
+                    metadata.add_text("prompt", json.dumps(prompt))
+                if extra_pnginfo is not None:
+                    for x in extra_pnginfo:
+                        metadata.add_text(x, json.dumps(extra_pnginfo[x]))
+
+            filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
+            file = f"{filename_with_batch_num}_{counter:05}_.png"
+            img.save(os.path.join(full_output_folder, file), pnginfo=metadata, compress_level=self.compress_level)
+            results.append({
+                "filename": file,
+                "subfolder": subfolder,
+                "type": self.type
+            })
+            counter += 1
+
+        return { "ui": { "images": results } }
+
+class PreviewPlotCustom(SavePlotCustom):
+    def __init__(self):
+        print("Initializing PreviewImageBETA node...")
+        self.output_dir = folder_paths.get_temp_directory()
+        self.type = "temp"
+        self.prefix_append = "_temp_" + ''.join(random.choice("abcdefghijklmnopqrstupvxyz") for x in range(5))
+        self.compress_level = 1
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "tensor": ("tensor", {"tooltip": "The tensor to plot and save."}),
+                "fig_width": ("FLOAT", {"default": 5.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
+                "fig_height": ("FLOAT", {"default": 3.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
+                "axis_y_upper": ("FLOAT", {"default": 5.0, "min": -200000, "max": 2000.0, "step": 0.01}),
+                "axis_y_lower": ("FLOAT", {"default": 0.0, "min": -200000, "max": 200000.0, "step": 0.01}),
+                "axis_x_upper": ("FLOAT", {"default": 5.0, "min": -200000, "max": 200000.0, "step": 0.01}),
+                "axis_x_lower": ("FLOAT", {"default": 0.0, "min": -200000, "max": 200000.0, "step": 0.01}),
+                "axis_y_name": ("STRING", {"default": "Amplitude", "tooltip": "Label for the Y-axis."}),
+                "axis_x_name": ("STRING", {"default": "Time", "tooltip": "Label for the X-axis."}),
+                "title": ("STRING", {"default": "Signal Plot", "tooltip": "Title of the plot."}),
+
+            },
+        }
        

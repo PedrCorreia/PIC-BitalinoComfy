@@ -1,6 +1,9 @@
 import numpy as np
 import torch
 from scipy.signal import filtfilt, firwin
+from .tools import SavePlot,  SavePlotCustom
+import random
+import folder_paths
 
 """
 This module provides custom processing nodes for signal processing using PyTorch and SciPy.
@@ -260,3 +263,239 @@ class FilterNode:
             return band_pass_filter_node.apply_band_pass_filter(tensor, low_cutoff_frequency, high_cutoff_frequency, num_taps)
         else:
             raise ValueError(f"Unknown filter type: {filter_type}")
+
+class SaveFFT:
+    def __init__(self):
+        self.output_dir = folder_paths.get_output_directory()
+        self.type = "output"
+        self.prefix_append = ""
+        self.compress_level = 4
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "tensor": ("tensor", {"tooltip": "The tensor to apply the fft."}),
+                "filename_prefix": ("STRING", {"default": "ComfyUI", "tooltip": "The prefix for the file to save. This may include formatting information such as %date:yyyy-MM-dd% or %Empty Latent Image.width% to include values from nodes."}),
+                "maxfreq" : ("FLOAT", {"default": 5.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
+            },
+            "hidden": {
+                "prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"
+            },
+        }
+
+    FUNCTION = "save_FFT"
+    RETURN_TYPES = ()
+
+    OUTPUT_NODE = True
+
+    CATEGORY = "PIC/Active/Basic Signal Processing"
+    DESCRIPTION = "Plots the FFT tensor and saves the resulting image to your ComfyUI output directory."
+    def save_FFT(self, tensor,maxfreq, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+        print("Running FFT node...")
+        fft_node = FFTNode()
+        FFT = fft_node.apply_fft(tensor, maxfreq)  # Assuming max_frequency is 200
+        save_plot_instance = SavePlot()
+        results = save_plot_instance.save_plot(FFT[0], filename_prefix, prompt, extra_pnginfo)
+        return results
+class PreviewFFTNode(SaveFFT):
+    def __init__(self):
+        print("Initializing PreviewImageBETA node...")
+        self.output_dir = folder_paths.get_temp_directory()
+        self.type = "temp"
+        self.prefix_append = "_temp_" + ''.join(random.choice("abcdefghijklmnopqrstupvxyz") for x in range(5))
+        self.compress_level = 1
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "tensor": ("tensor",),
+                "maxfreq" : ("FLOAT", {"default": 5.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
+            },
+        }
+
+class DiscreteTransferFunctionNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "input_signal": ("tensor",),
+                "output_signal": ("tensor",),
+            }
+        }
+
+    RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
+    FUNCTION = "calculate_transfer_function"
+    CATEGORY = "PIC/Obsolete/Basic Signal Processing"
+
+    def calculate_transfer_function(self, input_signal, output_signal):
+        if input_signal.device != torch.device('cpu'):
+            input_signal = input_signal.cpu()
+        if output_signal.device != torch.device('cpu'):
+            output_signal = output_signal.cpu()
+
+        input_time_values = input_signal[0]
+        input_amplitude_values = input_signal[1]
+        output_amplitude_values = output_signal[1]
+
+        # Apply FFT to input and output signals
+        input_fft = torch.fft.fft(input_amplitude_values)
+        output_fft = torch.fft.fft(output_amplitude_values)
+        fft_freqs = torch.fft.fftfreq(len(input_amplitude_values), d=(input_time_values[1] - input_time_values[0]).item())
+
+        # Calculate transfer function (H(f) = Y(f) / X(f))
+        transfer_function = output_fft / input_fft
+
+        # Filter positive frequencies
+        positive_freqs = fft_freqs > 0
+        fft_freqs = fft_freqs[positive_freqs]
+        transfer_function = transfer_function[positive_freqs]
+
+        # Calculate magnitude and phase
+        magnitude = torch.abs(transfer_function)
+        # Combine frequency and magnitude/phase into tensors
+        magnitude_tensor = torch.stack([torch.tensor(fft_freqs, dtype=torch.float32), magnitude])
+
+        return (magnitude_tensor,)
+
+
+class FrequencySamplingNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "num_frequencies": ("INT", {"default": 10, "min": 1, "max": 10000, "step": 1}),
+                "max_frequency": ("FLOAT", {"default": 10.0, "min": 0.1, "max": 10000.0, "step": 0.1}),
+            }
+        }
+
+    RETURN_TYPES = ("tensor",)  # Must be a tuple (comma needed)
+    FUNCTION = "sample_frequencies"
+    CATEGORY = "PIC/Active/Basic Signal Processing"
+
+    def sample_frequencies(self, num_frequencies, max_frequency):
+        # Generate linearly spaced frequencies
+        frequencies = np.linspace(0, max_frequency, num_frequencies)
+        
+        # Create a signal with these frequencies
+        time = np.linspace(0, 1, 1000)  # 1 second duration, 1000 samples
+        signal = np.zeros_like(time)
+        for freq in frequencies:
+            signal += np.sin(2 * np.pi * freq * time)
+        
+        # Convert to tensor
+        time_tensor = torch.tensor(time, dtype=torch.float32)
+        signal_tensor = torch.tensor(signal, dtype=torch.float32)
+        combined_tensor = torch.stack([time_tensor, signal_tensor])
+
+        return (combined_tensor,)
+class SavePlot_H:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "input_signal": ("tensor", {"tooltip": "The tensor containing the input signal."}),
+                "output_signal": ("tensor", {"tooltip": "The tensor containing the output signal."}),
+                "filename_prefix": ("STRING", {"default": "TransferFunction", "tooltip": "The prefix for the file to save."}),
+            },
+            "hidden": {
+                "prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"
+            },
+        }
+
+    FUNCTION = "save_plot_H"
+    RETURN_TYPES = ()
+
+    OUTPUT_NODE = True
+
+    CATEGORY = "PIC/Active/Basic Signal Processing"
+    DESCRIPTION = "Plots the transfer function and saves the resulting image to your ComfyUI output directory."
+
+    def save_plot_H(self, input_signal, output_signal, filename_prefix="TransferFunction", prompt=None, extra_pnginfo=None):
+        # Calculate the transfer function using DiscreteTransferFunctionNode
+        transfer_function_node = DiscreteTransferFunctionNode()
+        transfer_function_tensor = transfer_function_node.calculate_transfer_function(input_signal, output_signal)[0]
+
+        # Use SavePlot instance to save the plot
+        save_plot_instance = SavePlot()
+        results = save_plot_instance.save_plot(transfer_function_tensor, filename_prefix, prompt, extra_pnginfo)
+        return results
+
+class PreviewPlot_H(SavePlot_H):
+    def __init__(self):
+        self.output_dir = folder_paths.get_temp_directory()
+        self.type = "temp"
+        self.prefix_append = "_temp_" + ''.join(random.choice("abcdefghijklmnopqrstupvxyz") for x in range(5))
+        self.compress_level = 1
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "input_signal": ("tensor", {"tooltip": "The tensor containing the input signal."}),
+                "output_signal": ("tensor", {"tooltip": "The tensor containing the output signal."}),
+            },
+        }
+class SaveFFTCustom:
+        @classmethod
+        def INPUT_TYPES(cls):
+            return {
+                "required": {
+                    "tensor": ("tensor", {"tooltip": "The tensor to apply the fft."}),
+                    "FFT_max_freq": ("FLOAT", {"default": 5.0, "min": 0.01, "max": 2000000.0, "step": 0.01}),
+                    "fig_width": ("FLOAT", {"default": 5.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
+                    "fig_height": ("FLOAT", {"default": 3.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
+                    "axis_y_upper": ("FLOAT", {"default": 5.0, "min": -2000000000000.0, "max": 2000000000000.0, "step": 0.01}),
+                    "axis_y_lower": ("FLOAT", {"default": 0.0, "min": -2000000000000.0, "max": 2000000000000.0, "step": 0.01}),
+                    "axis_x_upper": ("FLOAT", {"default": 5.0, "min": -2000000000000.0, "max": 2000000000000.0, "step": 0.01}),
+                    "axis_x_lower": ("FLOAT", {"default": 0.0, "min": -2000000000000.0, "max": 2000000000000.0, "step": 0.01}),
+                    "axis_y_name": ("STRING", {"default": "Amplitude", "tooltip": "Label for the Y-axis."}),
+                    "axis_x_name": ("STRING", {"default": "Frequency", "tooltip": "Label for the X-axis."}),
+                    "title": ("STRING", {"default": "FFT Plot", "tooltip": "Title of the plot."}),
+                    "filename_prefix": ("STRING", {"default": "ComfyUI", "tooltip": "The prefix for the file to save."}),
+                },
+                "hidden": {
+                    "prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"
+                },
+            }
+
+        FUNCTION = "save_FFTCustom"
+        RETURN_TYPES = ()
+
+        OUTPUT_NODE = True
+
+        CATEGORY = "PIC/Active/Basic Signal Processing"
+        DESCRIPTION = "Plots the FFT tensor with custom settings and saves the resulting image to your ComfyUI output directory."
+
+        def save_FFTCustom(self, tensor, fig_width, fig_height, axis_y_upper, axis_y_lower, axis_x_upper, axis_x_lower, axis_y_name, axis_x_name, title, FFT_max_freq, filename_prefix="ComfyUI", prompt=None, extra_pnginfo=None):
+            fft_node = FFTNode()
+            FFT = fft_node.apply_fft(tensor, FFT_max_freq)
+            save_plot_instance = SavePlotCustom()
+            results = save_plot_instance.save_plotCustom(FFT[0],fig_width, fig_height, axis_y_upper, axis_y_lower, axis_x_upper, axis_x_lower, axis_y_name, axis_x_name, title, filename_prefix, prompt, extra_pnginfo)
+            return results
+
+class PreviewFFTCustom(SaveFFTCustom):
+                def __init__(self):
+                    self.output_dir = folder_paths.get_temp_directory()
+                    self.type = "temp"
+                    self.prefix_append = "_temp_" + ''.join(random.choice("abcdefghijklmnopqrstupvxyz") for x in range(5))
+                    self.compress_level = 1
+
+                @classmethod
+                def INPUT_TYPES(cls):
+                    return {
+                        "required": {
+                            "tensor": ("tensor", {"tooltip": "The tensor to apply the fft."}),
+                            "FFT_max_freq": ("FLOAT", {"default": 5.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
+                            "fig_width": ("FLOAT", {"default": 5.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
+                            "fig_height": ("FLOAT", {"default": 3.0, "min": 0.01, "max": 2000.0, "step": 0.01}),
+                            "axis_y_upper": ("FLOAT", {"default": 5.0, "min": -2000000000000.0, "max": 2000000000000.0, "step": 0.01}),
+                            "axis_y_lower": ("FLOAT", {"default": 0.0, "min": -2000000000000.0, "max": 2000000000000.0, "step": 0.01}),
+                            "axis_x_upper": ("FLOAT", {"default": 5.0, "min": -2000000000000.0, "max": 2000000000000.0, "step": 0.01}),
+                            "axis_x_lower": ("FLOAT", {"default": 0.0, "min": -2000000000000.0, "max": 2000000000000.0, "step": 0.01}),
+                            "axis_y_name": ("STRING", {"default": "Amplitude", "tooltip": "Label for the Y-axis."}),
+                            "axis_x_name": ("STRING", {"default": "Frequency", "tooltip": "Label for the X-axis."}),
+                            "title": ("STRING", {"default": "FFT Plot", "tooltip": "Title of the plot."}),
+                        },
+                    }
