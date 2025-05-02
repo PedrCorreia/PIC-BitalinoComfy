@@ -5,11 +5,13 @@ from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 import numpy as np
 import folder_paths
-from comfy.cli_args import args
 import matplotlib.pyplot as plt
 import io
 import torch
 import torchvision.transforms as transforms
+import cv2
+from collections import deque
+from scipy.signal import butter, filtfilt
 
 
 """
@@ -32,7 +34,7 @@ class PlotNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "tensor": ("tensor",),  
+                "signal": ("FLOAT",),  
             }
         }
 
@@ -40,29 +42,56 @@ class PlotNode:
     FUNCTION = "plot"
     CATEGORY = "PIC/Obsolete/Tools"
 
-    def plot(self, tensor):
-        if tensor.device != torch.device('cpu'):
-            tensor = tensor.cpu()
-        tensor_np = tensor.numpy()
+    def plot(self, signal):
+        """
+        Dynamically display plots in an OpenCV window.
 
-        plt.figure(figsize=(5, 3))  # Set the figure size
-        plt.plot(tensor_np[0], tensor_np[1])
-        plt.xlabel('Time')
-        plt.ylabel('Amplitude')
-        plt.title('Signal Plot')
+        Parameters:
+        - signal: The raw signal tensor (time and amplitude).
+        - bandpass_signal: The bandpass-filtered signal tensor (time and amplitude).
+        """
 
-        # Save the plot as an image
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png')
-        buf.seek(0)
-        image = Image.open(buf)
-        plt.close()
+        # Initialize plot
+        print("Initializing plt")
+        fig, axs = plt.subplots(nrows=1, figsize=(10, 3), dpi=100)
+        if not isinstance(axs, np.ndarray):  # Ensure axs is always a list
+            print("axs is not an array")
+            axs = [axs]
+   
+        # Configure subplots
+        print("Configuring subplots")
+        axs[0].set_title("Signal")
+        axs[0].set_xlim(0, 100)  # Example x-axis limit
+        axs[0].set_ylim(-1, 1)  # Adjust based on signal range
+        axs[0].grid(True)
 
-        # Convert image to tensor
-        transform = transforms.ToTensor()
-        image_tensor = transform(image)
+        # Initialize plot lines
+        signal_line, = axs[0].plot([], [], c="b")
 
-        return image_tensor,
+        # Draw the background once
+        fig.canvas.draw()
+        bg_signal = fig.canvas.copy_from_bbox(axs[0].bbox)
+
+        # Dynamic plotting loop
+        signal_deque = deque(maxlen=100)  # Initialize a deque to store signal values
+        for i in range(len(signal_deque)):
+            signal_deque.append(signal[i])  # Add the current signal value to the deque
+        if isinstance(signal, torch.Tensor):
+            signal_np = signal.numpy()  # Convert the signal tensor to a NumPy array
+        else:
+            signal_np = np.array(signal)  # Convert the signal to a NumPy array if it's not a tensor
+        for i in range(len(signal_deque)):
+            signal_deque.append(signal_np[i])  # Add the current signal value to the deque
+            # Update plot lines
+            signal_line.set_data(range(i + 1), signal_np[:i + 1])
+            fig.canvas.restore_region(bg_signal)
+            axs[0].draw_artist(signal_line)
+            fig.canvas.blit(axs[0].bbox)
+
+            # Convert the plot to an OpenCV-compatible image
+            fig.canvas.draw()
+        return fig.canvas.buffer_rgba()
+
 class PerSumNode2:
     @classmethod
     def INPUT_TYPES(cls):
@@ -410,4 +439,3 @@ class PreviewPlotCustom(SavePlotCustom):
 
             },
         }
-       
