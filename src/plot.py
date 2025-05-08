@@ -1,264 +1,223 @@
 import sys
-import os
-import cv2
 import numpy as np
-import torch  # Import PyTorch for STFT computations
+import pyqtgraph as pg
+from PyQt6.QtWidgets import QApplication
 from collections import deque
-from scipy.signal import butter
-from concurrent.futures import ThreadPoolExecutor  # For parallel processing
+import random
 
-# Add the parent directory to sys.path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+class Plot:
+    """
+    Plotting utility class for live and static signal visualization.
+    """
 
-from signalprocessing import SignalProcessing  # Use your SignalProcessing class
+    def __init__(self, fs=1000, duration=5, live=False, suffix="", window=None):
+        self.fs = fs
+        self.duration = duration
+        self.live = live
+        self.suffix = suffix  # Suffix for channel labels
+        self.window = window if window is not None else duration  # Window size for live mode
 
-
-class DataPlot:
-    def __init__(self, width, height, x_window_size=10, grid=False):
-        self.width = width
-        self.height = height
-        self.x_window_size = x_window_size
-        self.grid = grid
-        self.data = deque(maxlen=1000)
-        self.font = cv2.FONT_HERSHEY_SIMPLEX
-        self.x_label = "Time (s)"
-        self.y_label = "Amplitude"
-        self.peak_indices = []  # Initialize peak indices
-
-    def add_data(self, timestamp, value):
-        self.data.append((timestamp, value))
-
-    def set_peaks(self, peaks, delay_compensation=0):
+    def plot(self, signals):
         """
-        Set the timestamps of detected peaks to be displayed, synchronized with the moving window.
-        :param peaks: List of indices of detected peaks.
-        :param delay_compensation: Number of samples to shift peaks for delay compensation.
+        Plot signals using the selected mode (live or static).
+        Accepts 1, 2, or 3 signals (as list or single array/callable).
         """
-        timestamps, _ = zip(*self.data)
-        t_min, t_max = timestamps[0], timestamps[-1]
-        self.peak_indices = [
-            timestamps[max(0, min(idx - delay_compensation, len(timestamps) - 1))]
-            for idx in peaks
-            if 0 <= idx < len(timestamps) and t_min <= timestamps[idx] <= t_max
-        ]
-
-    def draw(self, img, x0, y0, x1, y1):
-        if not self.data:
-            return img
-
-        w, h = x1 - x0, y1 - y0
-
-        # Draw grid box border
-        cv2.rectangle(img, (x0, y0), (x1, y1), (0, 0, 0), 2)
-
-        # Draw grid
-        if self.grid:
-            for x in range(x0, x1, 50):
-                cv2.line(img, (x, y0), (x, y1), (200, 200, 200), 1)
-            for y in range(y0, y1, 50):
-                cv2.line(img, (x0, y), (x1, y), (200, 200, 200), 1)
-
-        # Extract timestamps and values
-        timestamps, values = zip(*self.data)
-
-        # Determine X and Y ranges dynamically
-        t_min, t_max = timestamps[0], timestamps[-1]
-        v_min, v_max = min(values), max(values)
-
-        # Precompute scaling factors
-        t_range = max(t_max - t_min, 1e-6)
-        v_range = max(v_max - v_min, 1e-6)
-
-        # Plot data
-        prev_x, prev_y = None, None
-        for t, v in self.data:
-            x = x0 + int((t - t_min) / t_range * w)
-            y = y1 - int((v - v_min) / v_range * h)
-            if prev_x is not None and prev_y is not None:
-                cv2.line(img, (prev_x, prev_y), (x, y), (0, 0, 255), 1)
-            prev_x, prev_y = x, y
-
-        # Draw peaks if enabled
-        for t_peak in self.peak_indices:
-            if t_min <= t_peak <= t_max:
-                x_peak = x0 + int((t_peak - t_min) / t_range * w)
-                y_peak = y1 - int((self.data[timestamps.index(t_peak)][1] - v_min) / v_range * h)
-                cv2.circle(img, (x_peak, y_peak), 5, (0, 255, 0), -1)
-
-        # Draw X-axis labels
-        for i in range(0, len(timestamps), max(1, len(timestamps) // 10)):
-            x_pos = x0 + int((timestamps[i] - t_min) / t_range * w)
-            cv2.putText(img, f"{timestamps[i]:.1f}", (x_pos, y1 + 20), self.font, 0.4, (0, 0, 0), 1)
-        cv2.putText(img, self.x_label, (x0 + w // 2 - 50, y1 + 40), self.font, 0.5, (0, 0, 0), 1)
-
-        # Draw Y-axis labels
-        for i in range(5):
-            y_pos = y1 - int(i * h / 4)
-            amplitude = v_min + i * (v_max - v_min) / 4
-            cv2.putText(img, f"{amplitude:.1f}", (x0 - 40, y_pos + 5), self.font, 0.4, (0, 0, 0), 1)
-        text_size = cv2.getTextSize(self.y_label, self.font, 0.5, 1)[0]
-        text_x = x0 - 60 - text_size[0]
-        text_y = y0 + h // 2 + text_size[1] // 2
-        cv2.putText(img, self.y_label, (text_x, text_y), self.font, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
-
-        return img
-
-
-class STFTPlot:
-    def __init__(self, width, height):
-        self.width = width
-        self.height = height
-        self.stft_data = None
-        self.font = cv2.FONT_HERSHEY_SIMPLEX
-        self.x_label = "Frequency (Hz)"  # X-axis now represents frequency
-        self.y_label = "Magnitude"  # Y-axis represents magnitude
-
-    def set_stft_data(self, stft_data):
-        self.stft_data = stft_data
-
-    def draw(self, img, x0, y0, x1, y1):
-        if self.stft_data is None:
-            return img
-
-        f, _, magnitudes = self.stft_data  # Ignore time segments for FFT-like behavior
-        w, h = x1 - x0, y1 - y0
-
-        # Normalize magnitudes
-        magnitudes = magnitudes.mean(axis=1)  # Average across time axis to get 1D array
-        max_magnitude = magnitudes.max()
-        if max_magnitude > 0:
-            magnitudes /= max_magnitude  # Normalize to [0, 1]
-
-        # Adjust Y-axis scaling to fit the frequency range
-        f_min, f_max = f[0], f[-1]
-        for i in range(1, len(f)):
-            y_prev = y1 - int((f[i - 1] - f_min) / (f_max - f_min) * h)
-            x_prev = x0 + int(magnitudes[i - 1] * w)
-            y_curr = y1 - int((f[i] - f_min) / (f_max - f_min) * h)
-            x_curr = x0 + int(magnitudes[i] * w)
-            cv2.line(img, (x_prev, y_prev), (x_curr, y_curr), (0, 0, 255), 1)
-
-        return img
-
-
-class CombinedPlot:
-    def __init__(self, width=1200, height=600, grid=False, x_window_size=10):
-        self.width = width
-        self.height = height
-        self.data_plot = DataPlot(width, height, x_window_size, grid)
-        self.stft_plot = STFTPlot(width, height)
-        self.show_stft = False
-        self.show_peaks = False
-        self.grid_on = grid
-
-    def toggle_grid(self):
-        self.grid_on = not self.grid_on
-        self.data_plot.grid = self.grid_on
-
-    def toggle_stft(self):
-        self.show_stft = not self.show_stft
-
-    def toggle_peaks(self):
-        self.show_peaks = not self.show_peaks
-
-    def calculate_layout(self):
-        if self.show_stft:
-            plot_width = (self.width - 100) // 2
-            data_area = (50, 50, 50 + plot_width, self.height - 100)
-            stft_area = (50 + plot_width + 50, 50, self.width - 50, self.height - 100)
+        # Ensure signals is a list of 1-3 items
+        if not isinstance(signals, (list, tuple)):
+            signals = [signals]
+        if len(signals) > 3:
+            signals = signals[:3]
+        if self.live:
+            self.live_pyqtgraph(signals)
         else:
-            data_area = (50, 50, self.width - 50, self.height - 100)
-            stft_area = None
-        return data_area, stft_area
+            self.static_pyqtgraph(signals)
 
-    def draw(self, window_title="Plot Window"):
-        img = np.ones((self.height, self.width, 3), dtype=np.uint8) * 255
-        data_area, stft_area = self.calculate_layout()
+    def live_pyqtgraph(self, signals):
+        """
+        Live plot multiple signals using PyQtGraph, updating in real time.
+        signals: list of deques of (timestamp, value) pairs.
+        """
+        app = QApplication.instance() or QApplication(sys.argv)
+        win = pg.GraphicsLayoutWidget(show=True)
+        n_channels = len(signals)
+        plots = []
+        curves = []
+        # Store last plotted timestamp for each channel
+        self._last_plotted_ts = [None] * n_channels
 
-        if data_area:
-            x0, y0, x1, y1 = data_area
-            img = self.data_plot.draw(img, x0, y0, x1, y1)
+        for i in range(n_channels):
+            p = win.addPlot(row=i, col=0)
+            label = f'Ch {i+1}'
+            if self.suffix:
+                label += f' {self.suffix}'
+            p.setLabel('left', label)
+            if i == n_channels - 1:
+                p.setLabel('bottom', 'Time (s)')
+            curve = p.plot(pen=pg.mkPen(width=2))
+            plots.append(p)
+            curves.append(curve)
 
-        if stft_area and self.show_stft:
-            x0, y0, x1, y1 = stft_area
-            img = self.stft_plot.draw(img, x0, y0, x1, y1)
+        def update():
+            for i, sig in enumerate(signals):
+                data = sig() if callable(sig) else sig
+                if not data or len(data) == 0:
+                    curves[i].setData([], [])
+                    self._last_plotted_ts[i] = None
+                    continue
+                arr = np.array(data)
+                if arr.ndim != 2 or arr.shape[1] != 2:
+                    curves[i].setData([], [])
+                    self._last_plotted_ts[i] = None
+                    continue
 
-        cv2.putText(img, window_title, (self.width // 2 - 100, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
+                # Only plot new points since last update, optimized with numpy
+                window = self.window  # seconds
+                # Keep only points within the last 'window' seconds
+                max_time = arr[-1, 0]
+                min_time = max_time - window
+                in_window = arr[:, 0] >= min_time
+                arr = arr[in_window]
+                if self._last_plotted_ts[i] is not None:
+                    idx = np.searchsorted(arr[:, 0], self._last_plotted_ts[i], side='right')
+                    t_vals = arr[idx:, 0]
+                    y_vals = arr[idx:, 1]
+                    old_t, old_y = curves[i].getData()
+                    if old_t is not None and len(old_t) > 0:
+                        # Keep only old points within the window
+                        keep_idx = old_t >= min_time
+                        old_t = old_t[keep_idx]
+                        old_y = old_y[keep_idx]
+                        t_vals = np.concatenate((old_t, t_vals))
+                        y_vals = np.concatenate((old_y, y_vals))
+                else:
+                    t_vals = arr[:, 0]
+                    y_vals = arr[:, 1]
+                curves[i].setData(t_vals, y_vals)
+                self._last_plotted_ts[i] = arr[-1, 0]
+        timer = pg.QtCore.QTimer()
+        timer.timeout.connect(update)
+        timer.start(30)
+        app.exec()
 
-        # Draw buttons
-        button_bar_y = self.height - 40
-        cv2.rectangle(img, (0, button_bar_y), (self.width, self.height), (220, 220, 220), -1)
+    def static_pyqtgraph(self, signals):
+        """
+        Static plot of multiple signals using PyQtGraph.
+        Call this method again with new data to update the plot.
+        signals: list of arrays.
+        """
+        app = QApplication.instance() or QApplication(sys.argv)
+        win = pg.GraphicsLayoutWidget(show=True)
+        n_channels = len(signals)
+        t = np.linspace(0, self.duration, int(self.fs * self.duration))
+        for i, sig in enumerate(signals):
+            p = win.addPlot(row=i, col=0)
+            label = f'Ch {i+1}'
+            if self.suffix:
+                label += f' {self.suffix}'
+            p.setLabel('left', label)
+            if i == n_channels - 1:
+                p.setLabel('bottom', 'Time (s)')
+            y = np.asarray(sig)
+            if len(y) > len(t):
+                y = y[-len(t):]
+            elif len(y) < len(t):
+                y = np.pad(y, (len(t)-len(y), 0), mode='constant')
+            p.plot(t, y, pen=pg.mkPen(width=2))
+        app.exec()
 
-        button_width = 100
-        button_height = 20
-        spacing = 10
-        buttons = [
-            ("Grid", self.grid_on),
-            ("STFT", self.show_stft),
-            ("Peaks", self.show_peaks),
+def main():
+    import threading
+    import time
+
+    mode = input("Type 'live' or 'static': ").strip().lower()
+    live = mode == "live"
+
+    fs = 5000
+    duration = 100
+    window = 5  # Example: set window size to 2 seconds for live mode
+    t = np.linspace(0, duration, int(fs * duration))
+    # Generate example signals
+    # For both static and live, generate the same signals
+    # sig1: simulate an ECG-like waveform
+    heart_rate = 60  # bpm
+    beats_per_sec = heart_rate / 60
+    # Basic synthetic ECG: sum of narrow positive and negative Gaussians for QRS, P, T waves
+    sig1 = np.zeros_like(t)
+    for beat in np.arange(0, duration, 1/beats_per_sec):
+        # QRS complex (sharp spike)
+        sig1 += 1.2 * np.exp(-0.5 * ((t - beat) / 0.03) ** 2)
+        sig1 -= 0.5 * np.exp(-0.5 * ((t - (beat - 0.04)) / 0.01) ** 2)  # Q dip
+        sig1 += 0.3 * np.exp(-0.5 * ((t - (beat + 0.04)) / 0.02) ** 2)  # S
+        # P wave (small bump before QRS)
+        sig1 += 0.2 * np.exp(-0.5 * ((t - (beat - 0.2)) / 0.04) ** 2)
+        # T wave (broad bump after QRS)
+        sig1 += 0.35 * np.exp(-0.5 * ((t - (beat + 0.2)) / 0.07) ** 2)
+    sig1 += 0.05 * np.random.randn(len(t))  # Add some noise
+    # sig2: simulate electrodermal activity (EDA) with larger, slower, and less frequent Gaussian "bakes" (sweat bursts)
+    period = 8  # seconds, less frequent events
+    center_times = np.arange(0, duration, period)
+    width = 0.8  # seconds, wider Gaussian for slower rise/fall
+    sig2 = np.zeros_like(t)
+    for ct in center_times:
+        sig2 += 3.0 * np.exp(-0.5 * ((t - ct) / width) ** 2)  # larger amplitude, slower decay
+    drift_rate = 0.1  # slower baseline drift
+    sig2 += drift_rate * t
+    sig2 += 0.05 * np.random.randn(len(t))  # small noise to mimic skin conductance variability
+    # sig3: trigonometric wave with phase shift and occasional quick noise bursts
+    # Make phase a random walk over time
+    np.random.seed(42)
+    phase = np.cumsum(np.random.randn(len(t)) * 0.02)
+    sig3 = 2*np.sin(2 * np.pi * 1 * t + phase) 
+    # Add quick noise bursts at random times
+    burst_indices = np.random.choice(len(t), size=10, replace=False)
+    for idx in burst_indices:
+        if idx + 5 < len(sig3):
+            sig3[idx:idx+5] += np.random.normal(0, 2, size=5)
+
+    # For live mode, use the same signal generation in the acquisition threads
+
+    if live:
+        # Start with empty deques for live mode
+        dq1 = deque(maxlen=int(fs * duration))
+        dq2 = deque(maxlen=int(fs * duration))
+        dq3 = deque(maxlen=int(fs * duration))
+        t0 = time.time()
+        running = True
+
+        def acq_thread(dq, idx):
+            while running:
+                now = time.time()
+                rel_time = now - t0
+                sample_idx = int(rel_time * fs)
+                if sample_idx < len(t):
+                    if idx == 0:
+                        val = sig1[sample_idx]
+                    elif idx == 1:
+                        val = sig2[sample_idx]
+                    else:
+                        val = sig3[sample_idx]
+                    dq.append((rel_time, val))
+                time.sleep(1/fs)
+
+        threads = [
+            threading.Thread(target=acq_thread, args=(dq1, 0), daemon=True),
+            threading.Thread(target=acq_thread, args=(dq2, 1), daemon=True),
+            threading.Thread(target=acq_thread, args=(dq3, 2), daemon=True),
         ]
-        for i, (label, active) in enumerate(buttons):
-            x = self.width - (len(buttons) - i) * (button_width + spacing)
-            y = button_bar_y + 10
-            color = (0, 0, 0) if active else (150, 150, 150)
-            cv2.rectangle(img, (x, y), (x + button_width, y + button_height), color, -1)
-            cv2.putText(img, label, (x + 10, y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        for th in threads:
+            th.start()
 
-        return img
-
-    def handle_mouse_event(self, event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN:
-            button_bar_y = self.height - 40
-            button_width = 100
-            button_height = 20
-            spacing = 10
-            buttons = [
-                ("Grid", self.toggle_grid),
-                ("STFT", self.toggle_stft),
-                ("Peaks", self.toggle_peaks),
-            ]
-            for i, (_, action) in enumerate(buttons):
-                bx = self.width - (len(buttons) - i) * (button_width + spacing)
-                by = button_bar_y + 10
-                if bx <= x <= bx + button_width and by <= y <= by + button_height:
-                    action()
-
-    def show(self, window_name="Plot Window"):
-        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
-        cv2.setMouseCallback(window_name, self.handle_mouse_event, param=None)
-
-    def update(self, window_name="Plot Window"):
-        img = self.draw(window_title=window_name)
-        cv2.imshow(window_name, img)
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
-            cv2.destroyWindow(window_name)
-
+        plotter = Plot(fs=fs, duration=duration, live=live, window=window)
+        try:
+            plotter.plot([dq1, dq2, dq3])
+        finally:
+            running = False
+            # Optionally join threads if you want to wait for them to finish
+            # for th in threads:
+            #     th.join()
+    else:
+        plotter = Plot(fs=fs, duration=duration, live=live)
+        plotter.plot([sig1, sig2, sig3])
 
 if __name__ == "__main__":
-    plot = CombinedPlot(grid=True)
-    current_time = 0.0
-    sampling_rate = 1000
-    signal_processor = SignalProcessing(signal=deque(maxlen=3000))
-
-    # Example filter coefficients for delay compensation
-    b, a = butter(4, 0.1, btype='low', fs=sampling_rate)
-    group_delay = signal_processor.calculate_group_delay((b, a))
-
-    plot.show(window_name="Plot Window")
-
-    while True:
-        current_time += 1 / sampling_rate
-        value = 30 + 30 * np.sin(10 * np.pi * 2 * current_time) + np.random.normal(0, 5)
-        signal_processor.add_sample(value)
-        plot.data_plot.add_data(current_time, value)
-
-        if plot.show_peaks:
-            peaks = signal_processor.detect_peaks(threshold=0.5, smooth_window=11, normalize=True)
-            plot.data_plot.set_peaks(peaks, delay_compensation=group_delay)
-
-        if plot.show_stft and len(signal_processor.signal) >= 256:
-            stft_data = signal_processor.compute_stft(window_size=256, overlap=128)
-            plot.stft_plot.set_stft_data(stft_data)
-
-        plot.update(window_name="Plot Window")
+    main()

@@ -3,8 +3,15 @@ from scipy import sparse
 from scipy.sparse.linalg import spsolve
 import numpy as np
 import time
-import torch
-import cupy as cp
+try:
+    import torch
+except ImportError:
+    torch = None
+
+try:
+    import cupy as cp
+except ImportError:
+    cp = None
 from scipy.signal import detrend
 
 
@@ -218,6 +225,13 @@ class NumpySignalProcessor:
         - smoothed_signal: The smoothed signal.
         """
         return np.convolve(signal, np.ones(window_size) / window_size, mode='same')
+
+    @staticmethod
+    def deque_to_numpy(deq):
+        """
+        Efficiently converts a deque to a NumPy array (static method).
+        """
+        return np.fromiter(deq, dtype=float, count=len(deq))
 
 
 class TorchSignalProcessor:
