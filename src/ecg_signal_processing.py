@@ -36,7 +36,7 @@ class ECG:
         return r_peaks
 
     @staticmethod
-    def validate_r_peaks(signal, r_peaks, fs, envelope_threshold=0.5, smoothing_window=50, amplitude_proximity=0.05):
+    def validate_r_peaks(signal, r_peaks, fs, envelope_threshold=0.5, smoothing_window=15, amplitude_proximity=0.1):
         """
         Validates R-peaks by comparing their amplitude to the local envelope maximum.
 
@@ -54,18 +54,17 @@ class ECG:
         # Compute the envelope using the Hilbert transform
         envelope = np.abs(hilbert(signal))
 
-        # Smooth the envelope using a moving average
-        smoothed_envelope = np.convolve(envelope, np.ones(smoothing_window) / smoothing_window, mode='same')
-
         # Define the validation threshold
-        threshold = envelope_threshold * np.max(smoothed_envelope)
+        threshold = envelope_threshold * np.max(envelope)
+
         # Validate R-peaks: keep those whose amplitude is close to the local envelope maximum and above threshold
         valid_r_peaks = []
         for idx in r_peaks:
-            if idx < 0 or idx >= len(smoothed_envelope):
+            if idx < 0 or idx >= len(envelope):
                 continue
-            local_env = smoothed_envelope[idx]
-            if signal[idx] >= threshold and abs(signal[idx] - local_env) <= amplitude_proximity * np.max(smoothed_envelope):
+            local_env = envelope[idx]
+            # Allow peaks that are close to the envelope maximum within a tighter proximity range
+            if signal[idx] >= threshold and abs(signal[idx] - local_env) <= amplitude_proximity * local_env:
                 valid_r_peaks.append(idx)
 
         return np.array(valid_r_peaks)
