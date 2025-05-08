@@ -1,4 +1,3 @@
-# filepath: /media/lugo/data/ComfyUI/custom_nodes/PIC_BitalinoComfy/src/ecg_signal_processing.py
 import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets
