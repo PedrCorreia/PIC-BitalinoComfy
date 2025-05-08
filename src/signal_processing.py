@@ -1,4 +1,4 @@
-from scipy.signal import butter, filtfilt, welch, find_peaks as scipy_find_peaks
+from scipy.signal import butter, filtfilt, welch  # Added welch import
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
 import numpy as np
@@ -10,23 +10,67 @@ from scipy.signal import detrend
 
 class NumpySignalProcessor:
     @staticmethod
-    def bandpass_filter(signal, lowcut=0.1, highcut=0.5, fs=1000, order=1):
+    def bandpass_filter(signal, lowcut, highcut, fs, order=1):
         """
-        Applies a zero-phase bandpass filter to the signal using a Butterworth filter.
+        Applies a zero-phase bandpass filter to the signal using NumPy's butter and filtfilt.
+        
+        Parameters:
+        - signal
+        - lowcut: Low cutoff frequency in Hz.
+        - highcut: High cutoff frequency in Hz.
+        - fs: Sampling frequency in Hz.
+        - order: Order of the Butterworth filter (default: 1).
+        
+        Returns:
+        - filtered_signal: The filtered signal.
         """
         nyquist = 0.5 * fs
         low = lowcut / nyquist
         high = highcut / nyquist
         b, a = butter(order, [low, high], btype='band')
+        filtered_signal = filtfilt(b, a, signal)
+        return filtered_signal
+
+    @staticmethod
+    def lowpass_filter(signal, cutoff, fs, order=1):
+        """
+        Applies a lowpass filter to the signal using a Butterworth filter.
+        """
+        nyquist = 0.5 * fs
+        normalized_cutoff = cutoff / nyquist
+        b, a = butter(order, normalized_cutoff, btype='low')
         start = time.time()
         filtered_signal = filtfilt(b, a, signal)
         elapsed = time.time() - start
-        return filtered_signal, elapsed  # Ensure two values are returned
+        return filtered_signal
 
     @staticmethod
-    def find_peaks(signal, fs, window=None, prominence=None):
+    def highpass_filter(signal, cutoff, fs, order=1):
         """
-        Finds peaks in the signal using NumPy.
+        Applies a highpass filter to the signal using a Butterworth filter.
+        """
+        nyquist = 0.5 * fs
+        normalized_cutoff = cutoff / nyquist
+        b, a = butter(order, normalized_cutoff, btype='high')
+       
+        filtered_signal = filtfilt(b, a, signal)
+        
+        return filtered_signal
+
+    @staticmethod
+    def find_peaks(signal, fs, window=None, prominence=None, threshold=None):
+        """
+        Finds peaks in the signal using NumPy, with an optional threshold.
+        
+        Parameters:
+        - signal: Input signal (array).
+        - fs: Sampling frequency (not used directly but kept for consistency).
+        - window: Size of the sliding window for peak detection.
+        - prominence: Minimum prominence of peaks.
+        - threshold: Optional absolute threshold for peak selection.
+        
+        Returns:
+        - indices: Indices of the detected peaks.
         """
         N = len(signal)
         if window is None:
@@ -40,6 +84,11 @@ class NumpySignalProcessor:
         windows = np.lib.stride_tricks.as_strided(padded, shape=shape, strides=strides)
         max_in_window = np.max(windows, axis=1)
         is_peak = (signal >= max_in_window) & (signal > mean + prominence)
+        
+        # Apply optional threshold if provided
+        if threshold is not None:
+            is_peak &= (signal > threshold)
+        
         return np.flatnonzero(is_peak)
 
     @staticmethod
@@ -155,6 +204,20 @@ class NumpySignalProcessor:
         with open(file_path, "r") as f:
             data = json.load(f)
         return np.array([frame["data"][0] for frame in data])  # Extract first channel
+
+    @staticmethod
+    def moving_average(signal, window_size):
+        """
+        Applies a moving average filter to the signal.
+        
+        Parameters:
+        - signal: Input signal (array).
+        - window_size: Size of the moving average window.
+        
+        Returns:
+        - smoothed_signal: The smoothed signal.
+        """
+        return np.convolve(signal, np.ones(window_size) / window_size, mode='same')
 
 
 class TorchSignalProcessor:

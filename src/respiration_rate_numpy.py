@@ -1,10 +1,10 @@
-
 import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets
 
 
 from signal_processing import NumpySignalProcessor
+import os
 
 
 class RR:
@@ -28,7 +28,7 @@ class RR:
         Preprocesses the signal by filtering and normalizing.
         """
         # Filtering
-        filtered_signal, _ = NumpySignalProcessor.bandpass_filter(signal, 0.1, 0.5, fs)
+        filtered_signal = NumpySignalProcessor.bandpass_filter(signal, 0.1, 0.5, fs)
 
         # Normalization
         normalized_signal = NumpySignalProcessor.normalize_signal(filtered_signal)
@@ -129,7 +129,7 @@ class RR:
         app.exec()
 
 if __name__ == "__main__":
-    file_path = "/media/lugo/data/ComfyUI/custom_nodes/PIC_BitalinoComfy/report/test/RR/signal_data.json"
+    file_path = os.path.join(os.path.dirname(__file__), "RR", "signal_data.json")
     raw_signal = NumpySignalProcessor.load_signal(file_path)  # Use NumpySignalProcessor to load the signal
     
     fs = 1000
