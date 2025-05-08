@@ -1,96 +1,75 @@
 # PIC-BitalinoComfy
 
-This repository contains custom nodes and utilities for signal processing and visualization, designed to work with the ComfyUI framework. It provides tools for real-time signal analysis, filtering, and plotting.
+This repository provides tools and custom nodes for integrating PLUX/BITalino biosignal acquisition and processing into [ComfyUI](https://github.com/comfyanonymous/ComfyUI). The focus is on real-time signal analysis, arousal measurement, and visualization, enabling further use in generative or interactive workflows.
 
 ---
 
-## Project Structure
+## Overview
 
-The project is organized into two main directories:
+- **PLUX/BITalino Signal Integration:**  
+  Scripts and nodes for acquiring signals (ECG, EDA, respiration, etc.) from BITalino devices using the PLUX API, and preparing them for use in ComfyUI.
 
-### 1. `src/`
-This directory contains core utility scripts and processing logic that are independent of the ComfyUI framework. These scripts handle the core signal processing and visualization tasks.
+- **Arousal Measurement:**  
+  Tools and methods for analyzing physiological signals such as EDA, ECG, and respiration to derive arousal metrics. These metrics can be used in real-time or batch processing workflows, enabling integration into interactive or generative applications.
 
-- **`plot.py`**:  
-  This script provides classes for real-time plotting and visualization of signals. It includes:
-  - **`DataPlot`**: A class for plotting time-domain signals with features like grid display, peak detection, and dynamic scaling.
-  - **`STFTPlot`**: A class for visualizing the Short-Time Fourier Transform (STFT) of signals, showing frequency-domain information.
-  - **`CombinedPlot`**: A class that combines the time-domain and STFT plots into a single interface, with interactive toggles for grid, peaks, and STFT display.
-
-  The `plot.py` script is designed for real-time signal visualization and supports dynamic updates, making it ideal for live signal monitoring.
-
-- **`signalprocessing.py`**:  
-  This script contains the `SignalProcessing` class, which provides a comprehensive set of signal processing utilities, including:
-  - **STFT Computation**: Compute the Short-Time Fourier Transform for frequency-domain analysis.
-  - **Peak Detection**: Detect peaks in signals with optional smoothing and normalization.
-  - **Filtering**: Apply low-pass, high-pass, and band-pass filters using Butterworth filters.
-  - **Moving Average**: Smooth signals using a moving average filter.
- 
-  - **Phase-Locked Loop (PLL)**: Synchronize a signal with a reference signal using a PLL.
-
-  The `signalprocessing.py` script is the backbone of the project, providing the core signal processing functionality.
+- **ComfyUI Node Integration:**  
+  Modular nodes for signal filtering, feature extraction, and visualization, designed for seamless use in ComfyUI pipelines.
 
 ---
 
-### 2. `comfy/`
-This directory contains custom nodes designed specifically for the ComfyUI framework. These nodes integrate the core signal processing utilities into the ComfyUI environment, allowing users to perform advanced signal analysis and filtering directly within the UI.
+## Main Components
 
-#### Nodes:
-- **`MovingAverageFilter`**: Applies a moving average filter to smooth signals.
-- **`SignalPLL`**: Applies a Phase-Locked Loop (PLL) to synchronize a signal with a reference signal.
-- **`SignalFilter`**: Provides low-pass, high-pass, and band-pass filtering options.
-  - Supports configurable cutoff frequencies and sampling rates.
+- **`report/bitalino_aq.py`**  
+  Example script for acquiring signals from BITalino devices and saving them as JSON for further processing.
 
-Each node is designed to be modular and reusable, making it easy to integrate into various signal processing workflows.
+- **`src/signal_processing.py`**  
+  Core utilities for signal filtering, normalization, peak detection, STFT, moving average, and more.
 
----
+- **`src/rr_signal_processing.py`**  
+  (Previously `respiration_rate_numpy.py`)  
+  Respiration rate extraction and processing, refactored for future ComfyUI integration.
 
-## Features
+- **`src/ecg_signal_processing.py`**  
+  ECG signal processing: artifact removal, heart rate and HRV extraction, and visualization.
 
-- **Real-Time Signal Visualization**:  
-  The `CombinedPlot` class in `plot.py` enables real-time visualization of time-domain and frequency-domain signals.
+- **`src/eda_signal_processing.py`**  
+  EDA (Electrodermal Activity) processing: ADC conversion, tonic/phasic decomposition, event detection, and arousal metrics.
 
-- **Comprehensive Signal Processing**:  
-  The `SignalProcessing` class provides a wide range of utilities for signal analysis, filtering, and transformation.
+- **`plot.py`**  
+  Real-time and static plotting utilities using Matplotlib and PyQtGraph.
 
-- **ComfyUI Integration**:  
-  Custom nodes in the `comfy/` directory allow seamless integration of signal processing capabilities into the ComfyUI framework.
+- **`comfy/`**  
+  Custom ComfyUI nodes for  processing tasks.
 
----
-
-## How to Use
-
-1. **Install Dependencies**:
-   Ensure you have the required Python libraries installed:
-   ```bash
-   pip install numpy scipy matplotlib opencv-python-headless torch
-   ```
-
-2. **Run the Plotting Script**:
-   To visualize signals in real-time, run the `plot.py` script:
-   ```bash
-   python src/plot.py
-   ```
-
-3. **Use Custom Nodes in ComfyUI**:
-   Place the `comfy/` directory in your ComfyUI custom nodes folder. The nodes will appear under the "PIC/Filters" category in the ComfyUI interface.
+- **`Archive/`**  
+  **Legacy nodes and scripts**. Older nodes have been moved here and may not work with the current codebase or ComfyUI. They are retained for reference only.
 
 ---
 
-## Future Improvements
+## Class Overview
 
-- Add more advanced signal processing nodes (e.g., wavelet transforms, adaptive filtering).
-- Optimize performance for large-scale real-time signal processing.
-- Enhance the visualization capabilities with more interactive features.
+- **NumpySignalProcessor**  
+  Core static methods for filtering, normalization, peak detectio, and more.
+
+- **ECG**  
+  - Artifact removal, QRS/R-peak detection, heart rate and HRV extraction,.
+
+- **EDA**  
+  - ADC to μS conversion, tonic/phasic decomposition, event/arousal detection, metrics.
+
+- **RR**  
+  - Respiration rate extraction, deep breath detection, and visualization.
 
 ---
+## Demos
 
-## Contributing
+Each signal processing class includes a demo script for working with recorded signals:
 
-Contributions are welcome! Feel free to open issues or submit pull requests to improve the project.
+- **ECG Demo:**  
+  Demonstrates artifact removal, QRS/R-peak detection, and heart rate/HRV extraction using a sample ECG recording.
 
----
+- **EDA Demo:**  
+  Showcases ADC to μS conversion, tonic/phasic decomposition, and arousal event detection with a recorded EDA signal.
 
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+- **RR Demo:**  
+  Provides an example of respiration rate extraction and deep breath detection using a sample respiration signal.
