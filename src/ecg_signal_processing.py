@@ -2,7 +2,7 @@
 import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets
-from scipy.signal import welch
+from scipy.signal import welch, hilbert
 
 from signal_processing import NumpySignalProcessor
 import os
@@ -11,7 +11,7 @@ import os
 class ECG:
 
     @staticmethod
-    def detect_r_peaks(filtered_signal, fs, mode="qrs"):
+    def detect_r_peaks(filtered_signal, fs, mode="qrs", prominence=None):
         """
         Detects R-peaks in the filtered ECG signal.
         
@@ -19,20 +19,56 @@ class ECG:
         - filtered_signal: The filtered ECG signal.
         - fs: Sampling frequency in Hz.
         - mode: Detection mode. "qrs" for QRS complex, "all" for the entire heart complex.
+        - prominence: Minimum prominence of peaks to detect (default: None).
         
         Returns:
         - r_peaks: Indices of detected R-peaks.
         """
         if mode == "qrs":
-            threshold = 0.8 * np.max(filtered_signal)  # No threshold for QRS mode
+            threshold = None
         elif mode == "all":
             # Calculate a threshold near the maximum value of the signal
             threshold = 0.8 * np.max(filtered_signal)
         else:
             raise ValueError("Invalid mode. Use 'qrs' for QRS complex or 'all' for the entire heart complex.")
         
-        r_peaks = NumpySignalProcessor.find_peaks(filtered_signal, fs, threshold=threshold)
+        r_peaks = NumpySignalProcessor.find_peaks(filtered_signal, fs, threshold=threshold, prominence=prominence)
         return r_peaks
+
+    @staticmethod
+    def validate_r_peaks(signal, r_peaks, fs, envelope_threshold=0.5, smoothing_window=50, amplitude_proximity=0.05):
+        """
+        Validates R-peaks by comparing their amplitude to the local envelope maximum.
+
+        Parameters:
+        - signal: The filtered ECG signal.
+        - r_peaks: Indices of detected R-peaks.
+        - fs: Sampling frequency in Hz.
+        - envelope_threshold: Fraction of the maximum envelope value to use as a validation threshold.
+        - smoothing_window: Window size for smoothing the envelope (default: 50 samples).
+        - amplitude_proximity: Maximum allowed difference (fraction of envelope max) between R-peak amplitude and local envelope maximum.
+
+        Returns:
+        - valid_r_peaks: Indices of validated R-peaks.
+        """
+        # Compute the envelope using the Hilbert transform
+        envelope = np.abs(hilbert(signal))
+
+        # Smooth the envelope using a moving average
+        smoothed_envelope = np.convolve(envelope, np.ones(smoothing_window) / smoothing_window, mode='same')
+
+        # Define the validation threshold
+        threshold = envelope_threshold * np.max(smoothed_envelope)
+        # Validate R-peaks: keep those whose amplitude is close to the local envelope maximum and above threshold
+        valid_r_peaks = []
+        for idx in r_peaks:
+            if idx < 0 or idx >= len(smoothed_envelope):
+                continue
+            local_env = smoothed_envelope[idx]
+            if signal[idx] >= threshold and abs(signal[idx] - local_env) <= amplitude_proximity * np.max(smoothed_envelope):
+                valid_r_peaks.append(idx)
+
+        return np.array(valid_r_peaks)
 
     @staticmethod
     def extract_heart_rate(filtered_signal, fs, mode="qrs"):
@@ -58,22 +94,41 @@ class ECG:
     @staticmethod
     def calculate_lf_hf(rr_intervals, fs):
         """
-        Calculates the Low-Frequency (LF) and High-Frequency (HF) components of HRV.
-        
+        Calculates the Low-Frequency (LF) and High-Frequency (HF) power of HRV from RR intervals.
+
         Parameters:
-        - rr_intervals: Array of RR intervals in seconds.
-        - fs: Sampling frequency in Hz.
-        
+        - rr_intervals: Array of RR intervals in seconds (can be derived from HR).
+        - fs: Sampling frequency in Hz (used for interpolation).
+
+        Steps:
+        - If input is HR (heart rate in bpm), convert to RR intervals (RR = 60 / HR).
+        - Interpolate RR intervals to a uniform time grid (e.g., 4 Hz).
+        - Compute PSD and extract LF/HF bands.
+
         Returns:
         - lf_power: Power in the LF band (0.04–0.15 Hz).
         - hf_power: Power in the HF band (0.15–0.4 Hz).
+        - f: Frequency array for PSD.
+        - psd: PSD array.
         """
-        f, psd = welch(rr_intervals, fs=1.0 / np.mean(rr_intervals), nperseg=len(rr_intervals))
+        # Interpolate RR intervals to get evenly sampled signal
+        if len(rr_intervals) < 4:
+            return 0, 0, np.array([]), np.array([])
+        rr_times = np.cumsum(np.insert(rr_intervals, 0, 0))
+        interp_fs = 4.0  # 4 Hz is standard for HRV
+        t_uniform = np.arange(rr_times[0], rr_times[-1], 1.0 / interp_fs)
+        rr_interp = np.interp(t_uniform, rr_times[:-1], rr_intervals)
+        n = len(rr_interp)
+        nperseg = min(256, n)
+        noverlap = min(128, nperseg - 1) if nperseg > 1 else 0
+        f, psd = NumpySignalProcessor.compute_psd_numpy(rr_interp, fs=interp_fs, nperseg=nperseg, noverlap=noverlap)
         lf_band = (0.04, 0.15)
         hf_band = (0.15, 0.4)
-        lf_power = np.trapz(psd[(f >= lf_band[0]) & (f < lf_band[1])], f[(f >= lf_band[0]) & (f < lf_band[1])])
-        hf_power = np.trapz(psd[(f >= hf_band[0]) & (f < hf_band[1])], f[(f >= hf_band[0]) & (f < hf_band[1])])
-        return lf_power, hf_power
+        lf_mask = (f >= lf_band[0]) & (f < lf_band[1])
+        hf_mask = (f >= hf_band[0]) & (f < hf_band[1])
+        lf_power = np.trapz(psd[lf_mask], f[lf_mask]) if np.any(lf_mask) else 0
+        hf_power = np.trapz(psd[hf_mask], f[hf_mask]) if np.any(hf_mask) else 0
+        return lf_power, hf_power, f, psd
 
     @staticmethod
     def calculate_lf_hf_ratio(lf_power, hf_power):
@@ -105,7 +160,7 @@ class ECG:
         r_peaks = ECG.detect_r_peaks(filtered_signal, fs, mode=mode)
         
         if len(r_peaks) < 2:
-            return {"SDNN": 0, "RMSSD": 0, "LF": 0, "HF": 0, "LF/HF": 0}
+            return {"SDNN": 0, "RMSSD": 0, "LF": 0, "HF": 0, "LF/HF": 0, "PSD_F": np.array([]), "PSD": np.array([])}
         
         rr_intervals = np.diff(r_peaks) / fs  # RR intervals in seconds
         
@@ -114,7 +169,7 @@ class ECG:
         rmssd = np.sqrt(np.mean(np.square(np.diff(rr_intervals))))  # Root mean square of successive differences
         
         # LF and HF power
-        lf_power, hf_power = ECG.calculate_lf_hf(rr_intervals, fs)
+        lf_power, hf_power, f_psd, psd = ECG.calculate_lf_hf(rr_intervals, fs)
         lf_hf_ratio = ECG.calculate_lf_hf_ratio(lf_power, hf_power)
         
         return {
@@ -122,7 +177,9 @@ class ECG:
             "RMSSD": rmssd,
             "LF": lf_power,
             "HF": hf_power,
-            "LF/HF": lf_hf_ratio
+            "LF/HF": lf_hf_ratio,
+            "PSD_F": f_psd,
+            "PSD": psd
         }
 
     @staticmethod
@@ -150,38 +207,6 @@ class ECG:
             cleaned_signal[outliers] = np.interp(indices[outliers], indices[~outliers], signal[~outliers])
         
         return cleaned_signal
-
-    @staticmethod
-    def pll_artifact_reduction(signal, fs, pll_band=(0.5, 2.0)):
-        """
-        Applies a Phase-Locked Loop (PLL)-like approach to reduce artifacts in the ECG signal.
-        
-        Parameters:
-        - signal: The input ECG signal (array).
-        - fs: Sampling frequency in Hz.
-        - pll_band: Frequency band for PLL operation (default: 0.5–2.0 Hz).
-        
-        Returns:
-        - corrected_signal: The artifact-reduced ECG signal.
-        """
-        from scipy.signal import hilbert
-
-        # Step 1: Bandpass filter the signal to isolate the desired frequency range
-        filtered_signal = NumpySignalProcessor.bandpass_filter(signal, pll_band[0], pll_band[1], fs, order=4)
-
-        # Step 2: Apply the Hilbert transform to extract the analytic signal
-        analytic_signal = hilbert(filtered_signal)
-
-        # Step 3: Extract the instantaneous phase
-        instantaneous_phase = np.unwrap(np.angle(analytic_signal))
-
-        # Step 4: Generate a synthetic signal based on the phase
-        synthetic_signal = np.sin(instantaneous_phase)
-
-        # Step 5: Subtract the synthetic signal from the original to reduce artifacts
-        corrected_signal = signal - synthetic_signal
-
-        return corrected_signal
 
     @staticmethod
     def remove_artifacts(signal, fs, zscore_threshold=5, flatline_threshold=0.05, min_artifact_duration=0.1):
@@ -232,152 +257,191 @@ class ECG:
         return cleaned_signal
 
     @staticmethod
-    def preprocess_signal(signal, fs, mode="all"):
+    def preprocess_signal(ecg_raw, fs, mode="all", normalize=True):
         """
-        Preprocesses the ECG signal by removing artifacts, filtering, and normalizing.
-        
+        Preprocess ECG signal: artifact removal, filtering, smoothing, normalization.
+
         Parameters:
-        - signal: The input ECG signal (array).
+        - ecg_raw: Input ECG signal (array).
         - fs: Sampling frequency in Hz.
-        - mode: Preprocessing mode. "all" for the entire heart complex, "qrs" for QRS complex only.
-        
+        - mode: "all" for full complex, "qrs" for QRS complex.
+        - normalize: Whether to normalize the output.
+
         Returns:
-        - preprocessed_signal: The preprocessed ECG signal.
+        - ecg_processed: Preprocessed ECG signal.
         """
-
-
-        # Step 1: Remove artifacts from the signal
-        artifact_free_signal = signal
+        signal = ecg_raw
+        if not normalize:
+            signal = ECG.convert_adc_to_voltage(signal, channel_index=0, vcc=3.3, gain=1100)
 
         if mode == "all":
-            # Step 2: Filtering with a bandpass filter to isolate heart-related frequencies (0.5–40 Hz)
-            filtered_signal = NumpySignalProcessor.bandpass_filter(artifact_free_signal, 0.5, 40, fs, order=4)
+            filtered = NumpySignalProcessor.bandpass_filter(signal, 0.5, 40, fs, order=4)
         elif mode == "qrs":
-            # Step 2: Filtering with a bandpass filter to isolate QRS complex frequencies (8–20 Hz)
-            filtered_signal = NumpySignalProcessor.bandpass_filter(artifact_free_signal, 8, 15, fs, order=4)
+            filtered = NumpySignalProcessor.bandpass_filter(signal, 8, 15, fs, order=4)
         else:
-            raise ValueError("Invalid mode. Use 'all' for the entire heart complex or 'qrs' for QRS complex only.")
+            raise ValueError("mode must be 'all' or 'qrs'.")
 
-        # Step 3: Smoothing the filtered signal
-        smoothed_signal = NumpySignalProcessor.moving_average(filtered_signal, window_size=5)
+        smoothed = NumpySignalProcessor.moving_average(filtered, window_size=5)
 
-        # Step 4: Normalization
-        normalized_signal = NumpySignalProcessor.normalize_signal(smoothed_signal)
-        
-        return normalized_signal
+        if normalize:
+            ecg_processed = NumpySignalProcessor.normalize_signal(smoothed)
+        else:
+            ecg_processed = smoothed
+
+        return ecg_processed
 
     @staticmethod
     def convert_adc_to_voltage(adc_values, channel_index=0, vcc=3.3, gain=1100):
         """
         Converts ADC values to ECG voltage in millivolts, considering channel resolution.
-        
+
+        Formula:
+        ECG(V) = ((ADC / (2^n - 1)) - 0.5) * VCC / GECG
+        ECG(mV) = ECG(V) * 1000
+
         Parameters:
         - adc_values: Array of ADC values.
         - channel_index: Index of the channel (default: 0).
         - vcc: Operating voltage of the system (default: 3.3V).
         - gain: Gain of the ECG sensor (default: 1100).
-        
+
         Returns:
         - ecg_mv: ECG signal in millivolts.
         """
         # Determine resolution based on channel index
         n_bits = 10 if channel_index < 4 else 6
-        
-        # Convert ADC values to voltage
+
+        # ECG(V) = ((ADC / (2^n - 1)) - 0.5) * VCC / GECG
         ecg_voltage = (adc_values / (2**n_bits - 1) - 0.5) * vcc / gain
-        
-        # Convert voltage to millivolts
+
+        # ECG(mV) = ECG(V) * 1000
         ecg_mv = ecg_voltage * 1000
         return ecg_mv
 
     @staticmethod
     def plot_signals(raw, artifact_removed, filtered, r_peaks, heart_rate, fs, hrv_metrics):
         """
-        Plots the raw, artifact-removed, and filtered ECG signals along with detected R-peaks, PSD, and Poincaré plot.
-        Displays only the first 10 seconds of the signal.
+        Plots the raw, filtered ECG signals along with detected R-peaks, PSDs for all signals, LF/HF bands, Poincaré plot, and tachogram.
+        Displays only the first 10 seconds of the signal, but expects full-length processed signals.
         """
-        # Limit the signal to the first 10 seconds
-        max_samples = int(10 * fs)  # Number of samples for 10 seconds
-        raw = raw[:max_samples]
-        artifact_removed = artifact_removed[:max_samples]
-        filtered = filtered[:max_samples]
-        time_np = np.arange(len(raw)) / fs  # Time array for the limited window
+        # Use the full-length signals for all calculations/statistics
+        total_samples = len(raw)
+        total_duration = total_samples / fs
 
-        # Filter R-peaks to the 10-second window
-        r_peaks = r_peaks[r_peaks < max_samples]
+        # For plotting, show only the first 10 seconds
+        max_samples = int(10 * fs)
+        plot_slice = slice(0, max_samples)
+        raw_plot = raw[plot_slice]
+        filtered_plot = filtered[plot_slice]
+        time_np = np.arange(len(raw_plot)) / fs
 
-        # Calculate the duration of the signal
-        duration = len(raw) / fs
+        # Convert raw to millivolts for plotting
+        raw_mv_plot = ECG.convert_adc_to_voltage(raw_plot)
 
-        # Calculate PSD for all signals using your own method
-        f_raw, psd_raw = NumpySignalProcessor.compute_psd_numpy(raw, fs)
-        f_artifact_removed, psd_artifact_removed = NumpySignalProcessor.compute_psd_numpy(artifact_removed, fs)
-        f_filtered, psd_filtered = NumpySignalProcessor.compute_psd_numpy(filtered, fs)
-        # Apply baseline correction using NumpySignalProcessor
-        baseline_corrected = NumpySignalProcessor.correct_baseline(filtered, method="als", lam=1e6, p=0.01, niter=10)
-        f_baseline_corrected, psd_baseline_corrected = NumpySignalProcessor.compute_psd_numpy(baseline_corrected, fs)
+        # Filter R-peaks to the 10-second window for plotting
+        r_peaks_plot = r_peaks[r_peaks < max_samples]
 
         app = QtWidgets.QApplication.instance()
         if app is None:
             app = QtWidgets.QApplication([])
         win = pg.GraphicsLayoutWidget(show=True, title="ECG Signal Analysis")
-        win.resize(1800, 1000)  # Larger window size for a scientific layout
+        win.resize(1800, 1200)
         win.setWindowTitle("ECG Signal Analysis")
 
         pg.setConfigOption('background', 'k')
         pg.setConfigOption('foreground', 'w')
 
-        p1 = win.addPlot(row=0, col=0, title="<b>Raw ECG Signal</b>")
-        p1.plot(time_np, raw, pen=pg.mkPen(color=(100, 200, 255), width=1.2), name="Raw Signal")
+        # Plot raw signal in ADC units
+        p1 = win.addPlot(row=0, col=0, title="<b>Raw ECG Signal (ADC Units)</b>")
+        p1.plot(time_np, raw_plot, pen=pg.mkPen(color=(100, 200, 255), width=1.2), name="Raw Signal (ADC)")
         p1.showGrid(x=True, y=True, alpha=0.3)
-        p1.setLabel('left', "<span style='color:white'>Amplitude</span>")
+        p1.setLabel('left', "<span style='color:white'>ADC Value</span>")
         p1.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
 
-        p2 = win.addPlot(row=0, col=1, title="<b>Artifact-Removed ECG Signal</b>")
-        p2.plot(time_np, artifact_removed, pen=pg.mkPen(color=(255, 255, 0), width=1.2), name="Artifact-Removed Signal")
+        # Plot raw signal in millivolts
+        p1_mv = win.addPlot(row=0, col=1, title="<b>Raw ECG Signal (mV)</b>")
+        p1_mv.plot(time_np, raw_mv_plot, pen=pg.mkPen(color=(0, 255, 255), width=1.2), name="Raw Signal (mV)")
+        p1_mv.showGrid(x=True, y=True, alpha=0.3)
+        p1_mv.setLabel('left', "<span style='color:white'>Amplitude (mV)</span>")
+        p1_mv.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
+
+        # Plot filtered/processed signal with R-peaks
+        p2 = win.addPlot(row=1, col=0, title="<b>Processed ECG Signal with R-Peaks</b>")
+        p2.plot(time_np, filtered_plot, pen=pg.mkPen(color=(255, 170, 0), width=2), name="Filtered Signal")
+        if len(r_peaks_plot) > 0:
+            p2.plot(time_np[r_peaks_plot], filtered_plot[r_peaks_plot], pen=None, symbol='x', symbolBrush=(255, 80, 80), symbolPen='r', symbolSize=14, name="R-Peaks")
         p2.showGrid(x=True, y=True, alpha=0.3)
         p2.setLabel('left', "<span style='color:white'>Amplitude</span>")
         p2.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
 
-        p3 = win.addPlot(row=1, col=0, title="<b>Filtered ECG Signal with R-Peaks</b>")
-        p3.plot(time_np, filtered, pen=pg.mkPen(color=(255, 170, 0), width=2), name="Filtered Signal")
-        if len(r_peaks) > 0:
-            p3.plot(time_np[r_peaks], filtered[r_peaks], pen=None, symbol='x', symbolBrush=(255, 80, 80), symbolPen='r', symbolSize=14, name="R-Peaks")
-        p3.showGrid(x=True, y=True, alpha=0.3)
-        p3.setLabel('left', "<span style='color:white'>Amplitude</span>")
-        p3.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
+        # PSD for all processed plots (not raw)
+        f_mv, psd_mv = NumpySignalProcessor.compute_psd_numpy(ECG.convert_adc_to_voltage(raw), fs)
+        f_filtered, psd_filtered = NumpySignalProcessor.compute_psd_numpy(filtered, fs)
 
-        p4 = win.addPlot(row=1, col=1, title="<b>Power Spectral Density (PSD)</b>")
-        # Normalize PSDs before plotting
-        def norm_psd(psd):
-            max_val = np.max(psd) if len(psd) > 0 else 1
-            return psd / max_val if max_val != 0 else psd
-
-        if len(f_raw) > 0 and len(psd_raw) > 0 and len(f_raw) == len(psd_raw):
-            p4.plot(f_raw, norm_psd(psd_raw), pen=pg.mkPen(color=(100, 200, 255), width=1.2))
-        if len(f_artifact_removed) > 0 and len(psd_artifact_removed) > 0 and len(f_artifact_removed) == len(psd_artifact_removed):
-            p4.plot(f_artifact_removed, norm_psd(psd_artifact_removed), pen=pg.mkPen(color=(255, 255, 0), width=1.2))
+        p3 = win.addPlot(row=1, col=1, title="<b>Power Spectral Density (PSD) - Processed Signals</b>")
+        if len(f_mv) > 0 and len(psd_mv) > 0 and len(f_mv) == len(psd_mv):
+            p3.plot(f_mv, psd_mv, pen=pg.mkPen(color=(0, 255, 255), width=1.2), name="Raw mV PSD")
         if len(f_filtered) > 0 and len(psd_filtered) > 0 and len(f_filtered) == len(psd_filtered):
-            p4.plot(f_filtered, norm_psd(psd_filtered), pen=pg.mkPen(color=(255, 170, 0), width=2))
-        if len(f_baseline_corrected) > 0 and len(psd_baseline_corrected) > 0 and len(f_baseline_corrected) == len(psd_baseline_corrected):
-            p4.plot(f_baseline_corrected, norm_psd(psd_baseline_corrected), pen=pg.mkPen(color=(128, 0, 128), width=1.5))
-        p4.setLabel('left', "<span style='color:white'>Normalized PSD</span>")
+            p3.plot(f_filtered, psd_filtered, pen=pg.mkPen(color=(255, 170, 0), width=2), name="Filtered PSD")
+        p3.setLabel('left', "<span style='color:white'>PSD [V**2/Hz]</span>")
+        p3.setLabel('bottom', "<span style='color:white'>Frequency [Hz]</span>")
+        p3.showGrid(x=True, y=True, alpha=0.3)
+
+        # PSD for filtered signal with LF/HF bands highlighted and area under curve colored
+        p4 = win.addPlot(row=2, col=0, title="<b>PSD with LF/HF Bands (Filtered Signal, <0.5Hz)</b>")
+        f_psd = hrv_metrics.get("PSD_F", np.array([]))
+        psd = hrv_metrics.get("PSD", np.array([]))
+        if f_psd is not None and psd is not None and len(f_psd) > 0 and len(psd) > 0:
+            mask = f_psd < 0.5
+            p4.plot(f_psd[mask], psd[mask], pen=pg.mkPen(color=(255, 170, 0), width=2))
+            # Fill LF band
+            lf_band = (0.04, 0.15)
+            lf_mask = (f_psd >= lf_band[0]) & (f_psd < lf_band[1]) & mask
+            if np.any(lf_mask):
+                p4.plot(f_psd[lf_mask], psd[lf_mask], pen=None, fillLevel=0, brush=(50, 255, 50, 120))
+            # Fill HF band
+            hf_band = (0.15, 0.4)
+            hf_mask = (f_psd >= hf_band[0]) & (f_psd < hf_band[1]) & mask
+            if np.any(hf_mask):
+                p4.plot(f_psd[hf_mask], psd[hf_mask], pen=None, fillLevel=0, brush=(50, 50, 255, 120))
+        p4.setLabel('left', "<span style='color:white'>PSD [V**2/Hz]</span>")
         p4.setLabel('bottom', "<span style='color:white'>Frequency [Hz]</span>")
         p4.showGrid(x=True, y=True, alpha=0.3)
 
-        p5 = win.addPlot(row=2, col=0, title="<b>Baseline-Corrected Filtered Signal</b>")
-        p5.plot(time_np, baseline_corrected, pen=pg.mkPen(color=(128, 0, 128), width=2), name="Baseline-Corrected Signal")
-        p5.showGrid(x=True, y=True, alpha=0.3)
-        p5.setLabel('left', "<span style='color:white'>Amplitude</span>")
-        p5.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
-
-        rr_intervals = np.diff(r_peaks) / fs  # RR intervals in seconds
+        # Poincaré plot (HRV)
+        rr_intervals = np.diff(r_peaks) / fs  # Use all R-peaks for HRV
         if len(rr_intervals) > 1:
-            p6 = win.addPlot(row=2, col=1, title="<b>Poincaré Plot (HRV)</b>")
-            p6.plot(rr_intervals[:-1], rr_intervals[1:], pen=None, symbol='o', symbolBrush=(255, 255, 0), symbolSize=6, name="Poincaré Points")
-            p6.showGrid(x=True, y=True, alpha=0.3)
-            p6.setLabel('left', "<span style='color:white'>RR(n+1) (s)</span>")
-            p6.setLabel('bottom', "<span style='color:white'>RR(n) (s)</span>")
+            p5 = win.addPlot(row=2, col=1, title="<b>Poincaré Plot (HRV)</b>")
+            p5.plot(rr_intervals[:-1], rr_intervals[1:], pen=None, symbol='o', symbolBrush=(255, 255, 0), symbolSize=6, name="Poincaré Points")
+            p5.showGrid(x=True, y=True, alpha=0.3)
+            p5.setLabel('left', "<span style='color:white'>RR(n+1) (s)</span>")
+            p5.setLabel('bottom', "<span style='color:white'>RR(n) (s)</span>")
+
+        # Tachogram (RR intervals over time) - left Y: RR, right Y: HRV (SDNN)
+        if len(rr_intervals) > 0:
+            rr_times = np.cumsum(np.insert(rr_intervals, 0, 0))
+            p6 = win.addPlot(row=3, col=0, title="<b>Tachogram (RR Intervals & HRV Over Time)</b>")
+            # Left Y: RR intervals
+            p6.plot(rr_times[1:], rr_intervals, pen=pg.mkPen(color=(255, 255, 0), width=2), symbol='o', symbolBrush=(255, 255, 0), symbolSize=6, name="RR Interval")
+            p6.setLabel('left', "<span style='color:white'>RR Interval (s)</span>")
+            p6.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
+            # Right Y: HRV (SDNN up to each point)
+            p6r = pg.ViewBox()
+            p6.showAxis('right')
+            p6.scene().addItem(p6r)
+            p6.getAxis('right').linkToView(p6r)
+            p6r.setXLink(p6)
+            # Compute rolling SDNN (window=5 by default)
+            window = 5
+            if len(rr_intervals) >= window:
+                rolling_sdnn = np.array([np.std(rr_intervals[max(0, i-window+1):i+1]) for i in range(len(rr_intervals))])
+                p6r.addItem(pg.PlotCurveItem(rr_times[1:], rolling_sdnn, pen=pg.mkPen(color=(255, 0, 0), width=2), name="Rolling SDNN"))
+                p6.getAxis('right').setLabel("<span style='color:red'>HRV (SDNN, s)</span>")
+            else:
+                p6.getAxis('right').setLabel("<span style='color:red'>HRV (SDNN, s)</span>")
+            p6r.setYRange(0, np.max(rolling_sdnn) if len(rr_intervals) >= window else 1)
+            p6r.setGeometry(p6.vb.sceneBoundingRect())
+            p6.vb.sigResized.connect(lambda: p6r.setGeometry(p6.vb.sceneBoundingRect()))
 
         info_text = f"<span style='font-size:10pt'><b>Heart Rate:</b> <span style='color:#ffae00'>{heart_rate:.2f}</span> bpm<br>"
         info_text += f"<b>SDNN:</b> <span style='color:#ffae00'>{hrv_metrics['SDNN']:.2f}</span> s<br>"
@@ -386,18 +450,20 @@ class ECG:
         info_text += f"<b>HF:</b> <span style='color:#ffae00'>{hrv_metrics['HF']:.2f}</span><br>"
         info_text += f"<b>LF/HF:</b> <span style='color:#ffae00'>{hrv_metrics['LF/HF']:.2f}</span><br>"
         info_text += f"<b>Sampling Rate:</b> <span style='color:#ffae00'>{fs} Hz</span><br>"
-        info_text += f"<b>Signal Duration:</b> <span style='color:#ffae00'>{duration:.2f} s</span></span>"
+        info_text += f"<b>Signal Duration:</b> <span style='color:#ffae00'>{total_duration:.2f} s</span></span>"
         info_label = pg.LabelItem(info_text, justify='left')
         win.addItem(info_label, row=0, col=2, rowspan=3)
 
         legend_text = (
             "<b>Legend:</b><br>"
-            "<span style='color:#64c8ff'>Raw Signal (Blue)</span><br>"
-            "<span style='color:#ffff00'>Artifact-Free Signal (Yellow)</span><br>"
-            "<span style='color:#ffaa00'>Filtered Signal (Orange)</span><br>"
+            "<span style='color:#64c8ff'>Raw Signal (ADC, Blue)</span><br>"
+            "<span style='color:#00ffff'>Raw Signal (mV, Cyan)</span><br>"
+            "<span style='color:#ffaa00'>Processed/Filtered Signal (Orange)</span><br>"
             "<span style='color:#ff5050'>R-Peaks (Red X)</span><br>"
-            "<span style='color:#800080'>Baseline-Corrected Signal (Purple)</span><br>"
-            "<span style='color:#ffff00'>Poincaré Points (Yellow Circles)</span>"
+            "<span style='color:#32ff32'>LF Band (Green Region)</span><br>"
+            "<span style='color:#3232ff'>HF Band (Blue Region)</span><br>"
+            "<span style='color:#ffff00'>Poincaré Points (Yellow Circles)</span><br>"
+            "<span style='color:#ffff00'>Tachogram (Yellow Line)</span>"
         )
         legend_label = pg.LabelItem(legend_text, justify='left', size='10pt')
         win.addItem(legend_label, row=3, col=2, rowspan=2)
@@ -418,7 +484,6 @@ def demo():
 
     fs = 1000
     # Convert ADC values to millivolts
-    ecg_mv = ECG.convert_adc_to_voltage(raw_signal)
 
     # Allow the user to select the mode ("all" or "qrs")
     mode = input("Enter preprocessing mode ('all' for entire heart complex, 'qrs' for QRS complex only): ").strip().lower()
@@ -427,7 +492,7 @@ def demo():
         return
 
     # Preprocess the signal based on the selected mode
-    preprocessed_signal = ECG.preprocess_signal(ecg_mv, fs, mode=mode)
+    preprocessed_signal = ECG.preprocess_signal(raw_signal, fs, mode=mode, normalize=True)
 
     # Extract heart rate
     heart_rate = ECG.extract_heart_rate(preprocessed_signal, fs, mode=mode)

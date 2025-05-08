@@ -132,7 +132,7 @@ def main():
     mode = input("Type 'live' or 'static': ").strip().lower()
     live = mode == "live"
 
-    fs = 5000
+    fs = 500
     duration = 100
     window = 5  # Example: set window size to 2 seconds for live mode
     t = np.linspace(0, duration, int(fs * duration))
