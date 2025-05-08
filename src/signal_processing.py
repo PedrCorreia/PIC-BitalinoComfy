@@ -3,8 +3,15 @@ from scipy import sparse
 from scipy.sparse.linalg import spsolve
 import numpy as np
 import time
-import torch
-import cupy as cp
+try:
+    import torch
+except ImportError:
+    torch = None
+
+try:
+    import cupy as cp
+except ImportError:
+    cp = None
 from scipy.signal import detrend
 
 
@@ -155,6 +162,13 @@ class NumpySignalProcessor:
         with open(file_path, "r") as f:
             data = json.load(f)
         return np.array([frame["data"][0] for frame in data])  # Extract first channel
+
+    @staticmethod
+    def deque_to_numpy(deq):
+        """
+        Efficiently converts a deque to a NumPy array (static method).
+        """
+        return np.fromiter(deq, dtype=float, count=len(deq))
 
 
 class TorchSignalProcessor:
