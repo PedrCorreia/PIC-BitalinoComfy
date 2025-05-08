@@ -62,9 +62,6 @@ class RR:
         freqs_raw, psd_raw = NumpySignalProcessor.compute_psd_numpy(raw, fs)
         freqs_preprocessed, psd_preprocessed = NumpySignalProcessor.compute_psd_numpy(preprocessed, fs)
         freqs_filtered, psd_filtered = NumpySignalProcessor.compute_psd_numpy(filtered, fs)
-        psd_raw /= np.max(psd_raw)
-        psd_preprocessed /= np.max(psd_preprocessed)
-        psd_filtered /= np.max(psd_filtered)
         duration = len(raw) / fs
 
         app = QtWidgets.QApplication.instance()
@@ -91,7 +88,7 @@ class RR:
         p2.setLabel('left', "<span style='color:white'>Amplitude</span>")
         p2.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
 
-        # Filtered signal with peaks, valleys, and deep breaths plot
+        # Filtered signal with peaks, valleys, and deep brhzeaths plot
         p3 = win.addPlot(row=2, col=0, title="<b>Filtered Signal with Peaks, Valleys, and Deep Breaths</b>")
         p3.plot(time_np, filtered, pen=pg.mkPen(color=(255, 170, 0), width=2))
         if len(peaks) > 0:
@@ -122,8 +119,8 @@ class RR:
         p4.plot(freqs_raw, psd_raw, pen=pg.mkPen(color=(100, 200, 255), width=1.2))
         p4.plot(freqs_preprocessed, psd_preprocessed, pen=pg.mkPen(color=(255, 255, 0), width=1.2))
         p4.plot(freqs_filtered, psd_filtered, pen=pg.mkPen(color=(255, 170, 0), width=2))
-        p4.setLabel('left', "<span style='color:white'>Normalized Power</span>")
-        p4.setLabel('bottom', "<span style='color:white'>Frequency (Hz)</span>")
+        p4.setLabel('left', "<span style='color:white'>PSD [V**2/Hz]</span>")
+        p4.setLabel('bottom', "<span style='color:white'>Frequency [Hz]</span>")
         p4.showGrid(x=True, y=True, alpha=0.3)
 
         app.exec()

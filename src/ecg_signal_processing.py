@@ -309,6 +309,14 @@ class ECG:
         # Calculate the duration of the signal
         duration = len(raw) / fs
 
+        # Calculate PSD for all signals using your own method
+        f_raw, psd_raw = NumpySignalProcessor.compute_psd_numpy(raw, fs)
+        f_artifact_removed, psd_artifact_removed = NumpySignalProcessor.compute_psd_numpy(artifact_removed, fs)
+        f_filtered, psd_filtered = NumpySignalProcessor.compute_psd_numpy(filtered, fs)
+        # Apply baseline correction using NumpySignalProcessor
+        baseline_corrected = NumpySignalProcessor.correct_baseline(filtered, method="als", lam=1e6, p=0.01, niter=10)
+        f_baseline_corrected, psd_baseline_corrected = NumpySignalProcessor.compute_psd_numpy(baseline_corrected, fs)
+
         app = QtWidgets.QApplication.instance()
         if app is None:
             app = QtWidgets.QApplication([])
@@ -319,22 +327,6 @@ class ECG:
         pg.setConfigOption('background', 'k')
         pg.setConfigOption('foreground', 'w')
 
-        # Calculate PSD for all signals
-        f_raw, psd_raw = welch(raw, fs, nperseg=1024)
-        f_artifact_removed, psd_artifact_removed = welch(artifact_removed, fs, nperseg=1024)
-        f_filtered, psd_filtered = welch(filtered, fs, nperseg=1024)
-        # Apply baseline correction using NumpySignalProcessor
-        baseline_corrected = NumpySignalProcessor.correct_baseline(filtered, method="als", lam=1e6, p=0.01, niter=10)
-
-        f_baseline_corrected, psd_baseline_corrected = welch(baseline_corrected, fs, nperseg=1024)
-
-        # Normalize PSDs for comparison
-        psd_raw /= np.max(psd_raw)
-        psd_artifact_removed /= np.max(psd_artifact_removed)
-        psd_filtered /= np.max(psd_filtered)
-        psd_baseline_corrected /= np.max(psd_baseline_corrected)
-
-        # Row 0: Raw and Artifact-Removed Signals
         p1 = win.addPlot(row=0, col=0, title="<b>Raw ECG Signal</b>")
         p1.plot(time_np, raw, pen=pg.mkPen(color=(100, 200, 255), width=1.2), name="Raw Signal")
         p1.showGrid(x=True, y=True, alpha=0.3)
@@ -347,7 +339,6 @@ class ECG:
         p2.setLabel('left', "<span style='color:white'>Amplitude</span>")
         p2.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
 
-        # Row 1: Filtered Signal and PSD
         p3 = win.addPlot(row=1, col=0, title="<b>Filtered ECG Signal with R-Peaks</b>")
         p3.plot(time_np, filtered, pen=pg.mkPen(color=(255, 170, 0), width=2), name="Filtered Signal")
         if len(r_peaks) > 0:
@@ -357,15 +348,23 @@ class ECG:
         p3.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
 
         p4 = win.addPlot(row=1, col=1, title="<b>Power Spectral Density (PSD)</b>")
-        p4.plot(f_raw, psd_raw, pen=pg.mkPen(color=(100, 200, 255), width=1.2), name="Raw Signal PSD")
-        p4.plot(f_artifact_removed, psd_artifact_removed, pen=pg.mkPen(color=(255, 255, 0), width=1.2), name="Artifact-Removed PSD")
-        p4.plot(f_filtered, psd_filtered, pen=pg.mkPen(color=(255, 170, 0), width=2), name="Filtered PSD")
-        p4.plot(f_baseline_corrected, psd_baseline_corrected, pen=pg.mkPen(color=(128, 0, 128), width=1.5), name="Baseline-Corrected PSD")
-        p4.showGrid(x=True, y=True, alpha=0.3)
-        p4.setLabel('left', "<span style='color:white'>Normalized Power</span>")
-        p4.setLabel('bottom', "<span style='color:white'>Frequency (Hz)</span>")
+        # Normalize PSDs before plotting
+        def norm_psd(psd):
+            max_val = np.max(psd) if len(psd) > 0 else 1
+            return psd / max_val if max_val != 0 else psd
 
-        # Row 2: Baseline-Corrected Signal and Poincaré Plot
+        if len(f_raw) > 0 and len(psd_raw) > 0 and len(f_raw) == len(psd_raw):
+            p4.plot(f_raw, norm_psd(psd_raw), pen=pg.mkPen(color=(100, 200, 255), width=1.2))
+        if len(f_artifact_removed) > 0 and len(psd_artifact_removed) > 0 and len(f_artifact_removed) == len(psd_artifact_removed):
+            p4.plot(f_artifact_removed, norm_psd(psd_artifact_removed), pen=pg.mkPen(color=(255, 255, 0), width=1.2))
+        if len(f_filtered) > 0 and len(psd_filtered) > 0 and len(f_filtered) == len(psd_filtered):
+            p4.plot(f_filtered, norm_psd(psd_filtered), pen=pg.mkPen(color=(255, 170, 0), width=2))
+        if len(f_baseline_corrected) > 0 and len(psd_baseline_corrected) > 0 and len(f_baseline_corrected) == len(psd_baseline_corrected):
+            p4.plot(f_baseline_corrected, norm_psd(psd_baseline_corrected), pen=pg.mkPen(color=(128, 0, 128), width=1.5))
+        p4.setLabel('left', "<span style='color:white'>Normalized PSD</span>")
+        p4.setLabel('bottom', "<span style='color:white'>Frequency [Hz]</span>")
+        p4.showGrid(x=True, y=True, alpha=0.3)
+
         p5 = win.addPlot(row=2, col=0, title="<b>Baseline-Corrected Filtered Signal</b>")
         p5.plot(time_np, baseline_corrected, pen=pg.mkPen(color=(128, 0, 128), width=2), name="Baseline-Corrected Signal")
         p5.showGrid(x=True, y=True, alpha=0.3)
@@ -380,7 +379,6 @@ class ECG:
             p6.setLabel('left', "<span style='color:white'>RR(n+1) (s)</span>")
             p6.setLabel('bottom', "<span style='color:white'>RR(n) (s)</span>")
 
-        # Side Column: Relevant Information and Legend
         info_text = f"<span style='font-size:10pt'><b>Heart Rate:</b> <span style='color:#ffae00'>{heart_rate:.2f}</span> bpm<br>"
         info_text += f"<b>SDNN:</b> <span style='color:#ffae00'>{hrv_metrics['SDNN']:.2f}</span> s<br>"
         info_text += f"<b>RMSSD:</b> <span style='color:#ffae00'>{hrv_metrics['RMSSD']:.2f}</span> s<br>"
@@ -402,7 +400,7 @@ class ECG:
             "<span style='color:#ffff00'>Poincaré Points (Yellow Circles)</span>"
         )
         legend_label = pg.LabelItem(legend_text, justify='left', size='10pt')
-        win.addItem(legend_label, row=3, col=2, rowspan=2)  # Place legend in the side column
+        win.addItem(legend_label, row=3, col=2, rowspan=2)
 
         app.exec()
 

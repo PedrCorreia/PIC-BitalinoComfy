@@ -68,42 +68,61 @@ class NumpySignalProcessor:
     def find_peaks(signal, fs, window=None, prominence=None, threshold=None):
         """
         Finds peaks in the signal using NumPy, with an optional threshold.
-        
+
         Parameters:
         - signal: Input signal (array).
         - fs: Sampling frequency (not used directly but kept for consistency).
         - window: Size of the sliding window for peak detection.
         - prominence: Minimum prominence of peaks.
         - threshold: Optional absolute threshold for peak selection.
-        
+
         Returns:
         - indices: Indices of the detected peaks.
         """
         N = len(signal)
         if window is None:
-            window = max(1, int(0.01 * N))
+            window = max(1, int(0.01 * N))  # Default window is 1% of signal length
         if prominence is None:
-            prominence = 0.1 * np.std(signal)
+            prominence = 0.1 * np.std(signal)  # Default prominence is 10% of std deviation
         mean = np.mean(signal)
+        # Pad the signal at both ends to handle edge effects
         padded = np.pad(signal, (window, window), mode='edge')
+        # Create a sliding window view of the signal
         shape = (N, 2 * window + 1)
         strides = (padded.strides[0], padded.strides[0])
         windows = np.lib.stride_tricks.as_strided(padded, shape=shape, strides=strides)
+        # Find the maximum value in each window
         max_in_window = np.max(windows, axis=1)
+        # A peak is a point that is the maximum in its window and above mean+prominence
         is_peak = (signal >= max_in_window) & (signal > mean + prominence)
-        
-        # Apply optional threshold if provided
+
+        # If a threshold is provided, further require the peak to be above this value
         if threshold is not None:
             is_peak &= (signal > threshold)
-        
+
+        # Return the indices of detected peaks
         return np.flatnonzero(is_peak)
 
     @staticmethod
-    def compute_psd_numpy(signal, fs):
+    def compute_psd_numpy(signal, fs, nperseg=None, noverlap=None, window='hann', detrend='constant'):
         """
-        Computes the power spectral density using Welch's method.
+        Computes the power spectral density using Welch's method with optional parameters for optimization.
         """
-        freqs, psd = welch(signal, fs=fs, nperseg=min(256, len(signal)))
+        if nperseg is None:
+            # Use a larger segment for longer signals, but not more than 4096
+            nperseg = min(4096, max(256, len(signal) // 8))
+        if noverlap is None:
+            noverlap = nperseg // 2  # 50% overlap is typical
+        freqs, psd = welch(
+            signal,
+            fs=fs,
+            nperseg=nperseg,
+            noverlap=noverlap,
+            window=window,
+            detrend=detrend,
+            scaling='density',
+            average='mean'
+        )
         return freqs, psd
 
     @staticmethod
@@ -119,16 +138,30 @@ class NumpySignalProcessor:
     def baseline_als_optimized(y, lam, p, niter=10):
         """
         Optimized baseline correction using Asymmetric Least Squares (ALS).
+
+        Parameters:
+        - y: Input signal (1D NumPy array).
+        - lam: Smoothing parameter (higher values make the baseline smoother).
+        - p: Asymmetry parameter (between 0 and 1, typically small, e.g., 0.01).
+        - niter: Number of iterations (default: 10).
+
+        Returns:
+        - z: Estimated baseline (same shape as y).
         """
         L = len(y)
+        # Construct the second-order difference matrix
         D = sparse.diags([1, -2, 1], [0, -1, -2], shape=(L, L - 2))
-        D = lam * D.dot(D.transpose())  # Precompute this term
+        D = lam * D.dot(D.transpose())  # Precompute this term for efficiency
+        # Initialize weights to all ones for the first iteration
         w = np.ones(L)
+        # Create a sparse diagonal matrix W with the current weights on the diagonal
         W = sparse.spdiags(w, 0, L, L)
         for i in range(niter):
-            W.setdiag(w)  # Update diagonal values
+            W.setdiag(w)  # Update diagonal values with current weights
             Z = W + D
+            # Solve the linear system to estimate the baseline
             z = spsolve(Z, w * y)
+            # Update weights: p for points above baseline, (1-p) for below
             w = p * (y > z) + (1 - p) * (y < z)
         return z
 
