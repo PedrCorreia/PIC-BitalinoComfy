@@ -29,7 +29,7 @@ class PlotNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "data": ("LIST",),  # Input deque of (timestamp, value) or (timestamp, value, is_peak) tuples
+                "data": ("ARRAY",),  # Input deque of (timestamp, value) or (timestamp, value, is_peak) tuples
                 "height": ("FLOAT", {
                     "default": cls.DEFAULT_HEIGHT,
                     "min": 100,
