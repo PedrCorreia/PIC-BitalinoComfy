@@ -1,11 +1,8 @@
 import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets
-
-
 from signal_processing import NumpySignalProcessor
 import os
-
 
 class RR:
 

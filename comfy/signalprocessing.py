@@ -1,12 +1,14 @@
-from ..src.signalprocessing import SignalProcessing  # Use SignalProcessing class
-
+from ..src.signal_processing import NumpySignalProcessor  # Use NumpySignalProcessor class
+import numpy as np
+from collections import deque
+import json  # For loading JSON files
 
 class MovingAverageFilter:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "Buffer": ("DEQUE",),  # Input buffer as a deque
+                "Buffer": ("DEQUE",),  # Input buffer as a deque of [timestamp, value] pairs
                 "Window_size": ("INT", {"default": 3}),  # Window size for moving average
             }
         }
@@ -14,57 +16,28 @@ class MovingAverageFilter:
     RETURN_TYPES = ("DEQUE",)  # Return the filtered data as a deque
     RETURN_NAMES = ("Filtered_Data",)
     FUNCTION = "apply_filter"
-    CATEGORY = "PIC/Filters"
+    CATEGORY = "Signal Processing/Filters"
 
     def apply_filter(self, Buffer, Window_size):
-        signal_processor = SignalProcessing(signal=Buffer)
-        return signal_processor.moving_average(Window_size)
+        # Extract values from the deque
+        data = np.array(Buffer)
+        timestamps, values = data[:, 0], data[:, 1]
 
-class SignalThresholdFilter:
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "Buffer": ("DEQUE",),  # Input buffer as a deque
-                "Threshold": ("FLOAT", {"default": 0.0}),  # Threshold value
-            }
-        }
+        # Apply moving average to the values
+        signal_processor = NumpySignalProcessor(signal=values)
+        filtered_values = signal_processor.moving_average(Window_size)
 
-    RETURN_TYPES = ("DEQUE",)  # Return the filtered data as a deque
-    RETURN_NAMES = ("Filtered_Data",)
-    FUNCTION = "apply_filter"
-    CATEGORY = "PIC/Filters"
+        # Combine timestamps with filtered values
+        filtered_data = np.column_stack((timestamps, filtered_values))
+        return deque(filtered_data.tolist())
 
-    def apply_filter(self, Buffer, Threshold):
-        signal_processor = SignalProcessing(signal=Buffer)
-        return signal_processor.filter_threshold(Threshold)
-class SignalPLL:
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "Buffer": ("DEQUE",),  # Input signal buffer as a deque
-                "Reference_Signal": ("DEQUE",),  # Reference signal buffer as a deque
-                "Loop_Gain": ("FLOAT", {"default": 0.1, "min": 0.01, "max": 1.0, "step": 0.01}),
-                "Initial_Phase": ("FLOAT", {"default": 0.0, "min": -np.pi, "max": np.pi, "step": 0.01}),
-            }
-        }
-
-    RETURN_TYPES = ("DEQUE",)  # Return the PLL-processed signal as a deque
-    RETURN_NAMES = ("PLL_Output",)
-    FUNCTION = "apply_pll"
-    CATEGORY = "PIC/Filters"
-
-    def apply_pll(self, Buffer, Reference_Signal, Loop_Gain, Initial_Phase):
-        signal_processor = SignalProcessing(signal=Buffer)
-        return signal_processor.pll(reference_signal=Reference_Signal, loop_gain=Loop_Gain, initial_phase=Initial_Phase)
 
 class SignalFilter:
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "Buffer": ("DEQUE",),  # Input buffer as a deque
+                "Buffer": ("DEQUE",),  # Input buffer as a deque of [timestamp, value] pairs
                 "Filter_Type": ("STRING", {  # Select filter type
                     "default": "low",
                     "choices": ["low", "high", "band"]
@@ -82,15 +55,51 @@ class SignalFilter:
     RETURN_TYPES = ("DEQUE",)  # Return the filtered data as a deque
     RETURN_NAMES = ("Filtered_Data",)
     FUNCTION = "apply_filter"
-    CATEGORY = "PIC/Filters"
+    CATEGORY = "Signal Processing/Advanced Filters"
 
     def apply_filter(self, Buffer, Filter_Type, Cutoff_Freq, Band_Cutoff_Freqs, Sampling_Freq):
-        signal_processor = SignalProcessing(signal=Buffer)
+        # Extract values from the deque
+        data = np.array(Buffer)
+        timestamps, values = data[:, 0], data[:, 1]
+
+        # Apply the selected filter to the values
+        signal_processor = NumpySignalProcessor(signal=values)
         if Filter_Type == "low":
-            return signal_processor.low_pass_filter(Cutoff_Freq, Sampling_Freq)
+            filtered_values = NumpySignalProcessor.lowpass_filter(values, Cutoff_Freq, Sampling_Freq)
         elif Filter_Type == "high":
-            return signal_processor.high_pass_filter(Cutoff_Freq, Sampling_Freq)
+            filtered_values = NumpySignalProcessor.highpass_filter(Cutoff_Freq, Sampling_Freq)
         elif Filter_Type == "band":
-            return signal_processor.band_pass_filter(Band_Cutoff_Freqs[0], Band_Cutoff_Freqs[1], Sampling_Freq)
+            filtered_values = NumpySignalProcessor.bandpass_filter(Band_Cutoff_Freqs[0], Band_Cutoff_Freqs[1], Sampling_Freq)
         else:
             raise ValueError(f"Invalid Filter_Type: {Filter_Type}")
+
+        # Combine timestamps with filtered values
+        filtered_data = np.column_stack((timestamps, filtered_values))
+        return deque(filtered_data.tolist())
+
+
+class LoadSignalNode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "File_Path": ("STRING",),  # Path to the JSON file
+            }
+        }
+
+    RETURN_TYPES = ("DEQUE",)  # Return the loaded signal as a deque
+    RETURN_NAMES = ("Loaded_Signal",)
+    FUNCTION = "load_signal"
+    CATEGORY = "Signal Processing/Utilities"
+
+    def load_signal(self, File_Path):
+        # Load the JSON file
+        with open(File_Path, 'r') as file:
+            data = json.load(file)
+
+        # Ensure the data is in the format [[timestamp, value], ...]
+        if not isinstance(data, list) or not all(isinstance(item, list) and len(item) == 2 for item in data):
+            raise ValueError("Invalid JSON format. Expected a list of [timestamp, value] pairs.")
+
+        # Convert to deque
+        return deque(data)

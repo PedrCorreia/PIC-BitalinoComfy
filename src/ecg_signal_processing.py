@@ -12,7 +12,6 @@ class ECG:
     @staticmethod
     def detect_r_peaks(filtered_signal, fs, mode="qrs", prominence=None):
         """
-        Detects R-peaks in the filtered ECG signal.
         
         Parameters:
         - filtered_signal: The filtered ECG signal.
@@ -38,7 +37,7 @@ class ECG:
         # Ensure the window parameter passed to find_peaks is an integer
         r_peaks = NumpySignalProcessor.find_peaks(smoothed_envelope, fs, threshold=threshold, prominence=prominence)
         
-        return r_peaks
+        return np.array(r_peaks, dtype=int)
 
     @staticmethod
     def validate_r_peaks(envelope, r_peaks, mode="qrs", dynamic_factor=1.5, fixed_threshold=0.8):

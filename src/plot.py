@@ -20,13 +20,13 @@ class Plot:
     def plot(self, signals):
         """
         Plot signals using the selected mode (live or static).
-        Accepts 1, 2, or 3 signals (as list or single array/callable).
+        Accepts 1, 2, 3, or 4 signals (as list or single array/callable).
         """
-        # Ensure signals is a list of 1-3 items
+        # Ensure signals is a list of 1-4 items
         if not isinstance(signals, (list, tuple)):
             signals = [signals]
-        if len(signals) > 3:
-            signals = signals[:3]
+        if len(signals) > 4:
+            signals = signals[:4]
         if self.live:
             self.live_pyqtgraph(signals)
         else:
@@ -35,14 +35,14 @@ class Plot:
     def live_pyqtgraph(self, signals):
         """
         Live plot multiple signals using PyQtGraph, updating in real time.
-        signals: list of deques of (timestamp, value) pairs.
+        signals: list of deques of (timestamp, value) or (timestamp, value, is_peak) pairs.
         """
         app = QApplication.instance() or QApplication(sys.argv)
         win = pg.GraphicsLayoutWidget(show=True)
         n_channels = len(signals)
         plots = []
         curves = []
-        # Store last plotted timestamp for each channel
+        peak_markers = []  # To store peak markers for each signal
         self._last_plotted_ts = [None] * n_channels
 
         for i in range(n_channels):
@@ -56,44 +56,48 @@ class Plot:
             curve = p.plot(pen=pg.mkPen(width=2))
             plots.append(p)
             curves.append(curve)
+            peak_markers.append(pg.ScatterPlotItem(size=10, brush=pg.mkBrush(255, 0, 0)))
+            p.addItem(peak_markers[-1])
 
         def update():
             for i, sig in enumerate(signals):
-                data = sig() if callable(sig) else sig
+                data = list(sig)  # Convert deque to a list
                 if not data or len(data) == 0:
                     curves[i].setData([], [])
+                    peak_markers[i].setData([], [])
                     self._last_plotted_ts[i] = None
                     continue
                 arr = np.array(data)
-                if arr.ndim != 2 or arr.shape[1] != 2:
+                if arr.ndim < 2 or arr.shape[1] < 2:
                     curves[i].setData([], [])
+                    peak_markers[i].setData([], [])
                     self._last_plotted_ts[i] = None
                     continue
 
-                # Only plot new points since last update, optimized with numpy
-                window = self.window  # seconds
-                # Keep only points within the last 'window' seconds
-                max_time = arr[-1, 0]
+                # Handle optional is_peak flag
+                t_vals = arr[:, 0]
+                y_vals = arr[:, 1]
+                peaks = arr[:, 2] if arr.shape[1] > 2 else np.zeros_like(y_vals)
+
+              
+                window = self.window  
+                max_time = t_vals[-1]
                 min_time = max_time - window
-                in_window = arr[:, 0] >= min_time
-                arr = arr[in_window]
+                in_window = t_vals >= min_time
+                t_vals = t_vals[in_window]
+                y_vals = y_vals[in_window]
+                peaks = peaks[in_window]
+
                 if self._last_plotted_ts[i] is not None:
-                    idx = np.searchsorted(arr[:, 0], self._last_plotted_ts[i], side='right')
-                    t_vals = arr[idx:, 0]
-                    y_vals = arr[idx:, 1]
-                    old_t, old_y = curves[i].getData()
-                    if old_t is not None and len(old_t) > 0:
-                        # Keep only old points within the window
-                        keep_idx = old_t >= min_time
-                        old_t = old_t[keep_idx]
-                        old_y = old_y[keep_idx]
-                        t_vals = np.concatenate((old_t, t_vals))
-                        y_vals = np.concatenate((old_y, y_vals))
-                else:
-                    t_vals = arr[:, 0]
-                    y_vals = arr[:, 1]
+                    idx = np.searchsorted(t_vals, self._last_plotted_ts[i], side='right')
+                    t_vals = t_vals[idx:]
+                    y_vals = y_vals[idx:]
+                    peaks = peaks[idx:]
+
                 curves[i].setData(t_vals, y_vals)
-                self._last_plotted_ts[i] = arr[-1, 0]
+                peak_markers[i].setData(t_vals[peaks > 0], y_vals[peaks > 0])
+                self._last_plotted_ts[i] = t_vals[-1] if len(t_vals) > 0 else None
+
         timer = pg.QtCore.QTimer()
         timer.timeout.connect(update)
         timer.start(30)
@@ -102,13 +106,11 @@ class Plot:
     def static_pyqtgraph(self, signals):
         """
         Static plot of multiple signals using PyQtGraph.
-        Call this method again with new data to update the plot.
-        signals: list of arrays.
+        signals: list of arrays with (timestamp, value) or (timestamp, value, is_peak).
         """
         app = QApplication.instance() or QApplication(sys.argv)
         win = pg.GraphicsLayoutWidget(show=True)
         n_channels = len(signals)
-        t = np.linspace(0, self.duration, int(self.fs * self.duration))
         for i, sig in enumerate(signals):
             p = win.addPlot(row=i, col=0)
             label = f'Ch {i+1}'
@@ -117,12 +119,21 @@ class Plot:
             p.setLabel('left', label)
             if i == n_channels - 1:
                 p.setLabel('bottom', 'Time (s)')
-            y = np.asarray(sig)
-            if len(y) > len(t):
-                y = y[-len(t):]
-            elif len(y) < len(t):
-                y = np.pad(y, (len(t)-len(y), 0), mode='constant')
-            p.plot(t, y, pen=pg.mkPen(width=2))
+            
+            # Ensure signal is 2D with timestamps
+            arr = np.array(sig)
+            print("Warning: Signal is 1D, assuming evenly spaced timestamps.")
+            if arr.ndim == 1:
+                t_vals = np.linspace(0, self.duration, len(arr))
+                arr = np.column_stack((t_vals, arr))
+            
+            t_vals = arr[:, 0]
+            y_vals = arr[:, 1]
+            peaks = arr[:, 2] if arr.shape[1] > 2 else np.zeros_like(y_vals)
+            p.plot(t_vals, y_vals, pen=pg.mkPen(width=2))
+            peak_scatter = pg.ScatterPlotItem(size=10, brush=pg.mkBrush(255, 0, 0))
+            peak_scatter.setData(t_vals[peaks > 0], y_vals[peaks > 0])
+            p.addItem(peak_scatter)
         app.exec()
 
 def main():
@@ -132,9 +143,9 @@ def main():
     mode = input("Type 'live' or 'static': ").strip().lower()
     live = mode == "live"
 
-    fs = 500
+    fs = 1000
     duration = 100
-    window = 5  # Example: set window size to 2 seconds for live mode
+    window = 10  # Example: set window size to 2 seconds for live mode
     t = np.linspace(0, duration, int(fs * duration))
     # Generate example signals
     # For both static and live, generate the same signals
@@ -196,8 +207,11 @@ def main():
                         val = sig2[sample_idx]
                     else:
                         val = sig3[sample_idx]
+                    # Append (timestamp, value) pair to the deque
                     dq.append((rel_time, val))
-                time.sleep(1/fs)
+                    print(f"Thread {idx}: Appended value {val} at time {rel_time:.2f}s")
+                    print(dq)
+                
 
         threads = [
             threading.Thread(target=acq_thread, args=(dq1, 0), daemon=True),
@@ -216,6 +230,12 @@ def main():
             # for th in threads:
             #     th.join()
     else:
+        # Ensure synthetic signals are 2D arrays with timestamps for static mode
+        sig1 = np.column_stack((t, sig1))  # Add timestamps to sig1
+        sig2 = np.column_stack((t, sig2))  # Add timestamps to sig2
+        sig3 = np.column_stack((t, sig3))  # Add timestamps to sig3
+
+        # Pass the properly formatted signals to the Plot class
         plotter = Plot(fs=fs, duration=duration, live=live)
         plotter.plot([sig1, sig2, sig3])
 
