@@ -83,7 +83,7 @@ class NumpySignalProcessor:
         if window is None:
             window = max(1, int(0.01 * N))  # Default window is 1% of signal length
         if prominence is None:
-            prominence = 0.1 * np.std(signal)  # Default prominence is 10% of std deviation
+            prominence = 0.01 * np.std(signal)  # Default prominence is 10% of std deviation
         mean = np.mean(signal)
         # Pad the signal at both ends to handle edge effects
         padded = np.pad(signal, (window, window), mode='edge')

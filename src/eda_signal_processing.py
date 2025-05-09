@@ -59,6 +59,34 @@ class EDA:
         return events
 
     @staticmethod
+    def validate_events(phasic_signal, events, envelope_smooth=5, envelope_threshold=0.5, amplitude_proximity=0.1):
+        """
+        Validates EDA events using a smoothed envelope and amplitude thresholding (similar to ECG peak validation).
+
+        Parameters:
+        - phasic_signal: The phasic component of the EDA signal.
+        - events: Indices of detected events.
+        - envelope_smooth: Window size for smoothing the envelope.
+        - envelope_threshold: Fraction of the maximum envelope value to use as a validation threshold.
+        - amplitude_proximity: Maximum allowed difference (fraction of envelope max) between event amplitude and local envelope maximum.
+
+        Returns:
+        - valid_events: Indices of validated events.
+        - smoothed_envelope: The smoothed envelope used for validation.
+        """
+        envelope = np.abs(phasic_signal)
+        smoothed_envelope = NumpySignalProcessor.moving_average(envelope, window_size=envelope_smooth)
+        threshold = envelope_threshold * np.max(smoothed_envelope)
+        valid_events = []
+        for idx in events:
+            if idx < 0 or idx >= len(smoothed_envelope):
+                continue
+            local_env = smoothed_envelope[idx]
+            if phasic_signal[idx] >= threshold and abs(phasic_signal[idx] - local_env) <= amplitude_proximity * local_env:
+                valid_events.append(idx)
+        return np.array(valid_events), smoothed_envelope
+
+    @staticmethod
     def preprocess_signal(signal, fs):
         """
         Preprocesses the EDA signal by filtering and normalizing.
@@ -71,7 +99,7 @@ class EDA:
         - preprocessed_signal: Preprocessed EDA signal.
         """
         # Filtering
-        filtered_signal = NumpySignalProcessor.bandpass_filter(signal, 0.05, 1.0, fs)
+        filtered_signal = NumpySignalProcessor.bandpass_filter(signal, 0.01, 2, fs)
         
         # Normalization
         normalized_signal = NumpySignalProcessor.normalize_signal(filtered_signal)
@@ -104,22 +132,66 @@ class EDA:
         }
 
 if __name__ == "__main__":
-    file_path = "/media/lugo/data/ComfyUI/custom_nodes/PIC_BitalinoComfy/report/test/EDA/signal_data.json"
-    raw_signal = NumpySignalProcessor.load_signal(file_path)  # Use NumpySignalProcessor to load the signal
-    
+    import matplotlib.pyplot as plt
+
+    # Generate synthetic EDA data: periodic Gaussian pulses on a drift
     fs = 1000
+    duration = 10  # seconds
+    t = np.linspace(0, duration, fs * duration)
+    drift = 0.5 * t / duration  # slow drift
+    pulses = np.zeros_like(t)
+    for i in range(1, duration):
+        pulses += np.exp(-0.5 * ((t - i) / 0.05) ** 2)  # Gaussian pulse every second
+    noise = 0.01 * np.random.randn(len(t))
+    synthetic_adc = ((drift + pulses + noise) * 0.132 * (2 ** 10) / 3.3).clip(0, 2 ** 10 - 1)  # simulate ADC values
+
     # Convert ADC values to EDA in micro-Siemens
-    eda_us = EDA.convert_adc_to_eda(raw_signal)
-    
+    eda_us = EDA.convert_adc_to_eda(synthetic_adc)
+
     # Preprocess the signal
     preprocessed_signal = EDA.preprocess_signal(eda_us, fs)
-    
+
     # Extract tonic and phasic components
     tonic, phasic = EDA.extract_tonic_phasic(preprocessed_signal, fs)
-    
+
     # Detect events in the phasic component
     events = EDA.detect_events(phasic)
-    
+
+    # Validate events (ECG-like logic)
+    validated_events, smoothed_envelope = EDA.validate_events(
+        phasic, events, envelope_smooth=15, envelope_threshold=0.5, amplitude_proximity=0.1
+    )
+
     # Calculate EDA metrics
     metrics = EDA.calculate_metrics(preprocessed_signal, tonic, phasic, events, fs)
     print(f"EDA Metrics: {metrics}")
+    print(f"Total detected events: {len(events)}")
+    print(f"Validated events: {len(validated_events)}")
+    if len(validated_events) > 0:
+        print(f"First validated event at t = {t[validated_events[0]]:.3f} s")
+
+    # Plot for visualization
+    plt.figure(figsize=(12, 10))
+    plt.subplot(4, 1, 1)
+    plt.plot(t, eda_us)
+    plt.title("Synthetic EDA Signal (μS)")
+    plt.subplot(4, 1, 2)
+    plt.plot(t, preprocessed_signal)
+    plt.title("Preprocessed EDA Signal")
+    plt.subplot(4, 1, 3)
+    plt.plot(t, tonic, label="Tonic")
+    plt.plot(t, phasic, label="Phasic")
+    plt.legend()
+    plt.title("Tonic and Phasic Components")
+    plt.subplot(4, 1, 4)
+    plt.plot(t, phasic, label="Phasic")
+    plt.plot(t, smoothed_envelope, label="Smoothed Envelope", color="orange")
+    plt.scatter(t[events], phasic[events], color='green', label='Detected Events', marker='o')
+    plt.scatter(t[validated_events], phasic[validated_events], color='magenta', label='Validated Events', marker='^')
+    # Plot bars at event locations (beginning of phasic curves)
+    for ev in validated_events:
+        plt.axvline(t[ev], color='magenta', linestyle='--', alpha=0.5)
+    plt.legend()
+    plt.title("Phasic Component, Envelope, and Events")
+    plt.tight_layout()
+    plt.show()

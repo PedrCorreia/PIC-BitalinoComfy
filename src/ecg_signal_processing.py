@@ -23,66 +23,119 @@ class ECG:
         Returns:
         - r_peaks: Indices of detected R-peaks.
         """
+        
+        envelope = np.abs(hilbert(filtered_signal))
+        smoothed_envelope = NumpySignalProcessor.moving_average(envelope, window_size=5)
+
         if mode == "qrs":
-            threshold = None
+            threshold = 0.30 * np.max(envelope)
         elif mode == "all":
             # Calculate a threshold near the maximum value of the signal
-            threshold = 0.8 * np.max(filtered_signal)
+            threshold = 0.95 * np.max(envelope)
         else:
             raise ValueError("Invalid mode. Use 'qrs' for QRS complex or 'all' for the entire heart complex.")
         
-        r_peaks = NumpySignalProcessor.find_peaks(filtered_signal, fs, threshold=threshold, prominence=prominence)
+        # Ensure the window parameter passed to find_peaks is an integer
+        r_peaks = NumpySignalProcessor.find_peaks(smoothed_envelope, fs, threshold=threshold, prominence=prominence)
+        
         return r_peaks
 
     @staticmethod
-    def validate_r_peaks(signal, r_peaks, fs, envelope_threshold=0.5, smoothing_window=15, amplitude_proximity=0.1):
+    def validate_r_peaks(envelope, r_peaks, mode="qrs", dynamic_factor=1.5, fixed_threshold=0.8):
         """
-        Validates R-peaks by comparing their amplitude to the local envelope maximum.
+        Validates R-peaks dynamically using local envelope statistics for "qrs" mode,
+        and a fixed threshold for "all" mode.
 
         Parameters:
-        - signal: The filtered ECG signal.
+        - envelope: The envelope or smoothed envelope of the ECG signal.
         - r_peaks: Indices of detected R-peaks.
-        - fs: Sampling frequency in Hz.
-        - envelope_threshold: Fraction of the maximum envelope value to use as a validation threshold.
-        - smoothing_window: Window size for smoothing the envelope (default: 50 samples).
-        - amplitude_proximity: Maximum allowed difference (fraction of envelope max) between R-peak amplitude and local envelope maximum.
+        - mode: Validation mode. "qrs" for dynamic thresholding, "all" for fixed thresholding.
+        - dynamic_factor: Multiplier for the dynamic threshold based on local envelope statistics (for "qrs").
+        - fixed_threshold: Fraction of the maximum envelope value to use as a fixed threshold (for "all").
 
         Returns:
         - valid_r_peaks: Indices of validated R-peaks.
         """
-        # Compute the envelope using the Hilbert transform
-        envelope = np.abs(hilbert(signal))
-
-        # Define the validation threshold
-        threshold = envelope_threshold * np.max(envelope)
-
-        # Validate R-peaks: keep those whose amplitude is close to the local envelope maximum and above threshold
         valid_r_peaks = []
-        for idx in r_peaks:
-            if idx < 0 or idx >= len(envelope):
-                continue
-            local_env = envelope[idx]
-            # Allow peaks that are close to the envelope maximum within a tighter proximity range
-            if signal[idx] >= threshold and abs(signal[idx] - local_env) <= amplitude_proximity * local_env:
-                valid_r_peaks.append(idx)
+
+        if mode == "qrs":
+            # future :Dynamic thresholding based on local envelope statistics
+            for idx in r_peaks:
+                if idx < 0 or idx >= len(envelope):
+                    continue
+                # Calculate local mean and standard deviation in a window around the peak
+                window_size = 50  # Adjust window size as needed
+                start = max(0, idx - window_size)
+                end = min(len(envelope), idx + window_size)
+                local_mean = np.mean(envelope[start:end])
+                local_std = np.std(envelope[start:end])
+                dynamic_threshold = local_mean + dynamic_factor * local_std
+
+                # Validate the peak if it exceeds the dynamic threshold
+                if envelope[idx] >= dynamic_threshold:
+                    valid_r_peaks.append(idx)
+
+        elif mode == "all":
+            # Fixed thresholding based on a fraction of the maximum envelope value
+            threshold = fixed_threshold * np.max(envelope)
+            for idx in r_peaks:
+                if idx < 0 or idx >= len(envelope):
+                    continue
+                # Validate the peak if it exceeds the fixed threshold
+                if envelope[idx] >= threshold:
+                    valid_r_peaks.append(idx)
+
+        else:
+            raise ValueError("Invalid mode. Use 'qrs' for dynamic thresholding or 'all' for fixed thresholding.")
 
         return np.array(valid_r_peaks)
 
     @staticmethod
-    def extract_heart_rate(filtered_signal, fs, mode="qrs"):
+    def preprocess_signal(
+        ecg_raw, fs, mode="qrs", 
+        bandpass_low=8, bandpass_high=15, 
+        envelope_smooth=5, 
+        dynamic_factor=1.5, 
+        fixed_threshold=0.8, 
+        validate_peaks=True, 
+        visualization=False
+    ):
         """
-        Extracts the heart rate from the filtered ECG signal.
-        
-        Parameters:
-        - filtered_signal: The filtered ECG signal.
-        - fs: Sampling frequency in Hz.
-        - mode: Detection mode. "qrs" for QRS complex, "all" for the entire heart complex.
-        
+        Modular pipeline: bandpass, envelope, normalization, smoothing, peak detection, validation.
+
         Returns:
-        - heart_rate: The calculated heart rate in beats per minute.
+            normed: normalized and zero-centered bandpassed signal
+            smoothed_envelope: smoothed envelope (if visualization is True)
+            detected_peaks: indices of detected peaks
+            validated_peaks: indices of validated peaks (if validate_peaks is True)
         """
-        r_peaks = ECG.detect_r_peaks(filtered_signal, fs, mode=mode)
-        
+        bandpassed = NumpySignalProcessor.bandpass_filter(ecg_raw, bandpass_low, bandpass_high, fs, order=4)
+        normed = NumpySignalProcessor.normalize_signal(bandpassed)
+        normed = normed - np.mean(normed)
+
+        smoothed_envelope = None
+        if visualization:
+            envelope = np.abs(hilbert(normed))
+            smoothed_envelope = NumpySignalProcessor.moving_average(envelope, window_size=envelope_smooth)
+
+        detected_peaks = ECG.detect_r_peaks(bandpassed, fs, mode=mode)
+        validated_peaks = None
+        if validate_peaks:
+            envelope = np.abs(hilbert(normed))
+            smoothed_envelope = NumpySignalProcessor.moving_average(envelope, window_size=envelope_smooth)
+            validated_peaks = ECG.validate_r_peaks(
+                smoothed_envelope, detected_peaks, mode=mode, dynamic_factor=dynamic_factor, fixed_threshold=fixed_threshold
+            )
+
+        return normed, smoothed_envelope, detected_peaks, validated_peaks
+
+    @staticmethod
+    def extract_heart_rate(signal, fs, mode="qrs", r_peaks=None):
+        """
+        Extracts the heart rate from the filtered ECG signal or from provided r_peaks.
+        """
+        if r_peaks is None:
+            r_peaks = ECG.detect_r_peaks(signal, fs, mode=mode)
         if len(r_peaks) < 2:
             return 0
         rr_intervals = np.diff(r_peaks) / fs
@@ -143,19 +196,21 @@ class ECG:
         return lf_power / hf_power if hf_power > 0 else 0
 
     @staticmethod
-    def calculate_hrv(filtered_signal, fs, mode="qrs"):
+    def calculate_hrv(signal, fs, mode="qrs", r_peaks=None):
         """
-        Calculates Heart Rate Variability (HRV) metrics from the filtered ECG signal.
+        Calculates HRV metrics from the filtered ECG signal or from provided r_peaks.
         
         Parameters:
-        - filtered_signal: The filtered ECG signal.
+        - signal: The filtered ECG signal.
         - fs: Sampling frequency in Hz.
         - mode: Detection mode. "qrs" for QRS complex, "all" for the entire heart complex.
+        - r_peaks: Indices of detected R-peaks (optional).
         
         Returns:
         - hrv_metrics: A dictionary containing HRV metrics (e.g., SDNN, RMSSD, LF, HF, LF/HF).
         """
-        r_peaks = ECG.detect_r_peaks(filtered_signal, fs, mode=mode)
+        if r_peaks is None:
+            r_peaks = ECG.detect_r_peaks(signal, fs, mode=mode)
         
         if len(r_peaks) < 2:
             return {"SDNN": 0, "RMSSD": 0, "LF": 0, "HF": 0, "LF/HF": 0, "PSD_F": np.array([]), "PSD": np.array([])}
@@ -255,40 +310,6 @@ class ECG:
         return cleaned_signal
 
     @staticmethod
-    def preprocess_signal(ecg_raw, fs, mode="all", normalize=True):
-        """
-        Preprocess ECG signal: artifact removal, filtering, smoothing, normalization.
-
-        Parameters:
-        - ecg_raw: Input ECG signal (array).
-        - fs: Sampling frequency in Hz.
-        - mode: "all" for full complex, "qrs" for QRS complex.
-        - normalize: Whether to normalize the output.
-
-        Returns:
-        - ecg_processed: Preprocessed ECG signal.
-        """
-        signal = ecg_raw
-        if not normalize:
-            signal = ECG.convert_adc_to_voltage(signal, channel_index=0, vcc=3.3, gain=1100)
-
-        if mode == "all":
-            filtered = NumpySignalProcessor.bandpass_filter(signal, 0.5, 40, fs, order=4)
-        elif mode == "qrs":
-            filtered = NumpySignalProcessor.bandpass_filter(signal, 8, 15, fs, order=4)
-        else:
-            raise ValueError("mode must be 'all' or 'qrs'.")
-
-        smoothed = NumpySignalProcessor.moving_average(filtered, window_size=5)
-
-        if normalize:
-            ecg_processed = NumpySignalProcessor.normalize_signal(smoothed)
-        else:
-            ecg_processed = smoothed
-
-        return ecg_processed
-
-    @staticmethod
     def convert_adc_to_voltage(adc_values, channel_index=0, vcc=3.3, gain=1100):
         """
         Converts ADC values to ECG voltage in millivolts, considering channel resolution.
@@ -317,27 +338,26 @@ class ECG:
         return ecg_mv
 
     @staticmethod
-    def plot_signals(raw, artifact_removed, filtered, r_peaks, heart_rate, fs, hrv_metrics):
+    def plot_signals(raw, filtered, r_peaks, heart_rate, fs, hrv_metrics, envelope=None, detected_peaks=None, validated_peaks=None):
         """
-        Plots the raw, filtered ECG signals along with detected R-peaks, PSDs for all signals, LF/HF bands, Poincaré plot, and tachogram.
-        Displays only the first 10 seconds of the signal, but expects full-length processed signals.
+        Plots the raw and filtered ECG signals along with detected R-peaks, validated peaks, envelope, PSDs, LF/HF bands, Poincaré plot, and tachogram.
+        Displays only the first 10 seconds of the signal.
+        All parameters must be precomputed and passed in.
         """
-        # Use the full-length signals for all calculations/statistics
         total_samples = len(raw)
         total_duration = total_samples / fs
 
-        # For plotting, show only the first 10 seconds
         max_samples = int(10 * fs)
         plot_slice = slice(0, max_samples)
         raw_plot = raw[plot_slice]
         filtered_plot = filtered[plot_slice]
         time_np = np.arange(len(raw_plot)) / fs
 
-        # Convert raw to millivolts for plotting
         raw_mv_plot = ECG.convert_adc_to_voltage(raw_plot)
-
-        # Filter R-peaks to the 10-second window for plotting
-        r_peaks_plot = r_peaks[r_peaks < max_samples]
+        r_peaks_plot = r_peaks[r_peaks < max_samples] if r_peaks is not None else np.array([])
+        detected_peaks_plot = detected_peaks[detected_peaks < max_samples] if detected_peaks is not None else np.array([])
+        validated_peaks_plot = validated_peaks[validated_peaks < max_samples] if validated_peaks is not None else np.array([])
+        envelope_plot = envelope[plot_slice] if envelope is not None else None
 
         app = QtWidgets.QApplication.instance()
         if app is None:
@@ -349,25 +369,32 @@ class ECG:
         pg.setConfigOption('background', 'k')
         pg.setConfigOption('foreground', 'w')
 
-        # Plot raw signal in ADC units
+        # Raw signal in ADC units
         p1 = win.addPlot(row=0, col=0, title="<b>Raw ECG Signal (ADC Units)</b>")
         p1.plot(time_np, raw_plot, pen=pg.mkPen(color=(100, 200, 255), width=1.2), name="Raw Signal (ADC)")
         p1.showGrid(x=True, y=True, alpha=0.3)
         p1.setLabel('left', "<span style='color:white'>ADC Value</span>")
         p1.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
 
-        # Plot raw signal in millivolts
+        # Raw signal in millivolts
         p1_mv = win.addPlot(row=0, col=1, title="<b>Raw ECG Signal (mV)</b>")
         p1_mv.plot(time_np, raw_mv_plot, pen=pg.mkPen(color=(0, 255, 255), width=1.2), name="Raw Signal (mV)")
         p1_mv.showGrid(x=True, y=True, alpha=0.3)
         p1_mv.setLabel('left', "<span style='color:white'>Amplitude (mV)</span>")
         p1_mv.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
 
-        # Plot filtered/processed signal with R-peaks
-        p2 = win.addPlot(row=1, col=0, title="<b>Processed ECG Signal with R-Peaks</b>")
+        # Filtered/processed signal with R-peaks, detected peaks, validated peaks, and envelope
+        p2 = win.addPlot(row=1, col=0, title="<b>Processed ECG Signal with Peaks and Envelope</b>")
         p2.plot(time_np, filtered_plot, pen=pg.mkPen(color=(255, 170, 0), width=2), name="Filtered Signal")
-        if len(r_peaks_plot) > 0:
-            p2.plot(time_np[r_peaks_plot], filtered_plot[r_peaks_plot], pen=None, symbol='x', symbolBrush=(255, 80, 80), symbolPen='r', symbolSize=14, name="R-Peaks")
+        # Envelope
+        if envelope_plot is not None:
+            p2.plot(time_np, envelope_plot, pen=pg.mkPen(color=(0, 255, 0), width=1.5), name="Envelope")
+        # Detected peaks (green circles) on envelope
+        if detected_peaks is not None and len(detected_peaks_plot) > 0 and envelope_plot is not None:
+            p2.plot(time_np[detected_peaks_plot], envelope_plot[detected_peaks_plot], pen=None, symbol='o', symbolBrush=(0, 255, 0), symbolPen='g', symbolSize=10, name="Detected Peaks")
+        # Validated peaks (magenta triangles) on envelope
+        if validated_peaks is not None and len(validated_peaks_plot) > 0 and envelope_plot is not None:
+            p2.plot(time_np[validated_peaks_plot], envelope_plot[validated_peaks_plot], pen=None, symbol='t', symbolBrush=(255, 0, 255), symbolPen='m', symbolSize=12, name="Validated Peaks")
         p2.showGrid(x=True, y=True, alpha=0.3)
         p2.setLabel('left', "<span style='color:white'>Amplitude</span>")
         p2.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
@@ -458,6 +485,8 @@ class ECG:
             "<span style='color:#00ffff'>Raw Signal (mV, Cyan)</span><br>"
             "<span style='color:#ffaa00'>Processed/Filtered Signal (Orange)</span><br>"
             "<span style='color:#ff5050'>R-Peaks (Red X)</span><br>"
+            "<span style='color:#32ff32'>Detected Peaks (Green Circles)</span><br>"
+            "<span style='color:#ff00ff'>Validated Peaks (Magenta Triangles)</span><br>"
             "<span style='color:#32ff32'>LF Band (Green Region)</span><br>"
             "<span style='color:#3232ff'>HF Band (Blue Region)</span><br>"
             "<span style='color:#ffff00'>Poincaré Points (Yellow Circles)</span><br>"
@@ -478,33 +507,43 @@ def demo():
     # Dynamically select the JSON file based on placement
     file_name = "heart_signal_data.json" if placement == "heart" else "collarbone_signal_data.json"
     file_path = os.path.join(os.path.dirname(__file__), "ECG", file_name)
-    raw_signal = NumpySignalProcessor.load_signal(file_path)  # Use NumpySignalProcessor to load the signal
+    raw_signal = NumpySignalProcessor.load_signal(file_path)
 
     fs = 1000
-    # Convert ADC values to millivolts
 
-    # Allow the user to select the mode ("all" or "qrs")
-    mode = input("Enter preprocessing mode ('all' for entire heart complex, 'qrs' for QRS complex only): ").strip().lower()
-    if mode not in ["all", "qrs"]:
-        print("Invalid mode. Please enter 'all' or 'qrs'.")
-        return
+    # Always use Bandpass+Peaks method for demo
+    print("Using Bandpass+Peaks method for demo...")
 
-    # Preprocess the signal based on the selected mode
-    preprocessed_signal = ECG.preprocess_signal(raw_signal, fs, mode=mode, normalize=True)
+    # Modular pipeline
+    normed, smoothed_envelope, detected_peaks, validated_peaks = ECG.preprocess_signal(
+        raw_signal, fs, mode="qrs",
+        bandpass_low=8, bandpass_high=15,
+        envelope_smooth=5,
+        dynamic_factor=1.5,
+        fixed_threshold=0.8,
+        validate_peaks=True
+    )
 
-    # Extract heart rate
-    heart_rate = ECG.extract_heart_rate(preprocessed_signal, fs, mode=mode)
+    # Use validated peaks for HR/HRV if available, else detected
+    r_peaks_for_metrics = validated_peaks if validated_peaks is not None and len(validated_peaks) > 1 else detected_peaks
+
+    heart_rate = ECG.extract_heart_rate(normed, fs, mode="qrs", r_peaks=r_peaks_for_metrics)
     print(f"Heart Rate: {heart_rate:.2f} bpm")
 
-    # Calculate HRV metrics
-    hrv_metrics = ECG.calculate_hrv(preprocessed_signal, fs, mode=mode)
+    hrv_metrics = ECG.calculate_hrv(normed, fs, mode="qrs", r_peaks=r_peaks_for_metrics)
     print(f"HRV Metrics: SDNN = {hrv_metrics['SDNN']:.2f} s, RMSSD = {hrv_metrics['RMSSD']:.2f} s, LF = {hrv_metrics['LF']:.2f}, HF = {hrv_metrics['HF']:.2f}, LF/HF = {hrv_metrics['LF/HF']:.2f}")
 
-    # Detect R-peaks
-    r_peaks = ECG.detect_r_peaks(preprocessed_signal, fs, mode=mode)
-
-    # Plot signals with HRV metrics
-    ECG.plot_signals(raw_signal, preprocessed_signal, preprocessed_signal, r_peaks, heart_rate, fs, hrv_metrics)
+    ECG.plot_signals(
+        raw_signal,
+        normed,
+        r_peaks_for_metrics,
+        heart_rate,
+        fs,
+        hrv_metrics,
+        envelope=smoothed_envelope,
+        detected_peaks=detected_peaks,
+        validated_peaks=validated_peaks
+    )
 
 if __name__ == "__main__":
     demo()
