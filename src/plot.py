@@ -17,10 +17,11 @@ class Plot:
         self.suffix = suffix  # Suffix for channel labels
         self.window = window if window is not None else duration  # Window size for live mode
 
-    def plot(self, signals):
+    def plot(self, signals, show_peaks=False, **kwargs):
         """
         Plot signals using the selected mode (live or static).
         Accepts 1, 2, 3, or 4 signals (as list or single array/callable).
+        If show_peaks is True, plot points where is_peak==1 (third column).
         """
         # Ensure signals is a list of 1-4 items
         if not isinstance(signals, (list, tuple)):
@@ -28,14 +29,15 @@ class Plot:
         if len(signals) > 4:
             signals = signals[:4]
         if self.live:
-            self.live_pyqtgraph(signals)
+            self.live_pyqtgraph(signals, show_peaks=show_peaks)
         else:
-            self.static_pyqtgraph(signals)
+            self.static_pyqtgraph(signals, show_peaks=show_peaks)
 
-    def live_pyqtgraph(self, signals):
+    def live_pyqtgraph(self, signals, show_peaks=False):
         """
         Live plot multiple signals using PyQtGraph, updating in real time.
         signals: list of deques of (timestamp, value) or (timestamp, value, is_peak) pairs.
+        If show_peaks is True, plot points where is_peak==1.
         """
         app = QApplication.instance() or QApplication(sys.argv)
         win = pg.GraphicsLayoutWidget(show=True)
@@ -95,7 +97,10 @@ class Plot:
                     peaks = peaks[idx:]
 
                 curves[i].setData(t_vals, y_vals)
-                peak_markers[i].setData(t_vals[peaks > 0], y_vals[peaks > 0])
+                if show_peaks:
+                    peak_markers[i].setData(t_vals[peaks == 1], y_vals[peaks == 1])
+                else:
+                    peak_markers[i].setData([], [])
                 self._last_plotted_ts[i] = t_vals[-1] if len(t_vals) > 0 else None
 
         timer = pg.QtCore.QTimer()
@@ -103,10 +108,11 @@ class Plot:
         timer.start(30)
         app.exec()
 
-    def static_pyqtgraph(self, signals):
+    def static_pyqtgraph(self, signals, show_peaks=False):
         """
         Static plot of multiple signals using PyQtGraph.
         signals: list of arrays with (timestamp, value) or (timestamp, value, is_peak).
+        If show_peaks is True, plot points where is_peak==1.
         """
         app = QApplication.instance() or QApplication(sys.argv)
         win = pg.GraphicsLayoutWidget(show=True)
@@ -132,7 +138,10 @@ class Plot:
             peaks = arr[:, 2] if arr.shape[1] > 2 else np.zeros_like(y_vals)
             p.plot(t_vals, y_vals, pen=pg.mkPen(width=2))
             peak_scatter = pg.ScatterPlotItem(size=10, brush=pg.mkBrush(255, 0, 0))
-            peak_scatter.setData(t_vals[peaks > 0], y_vals[peaks > 0])
+            if show_peaks:
+                peak_scatter.setData(t_vals[peaks == 1], y_vals[peaks == 1])
+            else:
+                peak_scatter.setData([], [])
             p.addItem(peak_scatter)
         app.exec()
 

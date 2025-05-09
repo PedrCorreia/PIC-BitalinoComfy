@@ -1,5 +1,5 @@
 import numpy as np
-from signal_processing import NumpySignalProcessor
+from ..src.signal_processing import NumpySignalProcessor
 
 
 class EDA:
