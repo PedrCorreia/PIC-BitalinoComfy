@@ -30,8 +30,11 @@ path_parts = os.path.normpath(abs_file_path).split(os.sep)
 base_path = os.path.join(*path_parts[-4:-1])
 
 path_plux = os.path.join(base_path, "PLUX-API-Python3",f"{osDic[platform.system()]}")
-print(f'path_plux {path_plux}')
-sys.path.append("/media/lugo/data/ComfyUI/custom_nodes/bitalino_comfy/src/PLUX-API-Python3/Linux64")
+print(f'path_plux PIC {path_plux}')
+#sys.path.append(path_plux)
+
+sys.path.append("/home/lugo/git/ComfyUI/custom_nodes/PIC-BitalinoComfy/src/PLUX-API-Python3/Linux64")
+#sys.path.append("PLUX-API-Python3/Linux64")
 
 import plux
 

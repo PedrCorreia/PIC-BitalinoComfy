@@ -47,7 +47,7 @@ except Exception as e:
 
 try:
     from .comfy.bitalino_receiver_node import LRBitalinoReceiver
-    NODE_CLASS_MAPPINGS["LR BitalinoReceiver"] = LRBitalinoReceiver
+    NODE_CLASS_MAPPINGS["LR BitalinoReceiver_Alt"] = LRBitalinoReceiver
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Bitalino Receiver: {e}")
 

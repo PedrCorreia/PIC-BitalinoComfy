@@ -19,14 +19,14 @@ class RRNode:
         """
         return {
             "required": {
-                "signal_deque": ("DEQUE",),
+                "signal_deque": ("ARRAY",),
                 "viz_buffer_size": ("INT", {"default": 1000}),
                 "feature_buffer_size": ("INT", {"default": 5000})
             }
         }
 
     RETURN_TYPES = ("ARRAY", "FLOAT")
-    RETURN_NAMES = ("Visualization_Data", "Respiration_Rate")
+    RETURN_NAMES = ("Visualization_Data", "Respiration_Rate","Peakk")
     FUNCTION = "process_rr"
     CATEGORY = "Biosignal/RR"
 
@@ -44,25 +44,36 @@ class RRNode:
         - respiration_rate: Calculated respiration rate in breaths per minute.
         """
         if not signal_deque or len(signal_deque) < 2:
-            raise ValueError("Insufficient data in deque.")
+             raise ValueError("Insufficient data in deque.")
 
         data = np.array(signal_deque)
         timestamps, values = data[:, 0], data[:, 1]
 
-        viz_data = data[-viz_buffer_size:]
+        viz_timestamps = timestamps[-viz_buffer_size:]
+        viz_values = values[-viz_buffer_size:]
+        viz_data = np.column_stack((viz_timestamps, viz_values))
 
         # Use NumpySignalProcessor for peak detection
         from ..src.signal_processing import NumpySignalProcessor
         peaks = NumpySignalProcessor.find_peaks(values[-feature_buffer_size:], fs=1000)
         peak_indices = np.intersect1d(np.arange(len(values))[-viz_buffer_size:], peaks, assume_unique=True)
-        is_peak = np.zeros_like(viz_data[:, 1], dtype=int)
-        is_peak[peak_indices - (len(values) - len(viz_data))] = 1
-        visualization_data = np.column_stack((viz_data[:, 0], viz_data[:, 1], is_peak))
+        is_peak = np.zeros(viz_data.shape[0], dtype=int)
+        is_peak[peak_indices - (len(values) - viz_data.shape[0])] = 1
+
+        # Efficiently build [[[timestamp, value], is_peak], ...]
+        visualization_data = np.empty((viz_data.shape[0], 2), dtype=object)
+        visualization_data[:, 0] = viz_data.tolist()
+        visualization_data[:, 1] = is_peak
+        visualization_data = visualization_data.tolist()
 
         # Respiration rate from extract_respiration_rate
         rr, _ = RR.extract_respiration_rate(values[-feature_buffer_size:], fs=1000)
-
-        return visualization_data, rr
+        rr = rr[-1]
+        if visualization_data[-1][1] == 1:
+            peaks = True
+        else:
+            peaks = False
+        return visualization_data, rr,peaks
 
 NODE_CLASS_MAPPINGS = {
     "RRNode": RRNode
