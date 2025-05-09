@@ -1,4 +1,6 @@
 import numpy as np
+import pyqtgraph as pg
+from pyqtgraph.Qt import QtWidgets
 from signal_processing import NumpySignalProcessor
 
 
@@ -131,67 +133,103 @@ class EDA:
             "Mean Phasic Level (μS)": mean_phasic
         }
 
+    @staticmethod
+    def demo():
+        """
+        Demonstrates EDA signal processing by generating synthetic data,
+        processing it, and plotting the results using PyQtGraph.
+        """
+        # Generate synthetic EDA data: periodic Gaussian pulses on a drift
+        fs = 1000  # Sampling frequency
+        duration = 10  # Duration in seconds
+        t = np.linspace(0, duration, fs * duration)
+        drift = 0.5 * t / duration  # Slow drift
+        pulses = np.zeros_like(t)
+        for i in range(1, duration):
+            pulses += np.exp(-0.5 * ((t - i) / 0.05) ** 2)  # Gaussian pulse every second
+        noise = 0.01 * np.random.randn(len(t))
+        synthetic_adc = ((drift + pulses + noise) * 0.132 * (2 ** 10) / 3.3).clip(0, 2 ** 10 - 1)  # Simulate ADC values
+
+        # Convert ADC values to EDA in micro-Siemens
+        eda_us = EDA.convert_adc_to_eda(synthetic_adc)
+
+        # Preprocess the signal
+        preprocessed_signal = EDA.preprocess_signal(eda_us, fs)
+
+        # Extract tonic and phasic components
+        tonic, phasic = EDA.extract_tonic_phasic(preprocessed_signal, fs)
+
+        # Detect peaks in the phasic component
+        peaks = NumpySignalProcessor.find_peaks(phasic, fs)
+
+        # Create synthetic data with peaks
+        synthetic_data = np.column_stack((t, phasic, np.zeros_like(phasic)))
+        synthetic_data[peaks, 2] = 1  # Mark peaks with 1 in the third column
+
+        # Validate events
+        validated_events, smoothed_envelope = EDA.validate_events(
+            phasic, peaks, envelope_smooth=15, envelope_threshold=0.5, amplitude_proximity=0.1
+        )
+
+        # Calculate EDA metrics
+        metrics = EDA.calculate_metrics(preprocessed_signal, tonic, phasic, validated_events, fs)
+        print(f"EDA Metrics: {metrics}")
+        print(f"Total detected events: {len(peaks)}")
+        print(f"Validated events: {len(validated_events)}")
+
+        # PyQtGraph visualization
+        app = QtWidgets.QApplication.instance()
+        if app is None:
+            app = QtWidgets.QApplication([])
+
+        win = pg.GraphicsLayoutWidget(show=True, title="EDA Signal Analysis")
+        win.resize(1800, 1200)
+        win.setWindowTitle("EDA Signal Analysis")
+
+        pg.setConfigOption('background', 'k')
+        pg.setConfigOption('foreground', 'w')
+
+        # Plot 1: Raw EDA signal
+        p1 = win.addPlot(row=0, col=0, title="<b>Raw EDA Signal (μS)</b>")
+        p1.plot(t, eda_us, pen=pg.mkPen(color=(100, 200, 255), width=1.2))
+        p1.showGrid(x=True, y=True, alpha=0.3)
+        p1.setLabel('left', "<span style='color:white'>Amplitude (μS)</span>")
+        p1.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
+
+        # Plot 2: Preprocessed EDA signal
+        p2 = win.addPlot(row=1, col=0, title="<b>Preprocessed EDA Signal</b>")
+        p2.plot(t, preprocessed_signal, pen=pg.mkPen(color=(255, 255, 0), width=1.2))
+        p2.showGrid(x=True, y=True, alpha=0.3)
+        p2.setLabel('left', "<span style='color:white'>Amplitude</span>")
+        p2.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
+
+        # Plot 3: Tonic and Phasic components
+        p3 = win.addPlot(row=2, col=0, title="<b>Tonic and Phasic Components</b>")
+        p3.plot(t, tonic, pen=pg.mkPen(color=(0, 255, 0), width=1.2), name="Tonic")
+        p3.plot(t, phasic, pen=pg.mkPen(color=(255, 170, 0), width=1.2), name="Phasic")
+        p3.showGrid(x=True, y=True, alpha=0.3)
+        p3.setLabel('left', "<span style='color:white'>Amplitude</span>")
+        p3.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
+
+        # Plot 4: Phasic component with events
+        p4 = win.addPlot(row=3, col=0, title="<b>Phasic Component with Events</b>")
+        p4.plot(t, phasic, pen=pg.mkPen(color=(255, 170, 0), width=1.2), name="Phasic")
+        p4.plot(t, smoothed_envelope, pen=pg.mkPen(color=(0, 255, 255), width=1.2), name="Smoothed Envelope")
+        p4.plot(
+            t[peaks], phasic[peaks], pen=None, symbol='x', symbolBrush=(255, 0, 0),
+            symbolPen=pg.mkPen(color=(255, 0, 0), width=1.5), symbolSize=12, name="Detected Peaks"
+        )
+        p4.plot(
+            t[validated_events], phasic[validated_events], pen=None, symbol='t',
+            symbolBrush=(0, 255, 0), symbolPen=pg.mkPen(color=(0, 255, 0), width=1.5),
+            symbolSize=12, name="Validated Events"
+        )
+        p4.showGrid(x=True, y=True, alpha=0.3)
+        p4.setLabel('left', "<span style='color:white'>Amplitude</span>")
+        p4.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
+
+        app.exec()
+
+
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-
-    # Generate synthetic EDA data: periodic Gaussian pulses on a drift
-    fs = 1000
-    duration = 10  # seconds
-    t = np.linspace(0, duration, fs * duration)
-    drift = 0.5 * t / duration  # slow drift
-    pulses = np.zeros_like(t)
-    for i in range(1, duration):
-        pulses += np.exp(-0.5 * ((t - i) / 0.05) ** 2)  # Gaussian pulse every second
-    noise = 0.01 * np.random.randn(len(t))
-    synthetic_adc = ((drift + pulses + noise) * 0.132 * (2 ** 10) / 3.3).clip(0, 2 ** 10 - 1)  # simulate ADC values
-
-    # Convert ADC values to EDA in micro-Siemens
-    eda_us = EDA.convert_adc_to_eda(synthetic_adc)
-
-    # Preprocess the signal
-    preprocessed_signal = EDA.preprocess_signal(eda_us, fs)
-
-    # Extract tonic and phasic components
-    tonic, phasic = EDA.extract_tonic_phasic(preprocessed_signal, fs)
-
-    # Detect events in the phasic component
-    events = EDA.detect_events(phasic)
-
-    # Validate events (ECG-like logic)
-    validated_events, smoothed_envelope = EDA.validate_events(
-        phasic, events, envelope_smooth=15, envelope_threshold=0.5, amplitude_proximity=0.1
-    )
-
-    # Calculate EDA metrics
-    metrics = EDA.calculate_metrics(preprocessed_signal, tonic, phasic, events, fs)
-    print(f"EDA Metrics: {metrics}")
-    print(f"Total detected events: {len(events)}")
-    print(f"Validated events: {len(validated_events)}")
-    if len(validated_events) > 0:
-        print(f"First validated event at t = {t[validated_events[0]]:.3f} s")
-
-    # Plot for visualization
-    plt.figure(figsize=(12, 10))
-    plt.subplot(4, 1, 1)
-    plt.plot(t, eda_us)
-    plt.title("Synthetic EDA Signal (μS)")
-    plt.subplot(4, 1, 2)
-    plt.plot(t, preprocessed_signal)
-    plt.title("Preprocessed EDA Signal")
-    plt.subplot(4, 1, 3)
-    plt.plot(t, tonic, label="Tonic")
-    plt.plot(t, phasic, label="Phasic")
-    plt.legend()
-    plt.title("Tonic and Phasic Components")
-    plt.subplot(4, 1, 4)
-    plt.plot(t, phasic, label="Phasic")
-    plt.plot(t, smoothed_envelope, label="Smoothed Envelope", color="orange")
-    plt.scatter(t[events], phasic[events], color='green', label='Detected Events', marker='o')
-    plt.scatter(t[validated_events], phasic[validated_events], color='magenta', label='Validated Events', marker='^')
-    # Plot bars at event locations (beginning of phasic curves)
-    for ev in validated_events:
-        plt.axvline(t[ev], color='magenta', linestyle='--', alpha=0.5)
-    plt.legend()
-    plt.title("Phasic Component, Envelope, and Events")
-    plt.tight_layout()
-    plt.show()
+    EDA.demo()
