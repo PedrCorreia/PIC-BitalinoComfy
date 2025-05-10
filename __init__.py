@@ -77,5 +77,13 @@ try:
 except ImportError as e:
     print(f"{IMPORT_ERROR_MESSAGE} SyntheticDataNode: ImportError - {e}") 
 except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} SyntheticDataNode: {type(e).__name__} - {e}") 
+    print(f"{IMPORT_ERROR_MESSAGE} SyntheticDataNode: {type(e).__name__} - {e}")
+
+try:
+    from .comfy.test_comfy.Synth import SynthNode
+    NODE_CLASS_MAPPINGS["SynthNode"] = SynthNode
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} SynthNode: ImportError - {e}")
+except Exception as e:
+    print(f"{IMPORT_ERROR_MESSAGE} SynthNode: {type(e).__name__} - {e}")
 

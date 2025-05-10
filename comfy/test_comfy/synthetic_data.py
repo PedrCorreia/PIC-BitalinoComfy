@@ -103,7 +103,7 @@ class SyntheticDataNode:
         time.sleep(0.05)
         with self.lock:
             fx, y = zip(*self.data_deque) if self.data_deque else ([], [])
-        #print(f"fx: {fx}, y: {y},time: {time.time()}")       
+        print("Data generated")      
         return list(fx), list(y)
 
 # Node registration
