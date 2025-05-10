@@ -1,13 +1,25 @@
 NODE_CLASS_MAPPINGS = {}
 IMPORT_ERROR_MESSAGE = "PIC nodes: failed to import"
 
+# Use the PygamePlotNode from src as the main plotting method
 try:
-    from .comfy.tools import PlotNode
-    NODE_CLASS_MAPPINGS["SignalPlotter"] = PlotNode
+    from .src.plot import PygamePlotNode
+    NODE_CLASS_MAPPINGS["PygamePlotNode"] = PygamePlotNode
+    NODE_CLASS_MAPPINGS["SignalPlotter"] = PygamePlotNode  # Make this the default plotter
+    print("PygamePlotNode from src successfully loaded as the primary plotting method")
 except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} SignalPlotter: ImportError - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} PygamePlotNode from src: ImportError - {e}")
+    # Fallback to legacy PlotNode
+    try:
+        from .comfy.tools import PlotNode
+        NODE_CLASS_MAPPINGS["SignalPlotter"] = PlotNode
+        print("Falling back to legacy PlotNode for plotting")
+    except ImportError as e2:
+        print(f"{IMPORT_ERROR_MESSAGE} SignalPlotter: ImportError - {e2}")
+    except Exception as e2:
+        print(f"{IMPORT_ERROR_MESSAGE} SignalPlotter: {type(e2).__name__} - {e2}")
 except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} SignalPlotter: {type(e).__name__} - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} PygamePlotNode from src: {type(e).__name__} - {e}")
 
 try:
     from .comfy.signalprocessing import (
@@ -51,11 +63,12 @@ try:
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Bitalino Receiver: {e}")
 
+# Only try to load the test version of PygamePlotNode if we're using it as a fallback
 try:
-    from.comfy.test_comfy.plot_node import PygamePlotNode
-    NODE_CLASS_MAPPINGS["PygamePlotNode"] = PygamePlotNode
+    from .comfy.test_comfy.plot_node import PygamePlotNode as TestPygamePlotNode
+    NODE_CLASS_MAPPINGS["LegacyPygamePlotNode"] = TestPygamePlotNode
 except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} PygamePlotNode: ImportError - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} Legacy PygamePlotNode: ImportError - {e}")
 
 try:   
     from .comfy.test_comfy.plot_node import PyQtGraphPlotNode
@@ -71,19 +84,33 @@ except ImportError as e:
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} OpenCVPlotNode: {type(e).__name__} - {e}")  
 
-try: 
-    from .comfy.test_comfy.synthetic_data import SyntheticDataNode
-    NODE_CLASS_MAPPINGS["SyntheticDataNode"] = SyntheticDataNode
-except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} SyntheticDataNode: ImportError - {e}") 
-except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} SyntheticDataNode: {type(e).__name__} - {e}")
-
+# Import our synthetic data generator nodes (all node definitions are now in the comfy directory)
 try:
-    from .comfy.test_comfy.Synth import SynthNode
+    from .comfy.synthetic_generator import SynthNode
     NODE_CLASS_MAPPINGS["SynthNode"] = SynthNode
+    NODE_CLASS_MAPPINGS["SyntheticDataNode"] = SynthNode  # Also register as SyntheticDataNode for compatibility
+    print("Synthetic Data Generator loaded successfully")
 except ImportError as e:
     print(f"{IMPORT_ERROR_MESSAGE} SynthNode: ImportError - {e}")
+    # Fallback to test version if new one fails
+    try:
+        from .comfy.test_comfy.Synth import SynthNode
+        NODE_CLASS_MAPPINGS["SynthNode"] = SynthNode
+        print("Falling back to test version of SynthNode")
+    except ImportError as e2:
+        print(f"{IMPORT_ERROR_MESSAGE} Fallback SynthNode: ImportError - {e2}")
+    except Exception as e2:
+        print(f"{IMPORT_ERROR_MESSAGE} Fallback SynthNode: {type(e2).__name__} - {e2}")
+    
+    # Additional fallback for SyntheticDataNode if needed
+    try: 
+        from .comfy.test_comfy.synthetic_data import SyntheticDataNode
+        NODE_CLASS_MAPPINGS["SyntheticDataNode"] = SyntheticDataNode
+        print("Falling back to test_comfy SyntheticDataNode") 
+    except ImportError as e3:
+        print(f"{IMPORT_ERROR_MESSAGE} SyntheticDataNode: ImportError - {e3}") 
+    except Exception as e3:
+        print(f"{IMPORT_ERROR_MESSAGE} SyntheticDataNode: {type(e3).__name__} - {e3}")
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} SynthNode: {type(e).__name__} - {e}")
 

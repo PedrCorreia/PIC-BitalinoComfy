@@ -35,11 +35,14 @@ This repository provides tools and custom nodes for integrating PLUX/BITalino bi
 - **`src/eda_signal_processing.py`**  
   EDA (Electrodermal Activity) processing: ADC conversion, tonic/phasic decomposition, event detection, and arousal metrics.
 
-- **`plot.py`**  
-  Real-time and static plotting utilities using Matplotlib and PyQtGraph.
+- **`src/plot.py`**  
+  Real-time plotting utilities primarily using Pygame for efficient visualization, with fallback to PyQtGraph.
+
+- **`src/synthetic_data.py`**  
+  Synthetic data generation for EDA, ECG, and RR signals for testing and demonstration purposes.
 
 - **`comfy/`**  
-  Custom ComfyUI nodes for  processing tasks.
+  Custom ComfyUI nodes for signal processing tasks. The `synthetic_generator.py` module provides a ComfyUI node for generating synthetic physiological signals.
 
 - **`Archive/`**  
   **Legacy nodes and scripts**. Older nodes have been moved here and may not work with the current codebase or ComfyUI. They are retained for reference only.

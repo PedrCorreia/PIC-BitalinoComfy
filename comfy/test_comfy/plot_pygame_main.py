@@ -6,9 +6,9 @@ from plot_node import PygamePlotNode  # Import your node
 if __name__ == "__main__":
     node = SyntheticDataNode()
     plot_node = PygamePlotNode()  # Instantiate your node
-    signal_type = "ECG"
+    signal_type = "RR"
     duration = 5
-    sampling_rate = 1000
+    sampling_rate = 100
     as_points = False
 
     print("Press Ctrl+C or close the window to exit.")
@@ -19,7 +19,7 @@ if __name__ == "__main__":
             # Use the node's plot method (mimic ComfyUI)
             #print("Current time:", time.strftime("%Y-%m-%d %H:%M:%S"))
             plot_node.plot(x, y, as_points)
-            time.sleep(0.0001)  # Reasonable interval for UI update
+            time.sleep(0.001)  # Reasonable interval for UI update
 
     except KeyboardInterrupt:
         print("Exiting.")
