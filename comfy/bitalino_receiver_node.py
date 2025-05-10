@@ -27,8 +27,14 @@ class LRBitalinoReceiver:
     def IS_CHANGED(self, bitalino_mac_address, acquisition_duration, sampling_freq, channels, buffer_period):
         return float("NaN")
             
-    RETURN_TYPES = ("ARRAY", "ARRAY", "ARRAY", "ARRAY", "ARRAY", "ARRAY", "INT") 
-    RETURN_NAMES = ("Buffer_0", "Buffer_1", "Buffer_2", "Buffer_3", "Buffer_4", "Buffer_5", "Sampling_freq") 
+    RETURN_TYPES = (
+        "ARRAY", "ARRAY", "ARRAY", "ARRAY", "ARRAY", "ARRAY", "INT",  # Buffers
+        "FLOAT", "FLOAT", "FLOAT", "FLOAT", "FLOAT", "FLOAT"          # Last values
+    )
+    RETURN_NAMES = (
+        "Buffer_0", "Buffer_1", "Buffer_2", "Buffer_3", "Buffer_4", "Buffer_5", "Sampling_freq",
+        "Last_0", "Last_1", "Last_2", "Last_3", "Last_4", "Last_5"
+    )
     FUNCTION = "get_value"
     OUTPUT_NODE = True
     CATEGORY = "Biosiglas/black_boxes"
@@ -54,9 +60,26 @@ class LRBitalinoReceiver:
         
         # Step 23: Returning buffers
         #print("Step 23: Returning buffers")
-        i = 0
-        #while i < channels:
-            #print(f"Buffer {i}: {buffers[i]}")
-            #i += 1
         buffers_np = [np.array(list(buffer)) for buffer in buffers]
-        return (buffers_np[0], buffers_np[1], buffers_np[2], buffers_np[3], buffers_np[4], buffers_np[5], sampling_freq)
+        # Get last value from each buffer, handling tuples/arrays
+        last_values = []
+        for buffer in buffers_np:
+            if len(buffer) > 0:
+                last = buffer[-1]
+                # If last is an array or tuple, extract the first element
+                if isinstance(last, (np.ndarray, list, tuple)):
+                    # If it's a 1-element array, extract the scalar
+                    if hasattr(last, 'shape') and last.shape == ():  # 0-dim array
+                        last_values.append(float(last))
+                    elif len(last) > 0:
+                        last_values.append(float(last[0]))
+                    else:
+                        last_values.append(float("nan"))
+                else:
+                    last_values.append(float(last))
+            else:
+                last_values.append(float("nan"))
+        return (
+            buffers_np[0], buffers_np[1], buffers_np[2], buffers_np[3], buffers_np[4], buffers_np[5], sampling_freq,
+            last_values[0], last_values[1], last_values[2], last_values[3], last_values[4], last_values[5]
+        )
