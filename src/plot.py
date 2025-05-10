@@ -1,26 +1,41 @@
-import sys
 import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QImage, QPainter
 from collections import deque
-import random
+import cv2
+import time
+import torch
+from PIL import Image as PILImage
+import lunar_tools as lt
+
+DEFAULT_HEIGHT = 512
+DEFAULT_WIDTH = 512
+DEFAULT_WINDOW_TITLE = "Render"
+# You may need to import your renderer, e.g.:
+# import lt
 
 class Plot:
     """
     Plotting utility class for live and static signal visualization.
     """
 
-    def __init__(self, fs=1000, duration=5, live=False, suffix="", window=None):
+    def __init__(self, fs=1000, duration=5, live=False, suffix="", window=None, show_peaks=False):
         self.fs = fs
         self.duration = duration
         self.live = live
         self.suffix = suffix  # Suffix for channel labels
         self.window = window if window is not None else duration  # Window size for live mode
+        self.show_peaks = show_peaks
 
-    def plot(self, signals):
+        # Create a GraphicsLayoutWidget for plotting
+        self.widget = pg.GraphicsLayoutWidget(show=False)  # Set `show=False` to avoid displaying the widget
+
+    def plot(self, signals, show_peaks=False, **kwargs):
         """
         Plot signals using the selected mode (live or static).
         Accepts 1, 2, 3, or 4 signals (as list or single array/callable).
+        If show_peaks is True, plot points where is_peak==1 (third column).
         """
         # Ensure signals is a list of 1-4 items
         if not isinstance(signals, (list, tuple)):
@@ -28,21 +43,20 @@ class Plot:
         if len(signals) > 4:
             signals = signals[:4]
         if self.live:
-            self.live_pyqtgraph(signals)
+            self.live_pyqtgraph(signals, show_peaks=show_peaks)
         else:
-            self.static_pyqtgraph(signals)
+            self.static_pyqtgraph(signals, show_peaks=show_peaks)
 
-    def live_pyqtgraph(self, signals):
+    def live_pyqtgraph(self, signals, show_peaks=False):
         """
         Live plot multiple signals using PyQtGraph, updating in real time.
-        signals: list of deques of (timestamp, value) or (timestamp, value, is_peak) pairs.
         """
-        app = QApplication.instance() or QApplication(sys.argv)
+        app = QApplication.instance() or QApplication([])
         win = pg.GraphicsLayoutWidget(show=True)
         n_channels = len(signals)
         plots = []
         curves = []
-        peak_markers = []  # To store peak markers for each signal
+        peak_markers = []
         self._last_plotted_ts = [None] * n_channels
 
         for i in range(n_channels):
@@ -61,7 +75,7 @@ class Plot:
 
         def update():
             for i, sig in enumerate(signals):
-                data = list(sig)  # Convert deque to a list
+                data = list(sig)
                 if not data or len(data) == 0:
                     curves[i].setData([], [])
                     peak_markers[i].setData([], [])
@@ -74,13 +88,11 @@ class Plot:
                     self._last_plotted_ts[i] = None
                     continue
 
-                # Handle optional is_peak flag
                 t_vals = arr[:, 0]
                 y_vals = arr[:, 1]
                 peaks = arr[:, 2] if arr.shape[1] > 2 else np.zeros_like(y_vals)
 
-              
-                window = self.window  
+                window = self.window
                 max_time = t_vals[-1]
                 min_time = max_time - window
                 in_window = t_vals >= min_time
@@ -95,7 +107,10 @@ class Plot:
                     peaks = peaks[idx:]
 
                 curves[i].setData(t_vals, y_vals)
-                peak_markers[i].setData(t_vals[peaks > 0], y_vals[peaks > 0])
+                if show_peaks:
+                    peak_markers[i].setData(t_vals[peaks == 1], y_vals[peaks == 1])
+                else:
+                    peak_markers[i].setData([], [])
                 self._last_plotted_ts[i] = t_vals[-1] if len(t_vals) > 0 else None
 
         timer = pg.QtCore.QTimer()
@@ -103,141 +118,406 @@ class Plot:
         timer.start(30)
         app.exec()
 
-    def static_pyqtgraph(self, signals):
+    def live_opencv_plot(self, signals, window_title="Live OpenCV Plot", buffer_size=300, window_size=300, height=300, width=600):
+        """
+        Live plot up to 3 channels using OpenCV, with moving x-axis and axes/labels.
+        Each signal should be an iterable of (timestamp, value).
+        buffer_size: max number of points kept in memory per channel.
+        window_size: number of most recent points shown in the plot window.
+        """
+        n_channels = min(len(signals), 3)
+        colors = [(0,255,0), (255,0,0), (0,255,255)]
+        buffer_size = int(buffer_size)
+        window_size = int(window_size)
+        height = int(height)
+        width = int(width)
+        left_margin = 60
+        right_margin = 20
+        top_margin = 20
+        bottom_margin = 40
+        img_width = width + left_margin + right_margin
+        img_height = height + top_margin + bottom_margin
+
+        # Buffers for each channel: deque of (timestamp, value)
+        buffers = [deque(maxlen=buffer_size) for _ in range(n_channels)]
+
+        while True:
+            # Fast buffer update: only append new data if callable, else just use last window_size points
+            for i, sig in enumerate(signals[:n_channels]):
+                if callable(sig):
+                    t, v = sig()
+                    buffers[i].append((t, v))
+                else:
+                    arr = np.asarray(sig)
+                    if arr.shape[0] > 0 and arr.shape[1] >= 2:
+                        # Only update buffer if new data is present
+                        if len(buffers[i]) == 0 or arr[-1,0] != buffers[i][-1][0]:
+                            # Append only new points
+                            last_ts = buffers[i][-1][0] if len(buffers[i]) > 0 else None
+                            new_rows = arr if last_ts is None else arr[arr[:,0] > last_ts]
+                            for row in new_rows:
+                                buffers[i].append((row[0], row[1]))
+
+            img = np.full((img_height, img_width, 3), 30, dtype=np.uint8)
+            x0 = left_margin
+            x1 = left_margin + width
+            y0 = img_height - bottom_margin
+            y1 = top_margin
+
+            cv2.line(img, (x0, y0), (x1, y0), (200,200,200), 2)
+            cv2.line(img, (x0, y0), (x0, y1), (200,200,200), 2)
+
+            # Only use the last window_size points for plotting (visible window)
+            visible_bufs = []
+            for buf in buffers:
+                if len(buf) > 0:
+                    arr = np.array(buf)[-window_size:]
+                    visible_bufs.append(arr)
+                else:
+                    visible_bufs.append(np.zeros((0,2)))
+
+            # Fast min/max calculation for visible window
+            all_t = np.concatenate([arr[:,0] for arr in visible_bufs if arr.shape[0] > 0]) if any(arr.shape[0]>0 for arr in visible_bufs) else np.array([0,1])
+            all_y = np.concatenate([arr[:,1] for arr in visible_bufs if arr.shape[0] > 0]) if any(arr.shape[0]>0 for arr in visible_bufs) else np.array([0,1])
+            if all_t.size < 2:
+                all_t = np.array([0,1])
+            if all_y.size < 2:
+                all_y = np.array([0,1])
+            t_min, t_max = all_t.min(), all_t.max()
+            y_min, y_max = all_y.min(), all_y.max()
+            if t_max == t_min:
+                t_max += 1
+            if y_max == y_min:
+                y_max += 1
+
+            # Draw ticks and labels (unchanged)
+            num_xticks = 5
+            for i in range(num_xticks+1):
+                frac = i/num_xticks
+                px = int(x0 + frac*width)
+                t_val = t_min + frac*(t_max-t_min)
+                cv2.line(img, (px, y0), (px, y0+8), (220,220,220), 1)
+                label = f"{t_val:.1f}"
+                cv2.putText(img, label, (px-15, y0+28), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220,220,220), 1, cv2.LINE_AA)
+            num_yticks = 5
+            for i in range(num_yticks+1):
+                frac = i/num_yticks
+                py = int(y0 - frac*(y0-y1))
+                y_val = y_min + frac*(y_max-y_min)
+                cv2.line(img, (x0-8, py), (x0, py), (220,220,220), 1)
+                cv2.putText(img, f"{y_val:.1f}", (5, py+5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220,220,220), 1, cv2.LINE_AA)
+
+            # Draw each channel (fast, only visible window)
+            for idx, arr in enumerate(visible_bufs):
+                if arr.shape[0] < 2:
+                    continue
+                t_vals = arr[:,0]
+                y_vals = arr[:,1]
+                x_pix = np.interp(t_vals, (t_min, t_max), (x0, x1)).astype(np.int32)
+                y_pix = np.interp(y_vals, (y_min, y_max), (y0, y1)).astype(np.int32)
+                pts = np.stack([x_pix, y_pix], axis=1).reshape(-1,1,2)
+                cv2.polylines(img, [pts], isClosed=False, color=colors[idx%len(colors)], thickness=2, lineType=cv2.LINE_AA)
+                cv2.putText(img, f"Ch {idx+1}", (x1-60, y1+30+idx*20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, colors[idx%len(colors)], 2, cv2.LINE_AA)
+
+            cv2.putText(img, "Time", (img_width//2-30, img_height-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (220,220,220), 2, cv2.LINE_AA)
+            cv2.putText(img, "Value", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (220,220,220), 2, cv2.LINE_AA)
+
+            cv2.imshow(window_title, img)
+            key = cv2.waitKey(1)
+            if key == 27:  # ESC to quit
+                break
+
+        cv2.destroyWindow(window_title)
+
+    @staticmethod
+    def static_opencv_plot(
+        signals,
+        show_peaks=False,
+        window_title="Static OpenCV Plot",
+        height=None,
+        width=None,
+        fixed_y_min=None,
+        fixed_y_max=None
+    ):
+        # Fastest possible: precompute all coordinates, use numpy vector ops, minimal Python loops
+        n_signals = len([arr for arr in signals if arr.shape[0] > 0])
+        plot_height_per_signal = 250
+        min_height = 200
+        plot_height = max(min_height, plot_height_per_signal * n_signals)
+        plot_width = width if width is not None else 800
+
+        left_margin = 60
+        right_margin = 20
+        top_margin = 20
+        bottom_margin = 50
+
+        img_width = plot_width + left_margin + right_margin
+        img_height = plot_height + top_margin + bottom_margin
+
+        img = np.full((img_height, img_width, 3), 30, dtype=np.uint8)
+
+        # Find global x/y bounds
+        valid_signals = [arr for arr in signals if arr.shape[0] > 0 and arr.shape[1] >= 2]
+        if not valid_signals:
+            cv2.imshow(window_title, img)
+            cv2.waitKey(1)
+            return
+
+        min_ts = min(arr[:, 0].min() for arr in valid_signals)
+        max_ts = max(arr[:, 0].max() for arr in valid_signals)
+        x_min = min_ts
+        x_max = max_ts
+
+        colors = np.array([
+            [0, 255, 255],
+            [255, 0, 0],
+            [0, 255, 0],
+            [255, 0, 255]
+        ], dtype=np.uint8)
+
+        for idx, arr in enumerate(signals):
+            if arr.shape[1] < 2 or arr.shape[0] < 2:
+                continue
+            subplot_top = top_margin + idx * plot_height_per_signal
+            subplot_bottom = subplot_top + plot_height_per_signal - 1
+            x0 = left_margin
+            x1 = left_margin + plot_width
+            y0 = subplot_bottom - bottom_margin
+            y1 = subplot_top + top_margin
+
+            # Per-channel y autoscale for speed
+            y_min = arr[:, 1].min()
+            y_max = arr[:, 1].max()
+            if y_max == y_min:
+                y_max += 1.0
+
+            # Fast axes
+            cv2.line(img, (x0, y0), (x1, y0), (200, 200, 200), 1)
+            cv2.line(img, (x0, y0), (x0, y1), (200, 200, 200), 1)
+
+            # X ticks/labels (vectorized, minimal)
+            num_xticks = 4
+            xtick_fracs = np.linspace(0, 1, num_xticks + 1)
+            xtick_vals = x_min + xtick_fracs * (x_max - x_min)
+            xtick_px = (x0 + xtick_fracs * plot_width).astype(int)
+            for px in xtick_px:
+                cv2.line(img, (px, y0), (px, y0 + 4), (220, 220, 220), 1)
+
+            # Y ticks/labels (vectorized, minimal)
+            num_yticks = 4
+            ytick_fracs = np.linspace(0, 1, num_yticks + 1)
+            ytick_py = (y1 + ytick_fracs * (y0 - y1)).astype(int)
+            for py in ytick_py:
+                cv2.line(img, (x0 - 4, py), (x0, py), (220, 220, 220), 1)
+
+            # Map data to pixel coordinates (vectorized)
+            timestamps = arr[:, 0]
+            values = arr[:, 1]
+            x_pix = np.interp(timestamps, (x_min, x_max), (x0, x1)).astype(np.int32)
+            y_pix = np.interp(values, (y_min, y_max), (y0, y1)).astype(np.int32)
+            color = tuple(int(c) for c in colors[idx % len(colors)])
+
+            # Fastest plot lines
+            pts = np.stack([x_pix, y_pix], axis=1).reshape(-1, 1, 2)
+            cv2.polylines(img, [pts], isClosed=False, color=color, thickness=1, lineType=cv2.LINE_4)
+
+            # Highlight peaks (vectorized, minimal)
+            if show_peaks and arr.shape[1] >= 3:
+                peaks = arr[:, 2].astype(bool)
+                if np.any(peaks):
+                    for px, py in zip(x_pix[peaks], y_pix[peaks]):
+                        cv2.circle(img, (px, py), 2, (0, 0, 255), -1, lineType=cv2.LINE_4)
+
+            # Channel label (small, fast)
+            cv2.putText(img, f"Ch {idx+1}", (x1 - 40, y1 + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_4)
+
+        # Axis labels (bottom plot only, small)
+        cv2.putText(img, "Time", (img_width // 2 - 20, img_height - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (220, 220, 220), 1, cv2.LINE_4)
+        cv2.putText(img, "Value", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (220, 220, 220), 1, cv2.LINE_4)
+
+        cv2.imshow(window_title, img)
+        cv2.waitKey(1)
+
+    def static_pyqtgraph(self, signals, show_peaks=False):
         """
         Static plot of multiple signals using PyQtGraph.
-        signals: list of arrays with (timestamp, value) or (timestamp, value, is_peak).
         """
-        app = QApplication.instance() or QApplication(sys.argv)
-        win = pg.GraphicsLayoutWidget(show=True)
+        # Explicitly remove all items from the layout
+        while len(self.widget.ci.items):  # `ci` is the central item (GraphicsLayout)
+            self.widget.ci.removeItem(self.widget.ci.items[-1])
+
         n_channels = len(signals)
         for i, sig in enumerate(signals):
-            p = win.addPlot(row=i, col=0)
+            p = self.widget.addPlot(row=i, col=0)
             label = f'Ch {i+1}'
             if self.suffix:
                 label += f' {self.suffix}'
             p.setLabel('left', label)
             if i == n_channels - 1:
                 p.setLabel('bottom', 'Time (s)')
-            
-            # Ensure signal is 2D with timestamps
+
             arr = np.array(sig)
-            print("Warning: Signal is 1D, assuming evenly spaced timestamps.")
             if arr.ndim == 1:
                 t_vals = np.linspace(0, self.duration, len(arr))
                 arr = np.column_stack((t_vals, arr))
-            
+
             t_vals = arr[:, 0]
             y_vals = arr[:, 1]
             peaks = arr[:, 2] if arr.shape[1] > 2 else np.zeros_like(y_vals)
             p.plot(t_vals, y_vals, pen=pg.mkPen(width=2))
             peak_scatter = pg.ScatterPlotItem(size=10, brush=pg.mkBrush(255, 0, 0))
-            peak_scatter.setData(t_vals[peaks > 0], y_vals[peaks > 0])
+            if show_peaks:
+                peak_scatter.setData(t_vals[peaks == 1], y_vals[peaks == 1])
+            else:
+                peak_scatter.setData([], [])
             p.addItem(peak_scatter)
-        app.exec()
+
+    def render_to_image(self):
+        """
+        Render the PyQtGraph widget to a QImage.
+        """
+        size = self.widget.size()
+        qimage = QImage(size.width(), size.height(), QImage.Format.Format_RGBA8888)
+        painter = QPainter(qimage)
+        self.widget.render(painter)
+        painter.end()
+        return qimage
+
+    def render_to_numpy(self):
+        """
+        Render the PyQtGraph widget to a NumPy array for OpenCV.
+        """
+        qimage = self.render_to_image()
+        width = qimage.width()
+        height = qimage.height()
+        ptr = qimage.bits()
+        ptr.setsize(qimage.sizeInBytes())  # <-- fix: use sizeInBytes() for PyQt6
+        arr = np.array(ptr).reshape((height, width, 4))  # Convert to numpy array
+        return arr
+
+    def get_plot_data(self, signals, show_peaks=False):
+        """
+        Extract the data of up to three signals for plotting without rendering as an image.
+        Returns a list of dictionaries containing time values, signal values, and peaks.
+        """
+        plot_data = []
+        n_channels = min(len(signals), 3)  # Limit to three channels
+        for i, sig in enumerate(signals[:3]):  # Process only the first three signals
+            arr = np.array(sig)
+            if arr.ndim == 1:
+                t_vals = np.linspace(0, self.duration, len(arr))
+                arr = np.column_stack((t_vals, arr))
+
+            t_vals = arr[:, 0]
+            y_vals = arr[:, 1]
+            peaks = arr[:, 2] if arr.shape[1] > 2 else np.zeros_like(y_vals)
+
+            # Store the data in a dictionary
+            channel_data = {
+                "channel": i + 1,
+                "time": t_vals,
+                "values": y_vals,
+                "peaks": t_vals[peaks == 1] if show_peaks else [],
+            }
+            plot_data.append(channel_data)
+
+        return plot_data
+
+    def render(self, image=None, height=DEFAULT_HEIGHT, width=DEFAULT_WIDTH, window_title=DEFAULT_WINDOW_TITLE, cap_fps=False):
+        """
+        Render an image using the internal renderer, handling PIL, numpy, or torch images.
+        Optionally cap the FPS.
+        """
+        current_time = time.time()
+        elapsed_time = current_time - getattr(self, 'last_exec_time', 0)
+        if cap_fps:
+            sleep_time = max(0, (1.0 / getattr(self, 'MAX_FPS', 30)) - elapsed_time)
+            time.sleep(sleep_time)
+
+        if image is None:
+            return ()
+
+        if isinstance(image, PILImage.Image):
+            image = np.asarray(image)
+            image = torch.from_numpy(image.copy())
+        elif isinstance(image, np.ndarray):
+            if image.ndim == 2:
+                image = np.stack((image,) * 3, axis=-1)
+            if image.max() <= 1.0:
+                image = image * 255
+            if image.ndim == 2:
+                image = np.stack((image,) * 3, axis=-1)
+            image = torch.from_numpy(image.copy())
+        elif torch.is_tensor(image):
+            if image.ndim == 2:
+                image = image.unsqueeze(-1).expand(-1, -1, 3)
+            if torch.max(image) <= 1.0:
+                image = image * 255
+            image = image.to(torch.uint8)
+            image = image.squeeze(0)
+
+        if not hasattr(self, 'renderer') or self.renderer is None or height != getattr(self, 'render_size', (None, None))[0] or width != getattr(self, 'render_size', (None, None))[1]:
+            self.render_size = (height, width)
+            # Replace lt.Renderer with your actual renderer class if needed
+            self.renderer = lt.Renderer(width=int(width), height=int(height), window_title=window_title)
+
+        self.renderer.render(image)
+        self.last_exec_time = time.time()
 
 def main():
-    import threading
-    import time
+    """
+    Create a static plot using the Plot class and display it in an OpenCV window.
+    """
+    app = QApplication([])
 
-    mode = input("Type 'live' or 'static': ").strip().lower()
-    live = mode == "live"
+    # Create the plot
+    plotter = Plot()
 
-    fs = 1000
-    duration = 100
-    window = 10  # Example: set window size to 2 seconds for live mode
-    t = np.linspace(0, duration, int(fs * duration))
-    # Generate example signals
-    # For both static and live, generate the same signals
-    # sig1: simulate an ECG-like waveform
-    heart_rate = 60  # bpm
-    beats_per_sec = heart_rate / 60
-    # Basic synthetic ECG: sum of narrow positive and negative Gaussians for QRS, P, T waves
-    sig1 = np.zeros_like(t)
-    for beat in np.arange(0, duration, 1/beats_per_sec):
-        # QRS complex (sharp spike)
-        sig1 += 1.2 * np.exp(-0.5 * ((t - beat) / 0.03) ** 2)
-        sig1 -= 0.5 * np.exp(-0.5 * ((t - (beat - 0.04)) / 0.01) ** 2)  # Q dip
-        sig1 += 0.3 * np.exp(-0.5 * ((t - (beat + 0.04)) / 0.02) ** 2)  # S
-        # P wave (small bump before QRS)
-        sig1 += 0.2 * np.exp(-0.5 * ((t - (beat - 0.2)) / 0.04) ** 2)
-        # T wave (broad bump after QRS)
-        sig1 += 0.35 * np.exp(-0.5 * ((t - (beat + 0.2)) / 0.07) ** 2)
-    sig1 += 0.05 * np.random.randn(len(t))  # Add some noise
-    # sig2: simulate electrodermal activity (EDA) with larger, slower, and less frequent Gaussian "bakes" (sweat bursts)
-    period = 8  # seconds, less frequent events
-    center_times = np.arange(0, duration, period)
-    width = 0.8  # seconds, wider Gaussian for slower rise/fall
-    sig2 = np.zeros_like(t)
-    for ct in center_times:
-        sig2 += 3.0 * np.exp(-0.5 * ((t - ct) / width) ** 2)  # larger amplitude, slower decay
-    drift_rate = 0.1  # slower baseline drift
-    sig2 += drift_rate * t
-    sig2 += 0.05 * np.random.randn(len(t))  # small noise to mimic skin conductance variability
-    # sig3: trigonometric wave with phase shift and occasional quick noise bursts
-    # Make phase a random walk over time
-    np.random.seed(42)
-    phase = np.cumsum(np.random.randn(len(t)) * 0.02)
-    sig3 = 2*np.sin(2 * np.pi * 1 * t + phase) 
-    # Add quick noise bursts at random times
-    burst_indices = np.random.choice(len(t), size=10, replace=False)
-    for idx in burst_indices:
-        if idx + 5 < len(sig3):
-            sig3[idx:idx+5] += np.random.normal(0, 2, size=5)
+    # Generate dummy data
+    t = np.linspace(0, 10, 500)
+    signal1 = np.column_stack((t, 200 + 100 * np.sin(0.5 * t)))
+    signal2 = np.column_stack((t, 300 + 50 * np.cos(0.5 * t)))
+    signals = [signal1, signal2]
 
-    # For live mode, use the same signal generation in the acquisition threads
+    # Plot the data using PyQtGraph (existing example)
+    plotter.static_pyqtgraph(signals)
 
-    if live:
-        # Start with empty deques for live mode
-        dq1 = deque(maxlen=int(fs * duration))
-        dq2 = deque(maxlen=int(fs * duration))
-        dq3 = deque(maxlen=int(fs * duration))
-        t0 = time.time()
-        running = True
-
-        def acq_thread(dq, idx):
-            while running:
-                now = time.time()
-                rel_time = now - t0
-                sample_idx = int(rel_time * fs)
-                if sample_idx < len(t):
-                    if idx == 0:
-                        val = sig1[sample_idx]
-                    elif idx == 1:
-                        val = sig2[sample_idx]
-                    else:
-                        val = sig3[sample_idx]
-                    # Append (timestamp, value) pair to the deque
-                    dq.append((rel_time, val))
-                    print(f"Thread {idx}: Appended value {val} at time {rel_time:.2f}s")
-                    print(dq)
-                
-
-        threads = [
-            threading.Thread(target=acq_thread, args=(dq1, 0), daemon=True),
-            threading.Thread(target=acq_thread, args=(dq2, 1), daemon=True),
-            threading.Thread(target=acq_thread, args=(dq3, 2), daemon=True),
-        ]
-        for th in threads:
-            th.start()
-
-        plotter = Plot(fs=fs, duration=duration, live=live, window=window)
-        try:
-            plotter.plot([dq1, dq2, dq3])
-        finally:
-            running = False
-            # Optionally join threads if you want to wait for them to finish
-            # for th in threads:
-            #     th.join()
+    # Access the PyQtGraph widget directly
+    if hasattr(plotter, 'widget'):  # Assuming `Plot` exposes the widget as `widget`
+        widget = plotter.widget
     else:
-        # Ensure synthetic signals are 2D arrays with timestamps for static mode
-        sig1 = np.column_stack((t, sig1))  # Add timestamps to sig1
-        sig2 = np.column_stack((t, sig2))  # Add timestamps to sig2
-        sig3 = np.column_stack((t, sig3))  # Add timestamps to sig3
+        raise AttributeError("The Plot class does not expose a PyQt widget for rendering.")
 
-        # Pass the properly formatted signals to the Plot class
-        plotter = Plot(fs=fs, duration=duration, live=live)
-        plotter.plot([sig1, sig2, sig3])
+    # Render the widget into a QImage
+    size = widget.size()
+    qimage = QImage(size.width(), size.height(), QImage.Format.Format_RGBA8888)
+    painter = QPainter(qimage)
+    widget.render(painter)
+    painter.end()
+
+    # Convert QImage to NumPy array
+    width = qimage.width()
+    height = qimage.height()
+    ptr = qimage.bits()
+    ptr.setsize(qimage.sizeInBytes())  # Use sizeInBytes() instead of byteCount()
+    arr = np.array(ptr).reshape((height, width, 4))  # Convert to numpy array
+
+    # Convert RGBA to BGR for OpenCV
+    bgr_image = cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
+
+    # Display the image in an OpenCV window
+    cv2.imshow("Static Plot", bgr_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    # Example: Plot the data using OpenCV static plot directly
+    Plot.static_opencv_plot(
+        signals,
+        show_peaks=False,
+        window_title="Static OpenCV Plot Example"
+    )
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     main()

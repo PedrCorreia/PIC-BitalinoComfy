@@ -1,7 +1,5 @@
 import numpy as np
-import pyqtgraph as pg
-from pyqtgraph.Qt import QtWidgets
-from signal_processing import NumpySignalProcessor
+from ..src.signal_processing import NumpySignalProcessor
 
 
 class EDA:
