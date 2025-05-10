@@ -138,26 +138,8 @@ class Plot:
         img_width = width + left_margin + right_margin
         img_height = height + top_margin + bottom_margin
 
-        # Buffers for each channel: deque of (timestamp, value)
-        buffers = [deque(maxlen=buffer_size) for _ in range(n_channels)]
-
+        # Remove buffer logic for lower latency: always plot the latest window_size points from the signal
         while True:
-            # Fast buffer update: only append new data if callable, else just use last window_size points
-            for i, sig in enumerate(signals[:n_channels]):
-                if callable(sig):
-                    t, v = sig()
-                    buffers[i].append((t, v))
-                else:
-                    arr = np.asarray(sig)
-                    if arr.shape[0] > 0 and arr.shape[1] >= 2:
-                        # Only update buffer if new data is present
-                        if len(buffers[i]) == 0 or arr[-1,0] != buffers[i][-1][0]:
-                            # Append only new points
-                            last_ts = buffers[i][-1][0] if len(buffers[i]) > 0 else None
-                            new_rows = arr if last_ts is None else arr[arr[:,0] > last_ts]
-                            for row in new_rows:
-                                buffers[i].append((row[0], row[1]))
-
             img = np.full((img_height, img_width, 3), 30, dtype=np.uint8)
             x0 = left_margin
             x1 = left_margin + width
@@ -167,16 +149,15 @@ class Plot:
             cv2.line(img, (x0, y0), (x1, y0), (200,200,200), 2)
             cv2.line(img, (x0, y0), (x0, y1), (200,200,200), 2)
 
-            # Only use the last window_size points for plotting (visible window)
             visible_bufs = []
-            for buf in buffers:
-                if len(buf) > 0:
-                    arr = np.array(buf)[-window_size:]
+            for sig in signals[:n_channels]:
+                arr = np.asarray(sig)
+                if arr.shape[0] > 0 and arr.shape[1] >= 2:
+                    arr = arr[-window_size:]
                     visible_bufs.append(arr)
                 else:
                     visible_bufs.append(np.zeros((0,2)))
 
-            # Fast min/max calculation for visible window
             all_t = np.concatenate([arr[:,0] for arr in visible_bufs if arr.shape[0] > 0]) if any(arr.shape[0]>0 for arr in visible_bufs) else np.array([0,1])
             all_y = np.concatenate([arr[:,1] for arr in visible_bufs if arr.shape[0] > 0]) if any(arr.shape[0]>0 for arr in visible_bufs) else np.array([0,1])
             if all_t.size < 2:
@@ -190,7 +171,6 @@ class Plot:
             if y_max == y_min:
                 y_max += 1
 
-            # Draw ticks and labels (unchanged)
             num_xticks = 5
             for i in range(num_xticks+1):
                 frac = i/num_xticks
@@ -207,14 +187,19 @@ class Plot:
                 cv2.line(img, (x0-8, py), (x0, py), (220,220,220), 1)
                 cv2.putText(img, f"{y_val:.1f}", (5, py+5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220,220,220), 1, cv2.LINE_AA)
 
-            # Draw each channel (fast, only visible window)
             for idx, arr in enumerate(visible_bufs):
-                if arr.shape[0] < 2:
+                # Only plot if there are at least 2 points
+                if arr is None or arr.shape[0] < 2 or arr.shape[1] < 2:
                     continue
                 t_vals = arr[:,0]
                 y_vals = arr[:,1]
+                # Defensive: if all t_vals or y_vals are the same, skip to avoid OpenCV errors
+                if np.all(t_vals == t_vals[0]) or np.all(y_vals == y_vals[0]):
+                    continue
                 x_pix = np.interp(t_vals, (t_min, t_max), (x0, x1)).astype(np.int32)
                 y_pix = np.interp(y_vals, (y_min, y_max), (y0, y1)).astype(np.int32)
+                if len(x_pix) < 2 or len(y_pix) < 2:
+                    continue
                 pts = np.stack([x_pix, y_pix], axis=1).reshape(-1,1,2)
                 cv2.polylines(img, [pts], isClosed=False, color=colors[idx%len(colors)], thickness=2, lineType=cv2.LINE_AA)
                 cv2.putText(img, f"Ch {idx+1}", (x1-60, y1+30+idx*20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, colors[idx%len(colors)], 2, cv2.LINE_AA)
@@ -237,10 +222,13 @@ class Plot:
         height=None,
         width=None,
         fixed_y_min=None,
-        fixed_y_max=None
+        fixed_y_max=None,
+        peaks_info=None,
+        buffer_sizes=None,  # list of buffer sizes per channel
+        axis_info=None      # list of (t_min, t_max) per channel
     ):
         # Fastest possible: precompute all coordinates, use numpy vector ops, minimal Python loops
-        n_signals = len([arr for arr in signals if arr.shape[0] > 0])
+        n_signals = len([arr for arr in signals if getattr(arr, "size", 0) > 0])
         plot_height_per_signal = 250
         min_height = 200
         plot_height = max(min_height, plot_height_per_signal * n_signals)
@@ -256,17 +244,12 @@ class Plot:
 
         img = np.full((img_height, img_width, 3), 30, dtype=np.uint8)
 
-        # Find global x/y bounds
-        valid_signals = [arr for arr in signals if arr.shape[0] > 0 and arr.shape[1] >= 2]
+        # Find valid signals
+        valid_signals = [arr for arr in signals if getattr(arr, "size", 0) > 0 and arr.shape[1] >= 2]
         if not valid_signals:
             cv2.imshow(window_title, img)
             cv2.waitKey(1)
             return
-
-        min_ts = min(arr[:, 0].min() for arr in valid_signals)
-        max_ts = max(arr[:, 0].max() for arr in valid_signals)
-        x_min = min_ts
-        x_max = max_ts
 
         colors = np.array([
             [0, 255, 255],
@@ -275,9 +258,15 @@ class Plot:
             [255, 0, 255]
         ], dtype=np.uint8)
 
+        # Each channel gets its own time axis, buffer size, and axis info if provided
         for idx, arr in enumerate(signals):
             if arr.shape[1] < 2 or arr.shape[0] < 2:
                 continue
+
+            # Use buffer size per channel if provided
+            if buffer_sizes is not None and idx < len(buffer_sizes):
+                arr = arr[-int(buffer_sizes[idx]):]
+
             subplot_top = top_margin + idx * plot_height_per_signal
             subplot_bottom = subplot_top + plot_height_per_signal - 1
             x0 = left_margin
@@ -285,50 +274,56 @@ class Plot:
             y0 = subplot_bottom - bottom_margin
             y1 = subplot_top + top_margin
 
-            # Per-channel y autoscale for speed
+            # Use axis info per channel if provided, else autoscale
+            if axis_info is not None and idx < len(axis_info) and axis_info[idx] is not None:
+                t_min, t_max = axis_info[idx]
+            else:
+                t_min = arr[:, 0].min()
+                t_max = arr[:, 0].max()
+                if t_max == t_min:
+                    t_max += 1.0
+
             y_min = arr[:, 1].min()
             y_max = arr[:, 1].max()
             if y_max == y_min:
                 y_max += 1.0
 
-            # Fast axes
-            cv2.line(img, (x0, y0), (x1, y0), (200, 200, 200), 1)
-            cv2.line(img, (x0, y0), (x0, y1), (200, 200, 200), 1)
-
-            # X ticks/labels (vectorized, minimal)
+            # X ticks/labels
             num_xticks = 4
             xtick_fracs = np.linspace(0, 1, num_xticks + 1)
-            xtick_vals = x_min + xtick_fracs * (x_max - x_min)
+            xtick_vals = t_min + xtick_fracs * (t_max - t_min)
             xtick_px = (x0 + xtick_fracs * plot_width).astype(int)
-            for px in xtick_px:
+            for px, t_val in zip(xtick_px, xtick_vals):
                 cv2.line(img, (px, y0), (px, y0 + 4), (220, 220, 220), 1)
+                cv2.putText(img, f"{t_val:.1f}", (px-15, y0+18), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (220,220,220), 1, cv2.LINE_4)
 
-            # Y ticks/labels (vectorized, minimal)
+            # Y ticks/labels
             num_yticks = 4
             ytick_fracs = np.linspace(0, 1, num_yticks + 1)
+            ytick_vals = y_min + ytick_fracs * (y_max - y_min)
             ytick_py = (y1 + ytick_fracs * (y0 - y1)).astype(int)
-            for py in ytick_py:
+            for py, y_val in zip(ytick_py, ytick_vals):
                 cv2.line(img, (x0 - 4, py), (x0, py), (220, 220, 220), 1)
+                cv2.putText(img, f"{y_val:.1f}", (5, py+5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (220,220,220), 1, cv2.LINE_4)
 
-            # Map data to pixel coordinates (vectorized)
+            # Map data to pixel coordinates
             timestamps = arr[:, 0]
             values = arr[:, 1]
-            x_pix = np.interp(timestamps, (x_min, x_max), (x0, x1)).astype(np.int32)
+            x_pix = np.interp(timestamps, (t_min, t_max), (x0, x1)).astype(np.int32)
             y_pix = np.interp(values, (y_min, y_max), (y0, y1)).astype(np.int32)
             color = tuple(int(c) for c in colors[idx % len(colors)])
 
-            # Fastest plot lines
-            pts = np.stack([x_pix, y_pix], axis=1).reshape(-1, 1, 2)
-            cv2.polylines(img, [pts], isClosed=False, color=color, thickness=1, lineType=cv2.LINE_4)
+            if len(x_pix) > 1:
+                pts = np.stack([x_pix, y_pix], axis=1).reshape(-1, 1, 2)
+                cv2.polylines(img, [pts], isClosed=False, color=color, thickness=1, lineType=cv2.LINE_4)
 
-            # Highlight peaks (vectorized, minimal)
+            # Highlight peaks
             if show_peaks and arr.shape[1] >= 3:
                 peaks = arr[:, 2].astype(bool)
                 if np.any(peaks):
                     for px, py in zip(x_pix[peaks], y_pix[peaks]):
                         cv2.circle(img, (px, py), 2, (0, 0, 255), -1, lineType=cv2.LINE_4)
 
-            # Channel label (small, fast)
             cv2.putText(img, f"Ch {idx+1}", (x1 - 40, y1 + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1, cv2.LINE_4)
 
         # Axis labels (bottom plot only, small)
