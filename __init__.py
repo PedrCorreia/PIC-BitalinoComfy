@@ -51,3 +51,31 @@ try:
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Bitalino Receiver: {e}")
 
+try:
+    from.comfy.test_comfy.plot_node import PygamePlotNode
+    NODE_CLASS_MAPPINGS["PygamePlotNode"] = PygamePlotNode
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} PygamePlotNode: ImportError - {e}")
+
+try:   
+    from .comfy.test_comfy.plot_node import PyQtGraphPlotNode
+    NODE_CLASS_MAPPINGS["PyQtGraphPlotNode"] = PyQtGraphPlotNode
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} PyQtGraphPlotNode: ImportError - {e}")
+
+try:
+    from .comfy.test_comfy.plot_node import OpenCVPlotNode
+    NODE_CLASS_MAPPINGS["OpenCVPlotNode"] = OpenCVPlotNode
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} OpenCVPlotNode: ImportError - {e}")
+except Exception as e:
+    print(f"{IMPORT_ERROR_MESSAGE} OpenCVPlotNode: {type(e).__name__} - {e}")  
+
+try: 
+    from .comfy.test_comfy.synthetic_data import SyntheticDataNode
+    NODE_CLASS_MAPPINGS["SyntheticDataNode"] = SyntheticDataNode
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} SyntheticDataNode: ImportError - {e}") 
+except Exception as e:
+    print(f"{IMPORT_ERROR_MESSAGE} SyntheticDataNode: {type(e).__name__} - {e}") 
+
