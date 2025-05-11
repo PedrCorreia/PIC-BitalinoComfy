@@ -10,7 +10,11 @@ class SynthNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "signal_type": (["EDA", "ECG", "RR"], {"default": "EDA"}),
+                # Replace single signal_type dropdown with individual toggles
+                "show_eda": ("BOOLEAN", {"default": True}),
+                "show_ecg": ("BOOLEAN", {"default": False}),
+                "show_rr": ("BOOLEAN", {"default": False}),
+                
                 "duration": ("INT", {"default": 10, "min": 1, "max": 60}),
                 "sampling_rate": ("INT", {"default": 100, "min": 1, "max": 1000}),
                 "buffer_size": ("INT", {"default": 10, "min": 1, "max": 60, "step": 1}),  # Buffer size in seconds
@@ -27,9 +31,9 @@ class SynthNode:
         }
         
     @classmethod 
-    def IS_CHANGED(cls, signal_type, duration, sampling_rate, buffer_size, plot, fps, auto_restart, 
-                  keep_window, performance_mode, window_width, window_height, line_thickness, 
-                  enable_downsampling):
+    def IS_CHANGED(cls, show_eda, show_ecg, show_rr, duration, sampling_rate, buffer_size, 
+                  plot, fps, auto_restart, keep_window, performance_mode, 
+                  window_width, window_height, line_thickness, enable_downsampling):
         # Return NaN to trigger node execution on each workflow run
         return float("NaN")
         
@@ -39,11 +43,17 @@ class SynthNode:
     FUNCTION = "generate"
     CATEGORY = "Pedro_PIC/🧰 Tools"
 
-    def generate(self, signal_type, duration, sampling_rate, buffer_size, plot, fps, auto_restart, 
-                keep_window, performance_mode, window_width, window_height, line_thickness,
-                enable_downsampling):
-        return self.generator.generate(
-            signal_type, duration, sampling_rate, buffer_size, plot, fps, auto_restart, 
+    def generate(self, show_eda, show_ecg, show_rr, duration, sampling_rate, buffer_size, 
+                plot, fps, auto_restart, keep_window, performance_mode, 
+                window_width, window_height, line_thickness, enable_downsampling):
+                
+        # Make sure at least one signal is enabled
+        if not (show_eda or show_ecg or show_rr):
+            show_eda = True  # Default to EDA if none selected
+        
+        return self.generator.generate_multi(
+            show_eda, show_ecg, show_rr,
+            duration, sampling_rate, buffer_size, plot, fps, auto_restart, 
             keep_window, performance_mode, window_width, window_height, line_thickness,
             enable_downsampling
         )
@@ -54,5 +64,5 @@ NODE_CLASS_MAPPINGS = {
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "SynthNode": "Synthetic Data Generator (Real-time)"
+    "SynthNode": "Synthetic Data Generator (Multi-Signal)"
 }

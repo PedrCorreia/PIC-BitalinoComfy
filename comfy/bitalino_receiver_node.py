@@ -18,7 +18,12 @@ class LRBitalinoReceiver:
                 "bitalino_mac_address": ("STRING", {"default": "BTH20:16:07:18:17:02"}),
                 "acquisition_duration": ("INT", {"default": 3600*24}),  # duration of bitalino readout (seconds)
                 "sampling_freq": ("INT", {"default": 10}),  # how many sample per second
-                "channels": ("INT", {"default": 1}),  # from 0 to 6
+                "channels 1": (BOLEAN, {"default": True}),
+                "channels 2": (BOLEAN, {"default": True}),
+                "channels 3": (BOLEAN, {"default": True}),
+                "channels 4": (BOLEAN, {"default": True}),
+                "channels 5": (BOLEAN, {"default": True}),
+                "channels 6": (BOLEAN, {"default": True}),
                 "buffer_period": ("INT", {"default": 2}),  # size of the buffer
             }
         }
@@ -32,12 +37,12 @@ class LRBitalinoReceiver:
         "FLOAT", "FLOAT", "FLOAT", "FLOAT", "FLOAT", "FLOAT"          # Last values
     )
     RETURN_NAMES = (
-        "Buffer_0", "Buffer_1", "Buffer_2", "Buffer_3", "Buffer_4", "Buffer_5", "Sampling_freq",
-        "Last_0", "Last_1", "Last_2", "Last_3", "Last_4", "Last_5"
+        "Buffer_1", "Buffer_2", "Buffer_3", "Buffer_4", "Buffer_5", "Buffer_6", "Sampling_freq",
+        "Last_1", "Last_2", "Last_3", "Last_4", "Last_5", "Last_6"
     )
     FUNCTION = "get_value"
     OUTPUT_NODE = True
-    CATEGORY = "Biosiglas/black_boxes"
+    CATEGORY = "Pedro_PIC/black_boxes"
     
     def get_value(self, bitalino_mac_address, acquisition_duration, sampling_freq, channels, buffer_period):
         # Step 20: get_value called

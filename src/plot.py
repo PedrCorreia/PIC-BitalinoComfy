@@ -3,7 +3,7 @@ import numpy as np
 import time
 import queue
 import weakref
-from collections import deque
+from collections import deque, OrderedDict
 
 # Try importing PyGame
 try:
@@ -57,6 +57,16 @@ class PygamePlot:
         self.signal_type = None
         # Add a new flag for downsampling
         self.enable_downsampling = False  # Default to disabled
+        
+        # Multi-signal support
+        self.multi_signal_mode = False
+        self.enabled_signals = {"EDA": False, "ECG": False, "RR": False}
+        self.signal_colors = {
+            "EDA": (0, 255, 0),   # Green
+            "ECG": (0, 0, 255),   # Blue
+            "RR": (255, 165, 0)   # Orange
+        }
+        self._latest_multi_data = {}
         
         # Register this instance
         with PygamePlot._lock:
@@ -117,6 +127,54 @@ class PygamePlot:
             print("Starting new plot thread")
             self._stop_event.clear()
             self._plot_thread = threading.Thread(target=self._plot_loop, daemon=True)
+            self._plot_thread.start()
+
+    def plot_multi(self, data_snapshots, x_min=None, x_max=None, enable_downsampling=False):
+        """
+        Plot multiple signals stacked vertically
+        
+        Args:
+            data_snapshots: Dictionary mapping signal types to data lists
+            x_min: global minimum x-value for plotting window
+            x_max: global maximum x-value for plotting window
+            enable_downsampling: whether to enable downsampling
+        """
+        if not PYGAME_AVAILABLE:
+            print("Pygame not available, cannot plot data")
+            return
+        
+        # Reset closed state when plot is called
+        self._closed = False
+        
+        # Store settings
+        self.enable_downsampling = enable_downsampling
+        self.multi_signal_mode = True
+        
+        # Compute a simple hash of the data to detect changes
+        data_hash = hash(tuple(
+            (signal_type, len(data), 
+             hash(data[0][0]) if data else 0, 
+             hash(data[-1][0]) if data else 0)
+            for signal_type, data in data_snapshots.items()
+        ))
+        
+        # Only update if data actually changed
+        if self._data_hash != data_hash:
+            self._data_hash = data_hash
+            self._latest_multi_data = {
+                signal_type: {
+                    'x': np.array([d[0] for d in data], dtype=np.float32) if data else np.array([], dtype=np.float32),
+                    'y': np.array([d[1] for d in data], dtype=np.float32) if data else np.array([], dtype=np.float32),
+                }
+                for signal_type, data in data_snapshots.items()
+            }
+            self._latest_data = (x_min, x_max)  # Store global x range
+            self._new_data.set()
+        
+        if self._plot_thread is None or not self._plot_thread.is_alive():
+            print("Starting new multi-signal plot thread")
+            self._stop_event.clear()
+            self._plot_thread = threading.Thread(target=self._plot_multi_loop, daemon=True)
             self._plot_thread.start()
 
     @staticmethod
@@ -571,6 +629,351 @@ class PygamePlot:
                 clock.tick(self.FPS)
         
         print("Plot thread terminated")
+
+    def _plot_multi_loop(self):
+        """Main plotting loop for multi-signal visualization"""
+        if not PYGAME_AVAILABLE:
+            print("Pygame not available, cannot create plot")
+            return
+            
+        # Reset window if it was previously closed by user
+        with PygamePlot._lock:
+            if self._window_closed_externally:
+                PygamePlot._window = None
+                PygamePlot._screen = None
+                self._window_closed_externally = False
+                print("Resetting pygame window after previous close")
+            
+        # Window dimensions - use instance values
+        w, h = self.width, self.height
+        
+        # Use double buffered hardware acceleration
+        flags = pygame.HWSURFACE | pygame.DOUBLEBUF | pygame.SCALED
+        
+        # Initialize Pygame only once or if window was closed
+        with PygamePlot._lock:
+            if PygamePlot._window is None:
+                print(f"Initializing pygame window ({w}x{h})")
+                pygame.init()
+                PygamePlot._screen = pygame.display.set_mode((w, h), flags, vsync=1)
+                pygame.display.set_caption("Multi-Signal Plot (Real-time)")
+                PygamePlot._window = True
+                PygamePlot._start_time = time.time()
+                PygamePlot._surf_cache = {}
+            else:
+                print("Using existing pygame window")
+                current_w, current_h = PygamePlot._screen.get_size()
+                if current_w != w or current_h != h:
+                    print(f"Resizing pygame window to {w}x{h}")
+                    PygamePlot._screen = pygame.display.set_mode((w, h), flags, vsync=1)
+        
+        screen = PygamePlot._screen
+        
+        # Create clock for consistent framerate
+        clock = pygame.time.Clock()
+        
+        # Create cached background surface with correct size
+        bg_key = f'bg_multi_{w}x{h}'
+        if bg_key not in PygamePlot._surf_cache:
+            bg_surface = pygame.Surface((w, h)).convert()
+            bg_color = (0, 0, 0) if self.PERFORMANCE_MODE else (30, 30, 30)
+            bg_surface.fill(bg_color)
+            PygamePlot._surf_cache[bg_key] = bg_surface
+        
+        # Create cached buffer surface with correct size
+        buffer_key = f'plot_buffer_{w}x{h}'
+        if buffer_key not in PygamePlot._surf_cache:
+            plot_buffer = pygame.Surface((w, h), pygame.SRCALPHA).convert_alpha()
+            PygamePlot._surf_cache[buffer_key] = plot_buffer
+        
+        bg_surface = PygamePlot._surf_cache[bg_key]
+        plot_buffer = PygamePlot._surf_cache[buffer_key]
+        
+        # Reusable objects - adjust font size for smaller windows
+        font_size_normal = max(12, int(h * 0.04))
+        font_size_bold = max(14, int(h * 0.045))
+        font_normal = self._get_font(font_size_normal)
+        font_bold = self._get_font(font_size_bold)
+        
+        # Calculate margins that will be fixed regardless of signal count
+        margin_left = int(w * 0.09)    # 9% of width
+        margin_right = int(w * 0.05)   # 5% of width 
+        margin_top = int(h * 0.06)     # 6% of height
+        margin_bottom = int(h * 0.09)  # 9% of height
+        
+        plot_w = w - margin_left - margin_right
+        
+        # Main loop
+        running = True
+        min_interval = 1.0 / self.FPS if self.FPS_CAP_ENABLED else 0
+        
+        while running and not self._stop_event.is_set():
+            # Process events to keep window responsive
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                    self._closed = True
+                    self._window_closed_externally = True  # Mark as closed by user
+                    with PygamePlot._lock:
+                        PygamePlot._window = None  # Reset window state
+                        PygamePlot._screen = None
+                    self._stop_event.set()
+                    print("Window closed by user")
+            
+            # Wait for new data with a timeout
+            self._new_data.wait(timeout=0.001)
+            
+            # Check FPS cap
+            now = time.time()
+            if self.FPS_CAP_ENABLED and (now - self._last_draw_time) < min_interval:
+                clock.tick(self.FPS)
+                continue
+            
+            # Process new data if available
+            if self._new_data.is_set():
+                x_min_override, x_max_override = self._latest_data
+                self._new_data.clear()
+                self._last_draw_time = now
+                needs_redraw = True
+            else:
+                # Skip redrawing if no new data
+                needs_redraw = False
+                
+            if needs_redraw:
+                # Start with clean background
+                screen.blit(bg_surface, (0, 0))
+                plot_buffer.fill((0, 0, 0, 0))  # Clear with transparency
+                
+                # Get the active signals (those with data)
+                active_signals = [signal for signal, data in self._latest_multi_data.items() 
+                                if len(data['x']) > 0]
+                
+                # Skip if no active signals
+                if not active_signals:
+                    pygame.display.flip()
+                    continue
+                
+                # Determine global x range
+                if x_min_override is not None and x_max_override is not None:
+                    x_min = float(x_min_override)
+                    x_max = float(x_max_override)
+                else:
+                    x_min = float('inf')
+                    x_max = float('-inf')
+                    
+                    for signal in active_signals:
+                        x_arr = self._latest_multi_data[signal]['x']
+                        if len(x_arr) > 0:
+                            x_min = min(x_min, float(np.min(x_arr)))
+                            x_max = max(x_max, float(np.max(x_arr)))
+                    
+                    if x_min == float('inf'):
+                        x_min = 0
+                    if x_max == float('-inf'):
+                        x_max = 1
+
+                # Ensure x_min and x_max are distinct to avoid div by zero
+                if x_max <= x_min:
+                    x_max = x_min + 0.1
+                
+                x_range = x_max - x_min
+                
+                # Calculate the height available for each plot
+                # Reserve space between plots (5% of total height per divider)
+                divider_height = int(h * 0.03) if len(active_signals) > 1 else 0
+                total_divider_height = divider_height * (len(active_signals) - 1)
+                available_height = h - margin_top - margin_bottom - total_divider_height
+                
+                # Height per plot
+                plot_h = available_height // len(active_signals)
+                
+                # Draw global x-axis labels
+                x_min_label = f"{x_min:.1f}"
+                x_max_label = f"{x_max:.1f}"
+                x_label = f"Time (s)"
+                
+                # Draw global x axis
+                line_thickness = 1 if self.PERFORMANCE_MODE else 2
+                line_color = (100, 100, 100) if self.PERFORMANCE_MODE else (255, 255, 255)
+                
+                # Draw horizontal x-axis at the bottom
+                pygame.draw.line(screen, line_color, 
+                                (margin_left, h - margin_bottom), 
+                                (w - margin_right, h - margin_bottom), 
+                                line_thickness)
+                
+                # Draw x-axis labels
+                if not self.PERFORMANCE_MODE:
+                    # X-axis min/max labels
+                    x_min_surf = font_normal.render(x_min_label, True, (200, 200, 200))
+                    x_max_surf = font_normal.render(x_max_label, True, (200, 200, 200))
+                    
+                    # Position at the left and right of the axis
+                    screen.blit(x_min_surf, (margin_left - x_min_surf.get_width()//2, h - margin_bottom + 15))
+                    screen.blit(x_max_surf, (w - margin_right - x_max_surf.get_width()//2, h - margin_bottom + 15))
+                    
+                    # X-axis label centered below
+                    x_axis_label = font_normal.render(x_label, True, (200, 200, 200))
+                    screen.blit(x_axis_label, (w//2 - x_axis_label.get_width()//2, h - margin_bottom + 25))
+                
+                # Draw each signal in its own subplot
+                for i, signal_type in enumerate(active_signals):
+                    # Get signal data
+                    x_arr = self._latest_multi_data[signal_type]['x']
+                    y_arr = self._latest_multi_data[signal_type]['y']
+                    
+                    # Skip if no data
+                    if len(x_arr) == 0:
+                        continue
+                    
+                    # Calculate vertical position for this subplot
+                    y_offset = margin_top + i * (plot_h + divider_height)
+                    
+                    # Draw signal label
+                    signal_label = font_bold.render(signal_type, True, self.signal_colors[signal_type])
+                    screen.blit(signal_label, (10, y_offset + 5))
+                    
+                    # Normalize x values to plot width (using global x_min/x_max)
+                    if x_range == 0:
+                        x_norm = np.full_like(x_arr, margin_left)
+                    else:
+                        x_norm = margin_left + (x_arr - x_min) * plot_w / x_range
+                    
+                    # Y axis scaling (specific to this signal)
+                    y_min = float(np.min(y_arr))
+                    y_max = float(np.max(y_arr))
+                    
+                    # Ensure y_min and y_max are distinct
+                    if y_max <= y_min:
+                        y_max = y_min + 0.1
+                    
+                    y_range = y_max - y_min
+                    
+                    # Draw y axis for this subplot
+                    pygame.draw.line(screen, line_color, 
+                                    (margin_left, y_offset), 
+                                    (margin_left, y_offset + plot_h), 
+                                    line_thickness)
+                    
+                    # Draw y-axis labels for this subplot
+                    if not self.PERFORMANCE_MODE:
+                        y_min_label = f"{y_min:.2f}"
+                        y_max_label = f"{y_max:.2f}"
+                        
+                        y_min_surf = font_normal.render(y_min_label, True, (180, 180, 180))
+                        y_max_surf = font_normal.render(y_max_label, True, (180, 180, 180))
+                        
+                        # Position at top and bottom of the y-axis for this subplot
+                        screen.blit(y_min_surf, (margin_left - y_min_surf.get_width() - 5, 
+                                               y_offset + plot_h - 10))
+                        screen.blit(y_max_surf, (margin_left - y_max_surf.get_width() - 5, 
+                                               y_offset + 5))
+                    
+                    # Draw horizontal gridlines
+                    if not self.PERFORMANCE_MODE:
+                        grid_color = (60, 60, 60)
+                        num_grids = 4
+                        for j in range(1, num_grids):
+                            y_pos = y_offset + plot_h - (j * plot_h / num_grids)
+                            pygame.draw.line(screen, grid_color, 
+                                           (margin_left + 1, y_pos), 
+                                           (w - margin_right, y_pos), 
+                                           1)
+                    
+                    # Normalize y values specific to this subplot
+                    if y_range == 0:
+                        y_norm = np.full_like(y_arr, y_offset + plot_h/2)
+                    else:
+                        # Scale to this subplot's height and position
+                        y_norm = y_offset + plot_h - (y_arr - y_min) * plot_h / y_range
+                    
+                    # Get color for this signal
+                    line_color = self.signal_colors.get(signal_type, (0, 0, 255))
+                    
+                    # Apply intelligent downsampling
+                    if self.SMART_DOWNSAMPLE and self.enable_downsampling:
+                        self.signal_type = signal_type  # Set for downsampling algorithm
+                        x_arr, y_arr = self._smart_downsample(x_arr, y_arr)
+                        # Recompute normalized coordinates after downsampling
+                        if x_range == 0:
+                            x_norm = np.full_like(x_arr, margin_left)
+                        else:
+                            x_norm = margin_left + (x_arr - x_min) * plot_w / x_range
+                        if y_range == 0:
+                            y_norm = np.full_like(y_arr, y_offset + plot_h/2)
+                        else:
+                            y_norm = y_offset + plot_h - (y_arr - y_min) * plot_h / y_range
+                    
+                    # Draw signal
+                    if len(x_norm) > 1:
+                        thickness = 1 if self.PERFORMANCE_MODE else self.LINE_THICKNESS
+                        pts = [(int(x), int(y)) for x, y in zip(x_norm, y_norm)]
+                        
+                        if self.PERFORMANCE_MODE:
+                            pygame.draw.lines(screen, line_color, False, pts, thickness)
+                        else:
+                            self._draw_smooth_line(screen, line_color, pts, thickness)
+                    elif len(x_norm) == 1:
+                        pygame.draw.circle(screen, line_color, (int(x_norm[0]), int(y_norm[0])), 2)
+                
+                # Draw timing and latency info in the top right corner
+                if not self.PERFORMANCE_MODE:
+                    node_time_str = time.strftime("Node Time: %Y-%m-%d %H:%M:%S", 
+                                              time.localtime(PygamePlot._start_time))
+                    node_time_key = f"node_time_{int(now) % 10}_{font_size_bold}"
+                    if node_time_key not in PygamePlot._surf_cache:
+                        PygamePlot._surf_cache[node_time_key] = font_bold.render(node_time_str, True, (255, 255, 0))
+                    screen.blit(PygamePlot._surf_cache[node_time_key], (w - 300, 10))
+
+                    real_elapsed = now - self._real_time_start
+                    real_minutes = int(real_elapsed) // 60
+                    real_seconds = int(real_elapsed) % 60
+                    real_time_str = f"Real Time: {real_minutes:02}:{real_seconds:02}"
+                    real_time_surface = font_bold.render(real_time_str, True, (255, 255, 0))
+                    screen.blit(real_time_surface, (w - 300, 35))
+                    
+                    # Sampling rate info centered at the top
+                    if self.sampling_rate:
+                        sr_str = f"Sample Rate: {self.sampling_rate} Hz"
+                        sr_surface = font_normal.render(sr_str, True, (200, 200, 200))
+                        screen.blit(sr_surface, (w // 2 - sr_surface.get_width() // 2, 10))
+                    
+                    # Calculate latency (using max x value across all signals)
+                    latency = real_elapsed - x_max
+                    is_stable = abs(latency - self._last_latency) < 0.5 if hasattr(self, '_last_latency') else False
+                    is_acceptable = latency <= 1
+                    
+                    if is_stable and is_acceptable:
+                        latency_color = (100, 255, 100)
+                        latency_str = f"Latency: {latency:.3f}s (stable)"
+                    elif is_stable and not is_acceptable:
+                        latency_color = (255, 165, 0)
+                        latency_str = f"Latency: {latency:.3f}s (high)"
+                    elif not is_stable and is_acceptable:
+                        latency_color = (255, 255, 100)
+                        latency_str = f"Latency: {latency:.3f}s"
+                    else:
+                        latency_color = (255, 100, 100)
+                        latency_str = f"Latency: {latency:.3f}s (!)"
+
+                    self._last_latency = latency
+                    
+                    latency_surface = font_bold.render(latency_str, True, latency_color)
+                    screen.blit(latency_surface, (w - 300, 60))
+                    
+                    # Total active signals and mode
+                    info_str = f"{len(active_signals)} signals - {'performance' if self.PERFORMANCE_MODE else 'quality'} mode"
+                    info_surface = font_normal.render(info_str, True, (200, 200, 200))
+                    screen.blit(info_surface, (w - 300, 85))
+                
+                # Update display
+                pygame.display.flip()
+            
+            # Maintain FPS
+            if self.FPS_CAP_ENABLED:
+                clock.tick(self.FPS)
+        
+        print("Multi-signal plot thread terminated")
 
     def _draw_smooth_line(self, surface, color, points, thickness=1):
         """Draw a smoother line by using anti-aliasing and optional interpolation"""
