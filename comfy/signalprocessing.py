@@ -16,7 +16,7 @@ class MovingAverageFilter:
     RETURN_TYPES = ("DEQUE",)  # Return the filtered data as a deque
     RETURN_NAMES = ("Filtered_Data",)
     FUNCTION = "apply_filter"
-    CATEGORY = "Signal Processing/Filters"
+    CATEGORY = "Pedro_PIC/🔬 Processing"
 
     def apply_filter(self, Buffer, Window_size):
         # Extract values from the deque
@@ -55,7 +55,7 @@ class SignalFilter:
     RETURN_TYPES = ("DEQUE",)  # Return the filtered data as a deque
     RETURN_NAMES = ("Filtered_Data",)
     FUNCTION = "apply_filter"
-    CATEGORY = "Signal Processing/Advanced Filters"
+    CATEGORY = "Pedro_PIC/🔬 Processing"
 
     def apply_filter(self, Buffer, Filter_Type, Cutoff_Freq, Band_Cutoff_Freqs, Sampling_Freq):
         # Extract values from the deque
@@ -90,7 +90,7 @@ class LoadSignalNode:
     RETURN_TYPES = ("DEQUE",)  # Return the loaded signal as a deque
     RETURN_NAMES = ("Loaded_Signal",)
     FUNCTION = "load_signal"
-    CATEGORY = "Signal Processing/Utilities"
+    CATEGORY = "Pedro_PIC/🔬 Processing"
 
     def load_signal(self, File_Path):
         # Load the JSON file
@@ -103,3 +103,15 @@ class LoadSignalNode:
 
         # Convert to deque
         return deque(data)
+
+NODE_CLASS_MAPPINGS = {
+    "MovingAverageFilter": MovingAverageFilter,
+    "SignalFilter": SignalFilter,
+    "LoadSignalNode": LoadSignalNode
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "MovingAverageFilter": "📉 Moving Average Filter",
+    "SignalFilter": "🔍 Signal Filter",
+    "LoadSignalNode": "📂 Load Signal"
+}

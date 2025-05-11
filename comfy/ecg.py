@@ -28,7 +28,7 @@ class ECGNode:
     RETURN_TYPES = ("ARRAY", "FLOAT","BOOLEAN")
     RETURN_NAMES = ("Visualization_Data", "Heart_Rate","Rpeak")
     FUNCTION = "process_ecg"
-    CATEGORY = "Biosignal/ECG"
+    CATEGORY = "Pedro_PIC/🔬 Bio-Processing"
 
     def process_ecg(self, signal_deque, viz_buffer_size, feature_buffer_size):
         """

@@ -23,14 +23,12 @@ class SyntheticDataGenerator:
         self._plot_nodes = weakref.WeakSet()
         self.signal_complete = False
         self.start_time = None
-        self.plot_after_complete = True  # Keep plot window open after completion
+        self.plot_after_complete = True  # Always keep plot window open after completion
         self.fps = 60
         self.x_min = 0
         self.x_max = 10  # Default to buffer size
         self.adaptive_x_axis = True  # Auto-adjust x-axis range
         self.performance_mode = False
-        self.window_width = 640
-        self.window_height = 480
         self.line_thickness = 1
         self.enable_downsampling = False
         self.slow_noise_phase = 0.0
@@ -48,20 +46,20 @@ class SyntheticDataGenerator:
             "RR": deque(maxlen=1000)
         }
         
-        # Signal-specific parameters for each type
+        # Signal-specific parameters for each type - use plot.py colors
         self.signal_params = {
             "EDA": {
                 "scr_events": [],
                 "baseline": 2.0,
-                "color": (0, 255, 0)  # Green for EDA
+                "color": PygamePlot.SIGNAL_COLORS["EDA"]  # Use centralized color
             },
             "ECG": {
                 "heart_rate": 60,
-                "color": (0, 0, 255)  # Blue for ECG
+                "color": PygamePlot.SIGNAL_COLORS["ECG"]  # Use centralized color
             },
             "RR": {
                 "breathing_rate": 15,
-                "color": (255, 165, 0)  # Orange for RR
+                "color": PygamePlot.SIGNAL_COLORS["RR"]  # Use centralized color
             }
         }
         print("SyntheticDataGenerator initialized")
@@ -174,7 +172,8 @@ class SyntheticDataGenerator:
             if sleep_time > 0:
                 time.sleep(sleep_time)
             elif sleep_time < -1.0:
-                print(f"Generator falling behind by {-sleep_time:.1f}s")
+                #print(f"Generator falling behind by {-sleep_time:.1f}s")
+                pass
 
     def _generate_eda_value(self, real_time, sensor_noise, electronic_noise):
         """Generate EDA signal value at the given time"""
@@ -247,11 +246,16 @@ class SyntheticDataGenerator:
 
     def _ensure_multi_threads(self, enabled_signals, duration, sampling_rate, buffer_size, auto_restart=True, keep_window=True):
         """Ensure that the data generation thread is running with multiple signals enabled"""
-        restart = (
+        # Check if signal configuration has changed
+        signal_config_changed = (
             enabled_signals != self.enabled_signals or
             sampling_rate != self.sampling_rate or
             duration != self.duration or
-            buffer_size != self.buffer_size or
+            buffer_size != self.buffer_size
+        )
+        
+        needs_restart = (
+            signal_config_changed or
             self.signal_complete or
             not self.running
         )
@@ -259,33 +263,56 @@ class SyntheticDataGenerator:
         self.plot_after_complete = keep_window
         self.buffer_size = buffer_size
         
-        if restart:
-            self._plot_nodes.clear()
+        # If configuration changed, we need to restart
+        if needs_restart:
+            # First clean up any existing plot nodes
+            self._cleanup_plot_nodes()
             self.plot_thread = None
             
+            # Update configuration
             self.enabled_signals = enabled_signals.copy()
             self.sampling_rate = sampling_rate
             self.duration = duration
             
+            # Reset data buffers with new size
             max_samples = int(sampling_rate * buffer_size)
             for signal_type in self.signal_data:
                 self.signal_data[signal_type] = deque(maxlen=max_samples)
             
+            # Reset state flags
             self.signal_complete = False
             self.running = False
             
+            # Stop the generation thread if it's running
             if self.thread and self.thread.is_alive():
-                self.thread.join(timeout=0.1)
+                self.running = False  # Signal thread to stop
+                self.thread.join(timeout=0.2)  # Give it a moment to clean up
             
-            if self.thread is not None:
-                self._close_plot()
+            # Close any existing plots
+            self._close_plot()
             
+            # Start new generation thread
             self.running = True
             self.thread = threading.Thread(target=self._background_generator, daemon=True)
             self.thread.start()
             
             active_signals = [s for s, enabled in self.enabled_signals.items() if enabled]
             print(f"Started multi-signal generation: {', '.join(active_signals)} - {buffer_size}s buffer ({max_samples} samples)")
+    
+    def _cleanup_plot_nodes(self):
+        """Clean up plot nodes safely"""
+        plot_nodes_to_close = list(self._plot_nodes)
+        self._plot_nodes.clear()
+        
+        for plot_node in plot_nodes_to_close:
+            try:
+                plot_node._stop_event.set()
+                # Allow time for resources to be released
+                time.sleep(0.05)
+                # If resize is needed, signal that
+                plot_node._resize_needed = True
+            except Exception as e:
+                print(f"Error during plot node cleanup: {e}")
     
     def _plot_multi_data(self):
         """Start an optimized real-time plotting thread with multi-signal support"""
@@ -302,24 +329,42 @@ class SyntheticDataGenerator:
             # Minimum 180px per signal plus margins
             dynamic_height = max(
                 480,  # Minimum height
-                num_signals * 180 + 100  # Additional 100px for margins and labels
+                num_signals * PygamePlot.MIN_HEIGHT_PER_SIGNAL + 100  # Additional 100px for margins and labels
             )
             
-            plot_node = PygamePlot(
-                width=self.window_width, 
-                height=dynamic_height,  # Use dynamic height based on signal count
-                performance_mode=self.performance_mode
-            )
-            plot_node.FPS = self.fps
-            plot_node.sampling_rate = self.sampling_rate
-            plot_node.adaptive_x_axis = self.adaptive_x_axis
-            plot_node.LINE_THICKNESS = self.line_thickness
+            # Check if we already have a plot window that we can resize
+            existing_plot = None
+            for plot_node in self._plot_nodes:
+                existing_plot = plot_node
+                break
             
-            plot_node.multi_signal_mode = True
-            plot_node.enabled_signals = self.enabled_signals
-            plot_node.signal_colors = {signal: params["color"] for signal, params in self.signal_params.items()}
-            
-            self._plot_nodes.add(plot_node)
+            if existing_plot:
+                # Update existing plot window
+                existing_plot.resize_window(PygamePlot.DEFAULT_WIDTH, dynamic_height)
+                existing_plot.FPS = self.fps
+                existing_plot.sampling_rate = self.sampling_rate
+                existing_plot.LINE_THICKNESS = self.line_thickness
+                existing_plot.multi_signal_mode = True
+                existing_plot.enabled_signals = self.enabled_signals
+                existing_plot.signal_colors = PygamePlot.SIGNAL_COLORS.copy()
+                plot_node = existing_plot
+            else:
+                # Create new plot window
+                plot_node = PygamePlot(
+                    width=PygamePlot.DEFAULT_WIDTH,
+                    height=dynamic_height,
+                    performance_mode=self.performance_mode
+                )
+                plot_node.FPS = self.fps
+                plot_node.sampling_rate = self.sampling_rate
+                plot_node.adaptive_x_axis = self.adaptive_x_axis
+                plot_node.LINE_THICKNESS = self.line_thickness
+                
+                plot_node.multi_signal_mode = True
+                plot_node.enabled_signals = self.enabled_signals
+                plot_node.signal_colors = PygamePlot.SIGNAL_COLORS.copy()
+                
+                self._plot_nodes.add(plot_node)
             
             self._plot_update_interval = 1.0 / self.fps
             
@@ -389,14 +434,7 @@ class SyntheticDataGenerator:
     def _close_plot(self):
         """Close plot windows and fully reset plot state"""
         print("Closing all plot windows")
-        plot_nodes = list(self._plot_nodes)
-        self._plot_nodes.clear()
-        
-        for plot_node in plot_nodes:
-            try:
-                plot_node._stop_event.set()
-            except Exception as e:
-                print(f"Error closing plot: {e}")
+        self._cleanup_plot_nodes()
         
         # Force thread termination and cleanup
         if self.plot_thread and self.plot_thread.is_alive():
@@ -411,13 +449,10 @@ class SyntheticDataGenerator:
 
     def generate_multi(self, show_eda, show_ecg, show_rr, duration, sampling_rate, 
                       buffer_size, plot=True, fps=60, auto_restart=True, keep_window=True, 
-                      performance_mode=False, window_width=640, window_height=480, 
-                      line_thickness=1, enable_downsampling=False):
+                      performance_mode=False, line_thickness=1, enable_downsampling=False):
         """Generate multiple signals based on the enabled types"""
         self.fps = fps
         self.performance_mode = performance_mode
-        self.window_width = window_width
-        self.window_height = window_height
         self.line_thickness = line_thickness
         self.enable_downsampling = enable_downsampling
         
@@ -430,7 +465,7 @@ class SyntheticDataGenerator:
         if not any(enabled_signals.values()):
             enabled_signals["EDA"] = True
             
-        self._ensure_multi_threads(enabled_signals, duration, sampling_rate, buffer_size, auto_restart, keep_window)
+        self._ensure_multi_threads(enabled_signals, duration, sampling_rate, buffer_size, auto_restart=True, keep_window=True)
         
         with self.lock:
             data = {}

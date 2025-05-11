@@ -42,7 +42,7 @@ class LRBitalinoReceiver:
     )
     FUNCTION = "get_value"
     OUTPUT_NODE = True
-    CATEGORY = "Pedro_PIC/black_boxes"
+    CATEGORY = "Pedro_PIC/📡 Bitalino"
     
     def get_value(self, bitalino_mac_address, acquisition_duration, sampling_freq, channels, buffer_period):
         # Step 20: get_value called

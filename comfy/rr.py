@@ -28,7 +28,7 @@ class RRNode:
     RETURN_TYPES = ("ARRAY", "FLOAT", "ARRAY", "FLOAT", "FLOAT")
     RETURN_NAMES = ("Visualization_Data", "Respiration_Rate", "Peak_Positions", "Ymin", "Ymax")
     FUNCTION = "process_rr"
-    CATEGORY = "Biosignal/RR"
+    CATEGORY = "Pedro_PIC/🔬 Bio-Processing"
 
     def process_rr(self, signal_deque, viz_buffer_size, feature_buffer_size):
         """
@@ -113,7 +113,7 @@ class RRLastValueNode:
     RETURN_TYPES = ("FLOAT", "BOOLEAN")
     RETURN_NAMES = ("Last_Value", "Is_Peak")
     FUNCTION = "get_last_value_and_peak"
-    CATEGORY = "Biosignal/RR"
+    CATEGORY = "Pedro_PIC/🔬 Bio-Processing"
 
     def get_last_value_and_peak(self, signal_deque, feature_buffer_size):
         """

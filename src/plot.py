@@ -4,6 +4,8 @@ import time
 import queue
 import weakref
 from collections import deque, OrderedDict
+import atexit
+import sys
 
 # Try importing PyGame
 try:
@@ -15,6 +17,44 @@ except ImportError:
 
 # Primary Plot Class - PygamePlot
 class PygamePlot:
+    # ==== CENTRALIZED CONFIGURATION SETTINGS ====
+    # Window settings
+    DEFAULT_WIDTH = 900  # Increased default window width
+    DEFAULT_HEIGHT = 480
+    
+    # Colors configuration
+    BACKGROUND_COLOR = (20, 20, 20)  # Dark background
+    AXIS_COLOR = (200, 200, 200)  # Light gray for axes
+    GRID_COLOR = (60, 60, 60)  # Darker gray for grid lines
+    TEXT_COLOR = (220, 220, 220)  # Light text
+    TIME_INFO_COLOR = (255, 255, 0)  # Yellow for time information
+    
+    # Signal colors - centralized here for easy modification
+    SIGNAL_COLORS = {
+        "EDA": (0, 255, 0),    # Green
+        "ECG": (255, 0, 0),    # Red
+        "RR": (255, 165, 0),   # Orange
+        "DEFAULT": (0, 0, 255) # Blue default
+    }
+    
+    # Margin settings as percentage of window dimensions
+    MARGIN_LEFT_PERCENT = 0.07  # 7% of width
+    MARGIN_RIGHT_PERCENT = 0.05  # 5% of width
+    MARGIN_TOP_PERCENT = 0.08  # 8% of height
+    MARGIN_BOTTOM_PERCENT = 0.09  # 9% of height
+    
+    # Performance settings
+    FPS = 60
+    FPS_CAP_ENABLED = True
+    PERFORMANCE_MODE = False
+    SMART_DOWNSAMPLE = False  # Default to OFF for downsampling
+    LINE_THICKNESS = 1
+    
+    # Sizing for multi-signal displays
+    MIN_HEIGHT_PER_SIGNAL = 180  # Minimum height per signal in pixels
+    MIN_WINDOW_HEIGHT = 300      # Minimum overall window height
+    # ==== END CONFIGURATION SETTINGS ====
+
     _window = None
     _screen = None
     _lock = threading.Lock()
@@ -23,22 +63,47 @@ class PygamePlot:
     _dirty_regions = []  # Track regions that need updates
     _font_cache = {}  # Cache for frequently used fonts
     _surf_cache = {}  # Cache for reusable surfaces
+    _exit_registered = False  # Flag to track if exit handler is registered
 
-    FPS = 60
-    FPS_CAP_ENABLED = True
-    # Default window dimensions
-    DEFAULT_WIDTH = 640
-    DEFAULT_HEIGHT = 480
-    # New optimization flags
-    PERFORMANCE_MODE = False
-    SMART_DOWNSAMPLE = False  # Default to OFF for downsampling
-    LINE_THICKNESS = 1
-    
-    # Minimum height per signal for multi-signal displays
-    MIN_HEIGHT_PER_SIGNAL = 180  # Minimum height per signal in pixels
-    MIN_WINDOW_HEIGHT = 300      # Minimum overall window height
+    # Register cleanup handler to ensure all pygame windows close on exit
+    @classmethod
+    def _register_exit_handler(cls):
+        if not cls._exit_registered and PYGAME_AVAILABLE:
+            atexit.register(cls._cleanup_all_windows)
+            cls._exit_registered = True
+            print("Registered pygame cleanup handler")
+
+    @classmethod
+    def _cleanup_all_windows(cls):
+        """Clean up all pygame windows on application exit"""
+        if PYGAME_AVAILABLE and pygame.get_init():
+            print("Cleaning up all pygame windows")
+            # Stop all plot instances
+            for instance_ref in list(cls._instances):
+                instance = instance_ref()
+                if instance is not None:
+                    try:
+                        instance._stop_event.set()
+                    except Exception as e:
+                        print(f"Error during instance cleanup: {e}")
+            
+            # Clear references
+            cls._instances.clear()
+            cls._font_cache.clear()
+            cls._surf_cache.clear()
+            cls._window = None
+            cls._screen = None
+            
+            # Quit pygame properly
+            try:
+                pygame.quit()
+            except Exception as e:
+                print(f"Error quitting pygame: {e}")
 
     def __init__(self, width=None, height=None, performance_mode=False):
+        # Register exit handler if not already done
+        PygamePlot._register_exit_handler()
+        
         self._plot_thread = None
         self._latest_data = ([], [], False)
         self._new_data = threading.Event()
@@ -52,6 +117,8 @@ class PygamePlot:
         self._closed = False  # Track window closed state
         self._last_latency = 0
         self._window_closed_externally = False  # Track if window was closed by user
+        self._resize_needed = False  # Flag to track if window resize is needed
+        
         # Set dimensions - use defaults if not provided
         self.width = width if width is not None else self.DEFAULT_WIDTH
         self.height = height if height is not None else self.DEFAULT_HEIGHT
@@ -65,11 +132,8 @@ class PygamePlot:
         # Multi-signal support
         self.multi_signal_mode = False
         self.enabled_signals = {"EDA": False, "ECG": False, "RR": False}
-        self.signal_colors = {
-            "EDA": (0, 255, 0),   # Green
-            "ECG": (0, 0, 255),   # Blue
-            "RR": (255, 165, 0)   # Orange
-        }
+        # Use centralized color definitions
+        self.signal_colors = self.SIGNAL_COLORS.copy()
         self._latest_multi_data = {}
         
         # Register this instance
@@ -78,6 +142,23 @@ class PygamePlot:
     
     def __del__(self):
         self._stop_event.set()
+        self._close_plot_resources()
+    
+    def _close_plot_resources(self):
+        """Clean up plot resources properly"""
+        # Signal any active threads to stop
+        self._stop_event.set()
+        
+        # Wait a moment for threads to notice stop signal
+        try:
+            if self._plot_thread and self._plot_thread.is_alive():
+                self._plot_thread.join(timeout=0.2)
+        except Exception:
+            pass
+        
+        # Reset state
+        self._closed = True
+        self._plot_thread = None
 
     def plot(self, x, y, as_points=False, x_min=None, x_max=None, signal_type=None, enable_downsampling=False):
         """
@@ -209,137 +290,29 @@ class PygamePlot:
             PygamePlot._font_cache[key] = pygame.font.SysFont(name, size)
         return PygamePlot._font_cache[key]
 
-    def _smart_downsample(self, x_arr, y_arr):
-        """
-        Apply signal-specific downsampling optimized for low-noise signals.
-        Only applies if enable_downsampling is True.
-        """
-        # Skip downsampling if it's disabled or if data is small enough
-        if not self.enable_downsampling or len(x_arr) <= 1000:
-            return x_arr, y_arr
-        
-        # Get time duration of the signal
-        time_span = x_arr[-1] - x_arr[0]
-        if time_span <= 0:
-            return x_arr, y_arr  # Avoid division by zero
-        
-        # Calculate current effective sampling rate
-        current_sampling_rate = len(x_arr) / time_span
-        
-        # For low-noise signals, we need to be more careful with downsampling
-        # Calculate the signal variance to estimate noise level
-        y_variance = np.var(y_arr)
-        
-        # Define minimum required sampling rates based on signal type
-        # and adjust for low-noise conditions
-        if self.signal_type == "ECG":
-            # ECG with QRS complexes needs higher resolution
-            # For low-noise ECG, we can use lower rates but still preserve peaks
-            base_rate = 100.0  # Base rate for ECG
-            
-            # For very clean signals, we can be more aggressive
-            if y_variance < 0.01:  # Low variance suggests clean signal
-                return self._peak_preserving_downsample(x_arr, y_arr, base_rate)
-            else:
-                # Higher variance needs more careful sampling
-                return self._peak_preserving_downsample(x_arr, y_arr, base_rate * 2)
-                
-        elif self.signal_type == "EDA":
-            # EDA is slow-changing, can use lower rates
-            if current_sampling_rate > 16.0:  # Allow more downsampling for clean EDA
-                downsample_factor = int(current_sampling_rate / 8.0)
-                return x_arr[::downsample_factor], y_arr[::downsample_factor]
-            return x_arr, y_arr
-            
-        elif self.signal_type == "RR":
-            # Respiratory rate is very slow
-            if current_sampling_rate > 10.0:
-                downsample_factor = int(current_sampling_rate / 5.0)
-                return x_arr[::downsample_factor], y_arr[::downsample_factor]
-            return x_arr, y_arr
-            
-        else:
-            # Default case - simple downsampling based on current rate
-            if current_sampling_rate > 50.0:
-                downsample_factor = max(1, int(current_sampling_rate / 50.0))
-                return x_arr[::downsample_factor], y_arr[::downsample_factor]
-            return x_arr, y_arr
-
-    def _peak_preserving_downsample(self, x_arr, y_arr, target_rate):
-        """
-        Downsample while preserving important peaks in the signal.
-        Especially useful for ECG where QRS complexes need to be preserved.
-        """
-        if len(x_arr) <= 2:
-            return x_arr, y_arr
-            
-        time_span = x_arr[-1] - x_arr[0]
-        if time_span <= 0:
-            return x_arr, y_arr
-            
-        current_rate = len(x_arr) / time_span
-        if current_rate <= target_rate * 1.5:
-            return x_arr, y_arr  # Already close to target rate
-            
-        # Calculate basic downsampling factor
-        basic_factor = int(current_rate / target_rate)
-        if basic_factor <= 1:
-            return x_arr, y_arr
-            
-        # Find peaks in the signal
-        # Simple peak detection using local maxima/minima
-        peaks = []
-        for i in range(1, len(y_arr)-1):
-            # Look for local maxima and minima
-            if (y_arr[i] > y_arr[i-1] and y_arr[i] > y_arr[i+1]) or \
-               (y_arr[i] < y_arr[i-1] and y_arr[i] < y_arr[i+1]):
-                peaks.append(i)
-                
-        # If no peaks found, use regular downsampling
-        if not peaks:
-            return x_arr[::basic_factor], y_arr[::basic_factor]
-            
-        # Create mask for points to keep
-        mask = np.zeros(len(x_arr), dtype=bool)
-        
-        # Keep every nth point as base sampling
-        mask[::basic_factor] = True
-        
-        # Always keep the first and last points
-        mask[0] = mask[-1] = True
-        
-        # Keep points around peaks
-        for peak in peaks:
-            # Keep the peak and some points around it
-            start_idx = max(0, peak - 2)
-            end_idx = min(len(mask), peak + 3)
-            mask[start_idx:end_idx] = True
-            
-        # Apply mask to get downsampled arrays
-        return x_arr[mask], y_arr[mask]
-
     def _plot_loop(self):
         """Main plotting loop for pygame visualization"""
         if not PYGAME_AVAILABLE:
             print("Pygame not available, cannot create plot")
             return
             
-        # Reset window if it was previously closed by user
+        # Reset window if it was previously closed by user or if resize is needed
         with PygamePlot._lock:
-            if self._window_closed_externally:
+            if self._window_closed_externally or PygamePlot._window is None or self._resize_needed:
                 PygamePlot._window = None
                 PygamePlot._screen = None
                 self._window_closed_externally = False
-                print("Resetting pygame window after previous close")
+                self._resize_needed = False
+                print("Resetting pygame window")
             
         # Window dimensions - use instance values
         w, h = self.width, self.height
         
-        # Adjust margins for smaller windows
-        margin_left = int(w * 0.09)  # 9% of width
-        margin_right = int(w * 0.05)  # 5% of width
-        margin_top = int(h * 0.08)    # 8% of height
-        margin_bottom = int(h * 0.12)  # 12% of height
+        # Calculate margins from percentages
+        margin_left = int(w * self.MARGIN_LEFT_PERCENT)
+        margin_right = int(w * self.MARGIN_RIGHT_PERCENT)
+        margin_top = int(h * self.MARGIN_TOP_PERCENT)
+        margin_bottom = int(h * self.MARGIN_BOTTOM_PERCENT)
         
         plot_w = w - margin_left - margin_right
         plot_h = h - margin_top - margin_bottom
@@ -375,20 +348,11 @@ class PygamePlot:
         bg_key = f'bg_{w}x{h}'
         if bg_key not in PygamePlot._surf_cache:
             bg_surface = pygame.Surface((w, h)).convert()
-            
-            # Performance mode uses simpler colors
-            if self.PERFORMANCE_MODE:
-                bg_color = (0, 0, 0)  # Black background for better performance
-                line_color = (100, 100, 100)  # Gray lines
-            else:
-                bg_color = (0, 0, 0)  # Dark gray
-                line_color = (255, 255, 255)  # White
-                
-            bg_surface.fill(bg_color)
+            bg_surface.fill(self.BACKGROUND_COLOR)
             line_thickness = 1 if self.PERFORMANCE_MODE else 2
-            pygame.draw.line(bg_surface, line_color, (margin_left, h - margin_bottom), 
+            pygame.draw.line(bg_surface, self.AXIS_COLOR, (margin_left, h - margin_bottom), 
                             (w - margin_right, h - margin_bottom), line_thickness)
-            pygame.draw.line(bg_surface, line_color, (margin_left, h - margin_bottom), 
+            pygame.draw.line(bg_surface, self.AXIS_COLOR, (margin_left, h - margin_bottom), 
                             (margin_left, margin_top), line_thickness)
             PygamePlot._surf_cache[bg_key] = bg_surface
         
@@ -402,10 +366,12 @@ class PygamePlot:
         plot_buffer = PygamePlot._surf_cache[buffer_key]
         
         # Reusable objects - adjust font size for smaller windows
-        font_size_normal = max(14, int(h * 0.045))
-        font_size_bold = max(16, int(h * 0.05))
+        font_size_normal = max(10, int(h * 0.035))
+        font_size_bold = max(12, int(h * 0.04))
+        font_size_signal = max(9, int(h * 0.03))  # Smaller font for signal labels
         font_normal = self._get_font(font_size_normal)
         font_bold = self._get_font(font_size_bold)
+        font_signal = self._get_font(font_size_signal)
         
         # Main loop
         running = True
@@ -483,8 +449,8 @@ class PygamePlot:
                     y_label = f"Signal"
                     
                     # Render min/max labels
-                    x_min_surf = font_normal.render(x_min_label, True, (200, 200, 200))
-                    x_max_surf = font_normal.render(x_max_label, True, (200, 200, 200))
+                    x_min_surf = font_normal.render(x_min_label, True, self.TEXT_COLOR)
+                    x_max_surf = font_normal.render(x_max_label, True, self.TEXT_COLOR)
                     
                     # Draw min/max labels - position at actual axis endpoints
                     screen.blit(x_min_surf, (margin_left - x_min_surf.get_width()//2, h - margin_bottom + 15))
@@ -493,9 +459,9 @@ class PygamePlot:
                     # Render axis labels if needed
                     labels_key = f"labels_{font_size_normal}"
                     if f'{labels_key}_x' not in PygamePlot._surf_cache:
-                        PygamePlot._surf_cache[f'{labels_key}_x'] = font_normal.render(x_label, True, (200, 200, 200))
+                        PygamePlot._surf_cache[f'{labels_key}_x'] = font_normal.render(x_label, True, self.TEXT_COLOR)
                     if f'{labels_key}_y' not in PygamePlot._surf_cache:
-                        PygamePlot._surf_cache[f'{labels_key}_y'] = font_normal.render(y_label, True, (200, 200, 200))
+                        PygamePlot._surf_cache[f'{labels_key}_y'] = font_normal.render(y_label, True, self.TEXT_COLOR)
                     
                     # Draw main axis labels
                     screen.blit(PygamePlot._surf_cache[f'{labels_key}_x'], (w//2, h - margin_bottom + 25))
@@ -536,26 +502,23 @@ class PygamePlot:
                         y_min_label = f"{y_min:.2f}"
                         y_max_label = f"{y_max:.2f}"
                         
-                        y_min_surf = font_normal.render(y_min_label, True, (200, 200, 200))
-                        y_max_surf = font_normal.render(y_max_label, True, (200, 200, 200))
+                        y_min_surf = font_normal.render(y_min_label, True, self.TEXT_COLOR)
+                        y_max_surf = font_normal.render(y_max_label, True, self.TEXT_COLOR)
                         
                         # Position at actual axis endpoints
                         screen.blit(y_min_surf, (margin_left - y_min_surf.get_width() - 5, h - margin_bottom - 10))
                         screen.blit(y_max_surf, (margin_left - y_max_surf.get_width() - 5, margin_top))
                     
-                    # Set line color based on signal type or performance mode
-                    if self.PERFORMANCE_MODE:
-                        # Fast, bright colors
-                        line_color = (0, 255, 0)  # Green for performance
+                    # Set line color based on signal type (using centralized colors)
+                    if self.signal_type in self.signal_colors:
+                        line_color = self.signal_colors[self.signal_type]
                     else:
-                        if self.signal_type == "ECG":
-                            line_color = (255, 0, 0)  # Red for ECG
-                        elif self.signal_type == "EDA":
-                            line_color = (0, 255, 0)  # Green for EDA
-                        elif self.signal_type == "RR":
-                            line_color = (255, 165, 0)  # Orange for RR
-                        else:
-                            line_color = (0, 0, 255)  # Default blue
+                        line_color = self.signal_colors["DEFAULT"]
+                        
+                    # Draw signal type label at top right
+                    if self.signal_type:
+                        signal_label = font_signal.render(self.signal_type, True, line_color)
+                        screen.blit(signal_label, (w - margin_right - signal_label.get_width() - 10, margin_top))
                     
                     # Draw signal - use numpy operations as much as possible
                     if as_points:
@@ -584,64 +547,67 @@ class PygamePlot:
                         elif len(x_norm) == 1:
                             pygame.draw.circle(screen, line_color, (int(x_norm[0]), int(y_norm[0])), 2)
 
-                # RESTORED: Always draw timing info and latency info
-                # Node time information
-                node_time_str = time.strftime("Node Time: %Y-%m-%d %H:%M:%S", time.localtime(PygamePlot._start_time))
-                node_time_key = f"node_time_{int(now) % 10}_{font_size_bold}"  # Update every 10 seconds
-                if node_time_key not in PygamePlot._surf_cache:
-                    PygamePlot._surf_cache[node_time_key] = font_bold.render(node_time_str, True, (255, 255, 0))
-                screen.blit(PygamePlot._surf_cache[node_time_key], (10, 10))
-
-                # Real time tracking - always base on clock time
+                # Consolidated status information row at the top
+                info_row_y = 10
+                
+                # Real time tracking
                 real_elapsed = now - self._real_time_start
                 real_minutes = int(real_elapsed) // 60
                 real_seconds = int(real_elapsed) % 60
-                real_time_str = f"Real Time: {real_minutes:02}:{real_seconds:02}"
-                real_time_surface = font_bold.render(real_time_str, True, (255, 255, 0))
-                screen.blit(real_time_surface, (10, 10 + font_size_bold + 5))
+                real_time_str = f"RT: {real_minutes:02}:{real_seconds:02}"
+                real_time_surface = font_normal.render(real_time_str, True, self.TIME_INFO_COLOR)
                 
-                # Display sampling rate information
-                if self.sampling_rate:
-                    sr_str = f"Sample Rate: {self.sampling_rate} Hz"
-                    sr_surface = font_normal.render(sr_str, True, (200, 200, 200))
-                    screen.blit(sr_surface, (10, 10 + (font_size_bold + 5) * 3))
-                
-                
+                # Latency calculation
                 if len(x_arr) > 0:
-                    # Latency is how far behind real-time the latest data point is
                     latency = real_elapsed - x_max
-                    
-                    # Only consider latency problematic if >1s or very unstable
                     is_stable = abs(latency - self._last_latency) < 0.5 if hasattr(self, '_last_latency') else False
                     is_acceptable = latency <= 1
                     
                     if is_stable and is_acceptable:
-                        # Green for stable, acceptable latency
-                        latency_color = (100, 255, 100)
-                        latency_str = f"Latency: {latency:.3f}s (stable)"
-                    elif is_stable and not is_acceptable:
-                        # Orange for stable but high latency
-                        latency_color = (255, 165, 0)
-                        latency_str = f"Latency: {latency:.3f}s (high)"
-                    elif not is_stable and is_acceptable:
-                        # Yellow for changing but acceptable latency
-                        latency_color = (255, 255, 100)
-                        latency_str = f"Latency: {latency:.3f}s"
+                        latency_color = (100, 255, 100)  # Green
+                        latency_str = f"Lat: {latency:.3f}s"
                     else:
-                        # Red for unstable and high latency
-                        latency_color = (255, 100, 100)
-                        latency_str = f"Latency: {latency:.3f}s (!)"
-
-                    self._last_latency = latency  # Store for next comparison
-                    
-                    latency_surface = font_bold.render(latency_str, True, latency_color)
-                    screen.blit(latency_surface, (10, 10 + (font_size_bold + 5) * 2))
-                    
-                    # Add data points counter
-                    points_str = f"Points: {len(x_arr)} ({'performance' if self.PERFORMANCE_MODE else 'quality'} mode)"
-                    points_surface = font_normal.render(points_str, True, (200, 200, 200))
-                    screen.blit(points_surface, (10, 10 + (font_size_bold + 5) * 4))
-
+                        latency_color = (255, 165, 0)  # Orange/yellow
+                        latency_str = f"Lat: {latency:.3f}s"
+                        
+                    self._last_latency = latency
+                    latency_surface = font_normal.render(latency_str, True, latency_color)
+                else:
+                    latency_surface = None
+                
+                # Mode indicator
+                mode_str = f"{'Perf' if self.PERFORMANCE_MODE else 'Quality'}"
+                mode_surface = font_normal.render(mode_str, True, self.TEXT_COLOR)
+                
+                # Sample rate if available
+                if self.sampling_rate:
+                    sr_str = f"SR: {self.sampling_rate} Hz"
+                    sr_surface = font_normal.render(sr_str, True, self.TEXT_COLOR)
+                else:
+                    sr_surface = None
+                
+                # Position all info elements in a single row
+                info_x = margin_left
+                spacing = 15
+                
+                # Display real time
+                screen.blit(real_time_surface, (info_x, info_row_y))
+                info_x += real_time_surface.get_width() + spacing
+                
+                # Display latency if available
+                if latency_surface:
+                    screen.blit(latency_surface, (info_x, info_row_y))
+                    info_x += latency_surface.get_width() + spacing
+                
+                # Display sample rate if available
+                if sr_surface:
+                    screen.blit(sr_surface, (info_x, info_row_y))
+                    info_x += sr_surface.get_width() + spacing
+                
+                # Display mode
+                screen.blit(mode_surface, (info_x, info_row_y))
+                info_x += mode_surface.get_width() + spacing
+                
                 # Optimized update - only update the screen once per frame
                 pygame.display.flip()
             
@@ -657,13 +623,14 @@ class PygamePlot:
             print("Pygame not available, cannot create plot")
             return
             
-        # Reset window if it was previously closed by user
+        # Reset window if it was previously closed by user or if resize is needed
         with PygamePlot._lock:
-            if self._window_closed_externally:
+            if self._window_closed_externally or PygamePlot._window is None or self._resize_needed:
                 PygamePlot._window = None
                 PygamePlot._screen = None
                 self._window_closed_externally = False
-                print("Resetting pygame window after previous close")
+                self._resize_needed = False
+                print("Resetting pygame window for multi-signal plot")
             
         # Window dimensions - use instance values
         w, h = self.width, self.height
@@ -699,8 +666,7 @@ class PygamePlot:
         bg_key = f'bg_multi_{w}x{h}'
         if bg_key not in PygamePlot._surf_cache:
             bg_surface = pygame.Surface((w, h)).convert()
-            bg_color = (0, 0, 0) if self.PERFORMANCE_MODE else (30, 30, 30)
-            bg_surface.fill(bg_color)
+            bg_surface.fill(self.BACKGROUND_COLOR)
             PygamePlot._surf_cache[bg_key] = bg_surface
         
         # Create cached buffer surface with correct size
@@ -713,16 +679,18 @@ class PygamePlot:
         plot_buffer = PygamePlot._surf_cache[buffer_key]
         
         # Reusable objects - adjust font size for smaller windows
-        font_size_normal = max(10, int(h * 0.04))
-        font_size_bold = max(12, int(h * 0.045))
+        font_size_normal = max(10, int(h * 0.035))
+        font_size_bold = max(12, int(h * 0.04))
+        font_size_signal = max(9, int(h * 0.03))  # Smaller font for signal labels
         font_normal = self._get_font(font_size_normal)
         font_bold = self._get_font(font_size_bold)
+        font_signal = self._get_font(font_size_signal)
         
-        # Calculate margins that will be fixed regardless of signal count
-        margin_left = int(w * 0.09)    # 9% of width
-        margin_right = int(w * 0.05)   # 5% of width 
-        margin_top = int(h * 0.06)     # 6% of height
-        margin_bottom = int(h * 0.09)  # 9% of height
+        # Calculate margins from percentages
+        margin_left = int(w * self.MARGIN_LEFT_PERCENT)
+        margin_right = int(w * self.MARGIN_RIGHT_PERCENT)
+        margin_top = int(h * self.MARGIN_TOP_PERCENT)
+        margin_bottom = int(h * self.MARGIN_BOTTOM_PERCENT)
         
         plot_w = w - margin_left - margin_right
         
@@ -802,7 +770,7 @@ class PygamePlot:
                 x_range = x_max - x_min
                 
                 # Calculate the height available for each plot
-                # Reserve space between plots (5% of total height per divider)
+                # Reserve space between plots (3% of total height per divider)
                 divider_height = int(h * 0.03) if len(active_signals) > 1 else 0
                 total_divider_height = divider_height * (len(active_signals) - 1)
                 available_height = h - margin_top - margin_bottom - total_divider_height
@@ -817,7 +785,7 @@ class PygamePlot:
                 
                 # Draw global x axis
                 line_thickness = 1 if self.PERFORMANCE_MODE else 2
-                line_color = (100, 100, 100) if self.PERFORMANCE_MODE else (255, 255, 255)
+                line_color = self.AXIS_COLOR
                 
                 # Draw horizontal x-axis at the bottom
                 pygame.draw.line(screen, line_color, 
@@ -828,16 +796,72 @@ class PygamePlot:
                 # Draw x-axis labels
                 if not self.PERFORMANCE_MODE:
                     # X-axis min/max labels
-                    x_min_surf = font_normal.render(x_min_label, True, (200, 200, 200))
-                    x_max_surf = font_normal.render(x_max_label, True, (200, 200, 200))
+                    x_min_surf = font_normal.render(x_min_label, True, self.TEXT_COLOR)
+                    x_max_surf = font_normal.render(x_max_label, True, self.TEXT_COLOR)
                     
                     # Position at the left and right of the axis
                     screen.blit(x_min_surf, (margin_left - x_min_surf.get_width()//2, h - margin_bottom + 15))
                     screen.blit(x_max_surf, (w - margin_right - x_max_surf.get_width()//2, h - margin_bottom + 15))
                     
                     # X-axis label centered below
-                    x_axis_label = font_normal.render(x_label, True, (200, 200, 200))
+                    x_axis_label = font_normal.render(x_label, True, self.TEXT_COLOR)
                     screen.blit(x_axis_label, (w//2 - x_axis_label.get_width()//2, h - margin_bottom + 25))
+                
+                # Consolidated status information row at the top
+                info_row_y = 10
+                
+                # Real time tracking
+                real_elapsed = now - self._real_time_start
+                real_minutes = int(real_elapsed) // 60
+                real_seconds = int(real_elapsed) % 60
+                real_time_str = f"RT: {real_minutes:02}:{real_seconds:02}"
+                real_time_surface = font_normal.render(real_time_str, True, self.TIME_INFO_COLOR)
+                
+                # Latency calculation
+                latency = real_elapsed - x_max
+                is_stable = abs(latency - self._last_latency) < 0.5 if hasattr(self, '_last_latency') else False
+                is_acceptable = latency <= 1
+                
+                if is_stable and is_acceptable:
+                    latency_color = (100, 255, 100)  # Green
+                    latency_str = f"Lat: {latency:.3f}s"
+                else:
+                    latency_color = (255, 165, 0)  # Orange/yellow
+                    latency_str = f"Lat: {latency:.3f}s"
+                    
+                self._last_latency = latency
+                latency_surface = font_normal.render(latency_str, True, latency_color)
+                
+                # Mode indicator
+                mode_str = f"{'Perf' if self.PERFORMANCE_MODE else 'Quality'}"
+                mode_surface = font_normal.render(mode_str, True, self.TEXT_COLOR)
+                
+                # Sample rate if available
+                if self.sampling_rate:
+                    sr_str = f"SR: {self.sampling_rate} Hz"
+                    sr_surface = font_normal.render(sr_str, True, self.TEXT_COLOR)
+                else:
+                    sr_surface = None
+                
+                # Position all info elements in a single row
+                info_x = margin_left
+                spacing = 15
+                
+                # Display real time
+                screen.blit(real_time_surface, (info_x, info_row_y))
+                info_x += real_time_surface.get_width() + spacing
+                
+                # Display latency
+                screen.blit(latency_surface, (info_x, info_row_y))
+                info_x += latency_surface.get_width() + spacing
+                
+                # Display sample rate if available
+                if sr_surface:
+                    screen.blit(sr_surface, (info_x, info_row_y))
+                    info_x += sr_surface.get_width() + spacing
+                
+                # Display mode
+                screen.blit(mode_surface, (info_x, info_row_y))
                 
                 # Draw each signal in its own subplot
                 for i, signal_type in enumerate(active_signals):
@@ -852,9 +876,9 @@ class PygamePlot:
                     # Calculate vertical position for this subplot
                     y_offset = margin_top + i * (plot_h + divider_height)
                     
-                    # Draw signal label
-                    signal_label = font_bold.render(signal_type, True, self.signal_colors[signal_type])
-                    screen.blit(signal_label, (10, y_offset + 5))
+                    # Draw signal label on top right instead of left
+                    signal_label = font_signal.render(signal_type, True, self.signal_colors[signal_type])
+                    screen.blit(signal_label, (w - margin_right - signal_label.get_width() - 10, y_offset + 5))
                     
                     # Normalize x values to plot width (using global x_min/x_max)
                     if x_range == 0:
@@ -883,8 +907,8 @@ class PygamePlot:
                         y_min_label = f"{y_min:.2f}"
                         y_max_label = f"{y_max:.2f}"
                         
-                        y_min_surf = font_normal.render(y_min_label, True, (180, 180, 180))
-                        y_max_surf = font_normal.render(y_max_label, True, (180, 180, 180))
+                        y_min_surf = font_normal.render(y_min_label, True, self.TEXT_COLOR)
+                        y_max_surf = font_normal.render(y_max_label, True, self.TEXT_COLOR)
                         
                         # Position at top and bottom of the y-axis for this subplot
                         screen.blit(y_min_surf, (margin_left - y_min_surf.get_width() - 5, 
@@ -894,7 +918,7 @@ class PygamePlot:
                     
                     # Draw horizontal gridlines
                     if not self.PERFORMANCE_MODE:
-                        grid_color = (60, 60, 60)
+                        grid_color = self.GRID_COLOR
                         num_grids = 4
                         for j in range(1, num_grids):
                             y_pos = y_offset + plot_h - (j * plot_h / num_grids)
@@ -911,7 +935,7 @@ class PygamePlot:
                         y_norm = y_offset + plot_h - (y_arr - y_min) * plot_h / y_range
                     
                     # Get color for this signal
-                    line_color = self.signal_colors.get(signal_type, (0, 0, 255))
+                    line_color = self.signal_colors.get(signal_type, self.signal_colors["DEFAULT"])
                     
                     # Apply intelligent downsampling
                     if self.SMART_DOWNSAMPLE and self.enable_downsampling:
@@ -939,56 +963,6 @@ class PygamePlot:
                     elif len(x_norm) == 1:
                         pygame.draw.circle(screen, line_color, (int(x_norm[0]), int(y_norm[0])), 2)
                 
-                # Draw timing and latency info in the top right corner
-                if not self.PERFORMANCE_MODE:
-                    node_time_str = time.strftime("Node Time: %Y-%m-%d %H:%M:%S", 
-                                              time.localtime(PygamePlot._start_time))
-                    node_time_key = f"node_time_{int(now) % 10}_{font_size_bold}"
-                    if node_time_key not in PygamePlot._surf_cache:
-                        PygamePlot._surf_cache[node_time_key] = font_bold.render(node_time_str, True, (255, 255, 0))
-                    screen.blit(PygamePlot._surf_cache[node_time_key], (w - 300, 10))
-
-                    real_elapsed = now - self._real_time_start
-                    real_minutes = int(real_elapsed) // 60
-                    real_seconds = int(real_elapsed) % 60
-                    real_time_str = f"Real Time: {real_minutes:02}:{real_seconds:02}"
-                    real_time_surface = font_bold.render(real_time_str, True, (255, 255, 0))
-                    screen.blit(real_time_surface, (w - 300, 35))
-                    
-                    # Sampling rate info centered at the top
-                    if self.sampling_rate:
-                        sr_str = f"Sample Rate: {self.sampling_rate} Hz"
-                        sr_surface = font_normal.render(sr_str, True, (200, 200, 200))
-                        screen.blit(sr_surface, (w // 2 - sr_surface.get_width() // 2, 10))
-                    
-                    # Calculate latency (using max x value across all signals)
-                    latency = real_elapsed - x_max
-                    is_stable = abs(latency - self._last_latency) < 0.5 if hasattr(self, '_last_latency') else False
-                    is_acceptable = latency <= 1
-                    
-                    if is_stable and is_acceptable:
-                        latency_color = (100, 255, 100)
-                        latency_str = f"Latency: {latency:.3f}s (stable)"
-                    elif is_stable and not is_acceptable:
-                        latency_color = (255, 165, 0)
-                        latency_str = f"Latency: {latency:.3f}s (high)"
-                    elif not is_stable and is_acceptable:
-                        latency_color = (255, 255, 100)
-                        latency_str = f"Latency: {latency:.3f}s"
-                    else:
-                        latency_color = (255, 100, 100)
-                        latency_str = f"Latency: {latency:.3f}s (!)"
-
-                    self._last_latency = latency
-                    
-                    latency_surface = font_bold.render(latency_str, True, latency_color)
-                    screen.blit(latency_surface, (w - 300, 60))
-                    
-                    # Total active signals and mode
-                    info_str = f"{len(active_signals)} signals - {'performance' if self.PERFORMANCE_MODE else 'quality'} mode"
-                    info_surface = font_normal.render(info_str, True, (200, 200, 200))
-                    screen.blit(info_surface, (w - 300, 85))
-                
                 # Update display
                 pygame.display.flip()
             
@@ -1011,6 +985,14 @@ class PygamePlot:
             pygame.draw.lines(surface, color, False, points, thickness)
             # Then overlay an anti-aliased line for smoothing the edges
             pygame.draw.aalines(surface, color, False, points)
+
+    def resize_window(self, width, height):
+        """Request window resize on next render cycle"""
+        if width != self.width or height != self.height:
+            self.width = width
+            self.height = height
+            self._resize_needed = True
+            print(f"Window resize requested to {width}x{height}")
 
 # Node implementation of PygamePlot for ComfyUI
 class PygamePlotNode:
