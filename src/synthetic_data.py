@@ -3,7 +3,7 @@ import time
 import numpy as np
 from collections import deque
 import weakref
-from .plot import PygamePlot, PYGAME_AVAILABLE
+from ..src.plot import PygamePlot, PYGAME_AVAILABLE
 
 class SyntheticDataGenerator:
     """
@@ -27,6 +27,24 @@ class SyntheticDataGenerator:
         self.start_time = None
         self.plot_after_complete = True  # Keep plot window open after completion
         self.fps = 60
+        # Add min/max tracking for better axis control
+        self.x_min = 0
+        self.x_max = 10  # Default to buffer size
+        self.adaptive_x_axis = True  # Auto-adjust x-axis range
+        self.performance_mode = False
+        self.window_width = 640
+        self.window_height = 480
+        self.line_thickness = 1
+        self.enable_downsampling = False
+        # Initialize noise parameters for high-quality sensors
+        self.slow_noise_phase = 0.0
+        self.slow_drift_value = 0.0
+        self.next_artifact_time = 0.0
+        self.artifact_active = False
+        self.artifact_value = 0.0
+        self.artifact_duration = 0.0
+        # Add SCR tracking for EDA signals
+        self.scr_events = []
         print("SyntheticDataGenerator initialized")
 
     def _background_generator(self):
@@ -35,6 +53,17 @@ class SyntheticDataGenerator:
         self.start_time = time.time()
         self.signal_complete = False
         target_time = self.start_time
+        
+        # Reset min/max tracking
+        with self.lock:
+            self.x_min = 0
+            self.x_max = self.buffer_size
+            
+        # Initialize noise parameters for high-quality sensors
+        self.slow_noise_phase = 0.0
+        self.slow_drift_value = 0.0
+        self.next_artifact_time = np.random.uniform(15.0, 30.0)  # Much less frequent artifacts
+        self.artifact_active = False
         
         while self.running:
             current_time = time.time()
@@ -52,44 +81,147 @@ class SyntheticDataGenerator:
                     self.running = False
                 break
             
-            # Generate data with real-world timestamps (not just sample indices)
-            real_time = elapsed  # Use actual elapsed time as the x-value
+            # Generate data with real-world timestamps
+            real_time = elapsed
             
-            # Generate exactly one sample with correct timestamp
+            # Generate refined noise components for high-quality sensors
+            
+            # 1. Very subtle baseline wander (primarily respiratory influence)
+            baseline_freq = 0.2  # ~0.2 Hz = typical respiratory frequency
+            baseline_wander = 0.03 * np.sin(2 * np.pi * baseline_freq * real_time + self.slow_noise_phase)
+            
+            # 2. Ultra-slow thermal drift (changes over minutes)
+            if i % int(self.sampling_rate * 10) == 0:  # Update drift every 10 seconds
+                drift_target = 0.01 * np.random.randn()
+                self.slow_drift_value = 0.95 * self.slow_drift_value + 0.05 * drift_target
+            
+            # 3. Very rare artifacts (every 15-60 seconds for high-quality sensors)
+            if not self.artifact_active and real_time >= self.next_artifact_time:
+                if np.random.rand() < 0.3:  # Only 30% chance of artifact occurring
+                    self.artifact_active = True
+                    artifact_type = np.random.choice(['minor_shift', 'brief_dropout'], p=[0.7, 0.3])
+                    
+                    if artifact_type == 'brief_dropout':
+                        self.artifact_value = -0.5  # Signal drops partially
+                        self.artifact_duration = np.random.uniform(0.05, 0.1)  # Very brief (50-100ms)
+                    else:  # minor_shift
+                        self.artifact_value = np.random.uniform(0.03, 0.08) * (1 if np.random.random() > 0.5 else -1)
+                        self.artifact_duration = np.random.uniform(0.2, 0.5)  # Short duration
+                        
+                    self.artifact_end_time = real_time + self.artifact_duration
+                
+                self.next_artifact_time = real_time + np.random.uniform(15.0, 60.0)
+                
+            # Apply artifact if active
+            artifact_contribution = 0
+            if self.artifact_active:
+                if real_time < self.artifact_end_time:
+                    time_in_artifact = real_time - (self.artifact_end_time - self.artifact_duration)
+                    normalized_time = time_in_artifact / self.artifact_duration
+                    
+                    if normalized_time < 0.2:
+                        scale = normalized_time / 0.2
+                    elif normalized_time > 0.8:
+                        scale = (1.0 - normalized_time) / 0.2
+                    else:
+                        scale = 1.0
+                        
+                    artifact_contribution = self.artifact_value * scale
+                else:
+                    self.artifact_active = False
+            
+            # Combine all noise components - much more subtle for high-quality sensors
+            sensor_noise = baseline_wander + self.slow_drift_value + artifact_contribution
+            
+            # Add ultra-low amplitude electronic noise (white noise)
+            electronic_noise = 0.005 * np.random.randn()
+            
+            # Generate signal-specific components with appropriate noise levels
             if self.signal_type == "EDA":
-                baseline = 0.5 * np.sin(2 * np.pi * 0.01 * real_time)
-                y_value = baseline + 0.05 * np.random.randn()
-                if np.random.rand() < 0.01:
-                    y_value += np.random.uniform(0.2, 0.4)
+                baseline = 2.0 + 0.3 * np.sin(2 * np.pi * 0.008 * real_time)
+                
+                if np.random.rand() < 0.001:
+                    scr_amplitude = np.random.uniform(0.2, 0.8)
+                    scr_rise_time = np.random.uniform(1.0, 3.0)
+                    scr_decay_time = np.random.uniform(3.0, 8.0)
+                    scr_start_time = real_time
+                    self.scr_events.append((scr_amplitude, scr_rise_time, scr_decay_time, scr_start_time))
+                
+                scr_contribution = 0
+                remaining_events = []
+                for scr in self.scr_events:
+                    amp, rise, decay, start = scr
+                    t_since_start = real_time - start
+                    
+                    if t_since_start < rise + decay:
+                        if t_since_start < rise:
+                            normalized = t_since_start / rise
+                            contrib = amp * (1 - np.exp(-5 * normalized))
+                        else:
+                            normalized = (t_since_start - rise) / decay
+                            contrib = amp * np.exp(-3 * normalized)
+                        
+                        scr_contribution += contrib
+                        remaining_events.append(scr)
+                
+                self.scr_events = remaining_events
+                
+                signal_component = baseline + scr_contribution
+                y_value = signal_component + (sensor_noise * 0.4) + electronic_noise
+                
             elif self.signal_type == "ECG":
-                heart_rate = 60
+                heart_rate = 60 + 3 * np.sin(2 * np.pi * 0.05 * real_time)
                 rr_interval = 60.0 / heart_rate
                 t_mod = real_time % rr_interval
                 
-                p_wave = 0.1 * np.exp(-((t_mod - 0.1) ** 2) / (2 * 0.01 ** 2))
-                q_wave = -0.15 * np.exp(-((t_mod - 0.2) ** 2) / (2 * 0.008 ** 2))
-                r_wave = 1.0 * np.exp(-((t_mod - 0.22) ** 2) / (2 * 0.005 ** 2))
-                s_wave = -0.25 * np.exp(-((t_mod - 0.24) ** 2) / (2 * 0.008 ** 2))
-                t_wave = 0.3 * np.exp(-((t_mod - 0.35) ** 2) / (2 * 0.02 ** 2))
+                p_wave = 0.15 * np.exp(-((t_mod - 0.1 * rr_interval) ** 2) / (2 * (0.02 * rr_interval) ** 2))
+                q_wave = -0.1 * np.exp(-((t_mod - 0.2 * rr_interval) ** 2) / (2 * (0.01 * rr_interval) ** 2))
+                r_wave = 1.0 * np.exp(-((t_mod - 0.22 * rr_interval) ** 2) / (2 * (0.008 * rr_interval) ** 2))
+                s_wave = -0.3 * np.exp(-((t_mod - 0.24 * rr_interval) ** 2) / (2 * (0.01 * rr_interval) ** 2))
+                t_wave = 0.3 * np.exp(-((t_mod - 0.35 * rr_interval) ** 2) / (2 * (0.03 * rr_interval) ** 2))
                 
-                y_value = p_wave + q_wave + r_wave + s_wave + t_wave + 0.005 * np.random.randn()
+                signal_component = p_wave + q_wave + r_wave + s_wave + t_wave
+                
+                y_value = signal_component + (sensor_noise * 0.1) + electronic_noise
+                
             elif self.signal_type == "RR":
-                y_value = 60 + 5 * np.sin(2 * np.pi * 0.1 * real_time) + np.random.randn()
+                breathing_rate = 15 + 1.5 * np.sin(2 * np.pi * 0.01 * real_time)
+                breathing_freq = breathing_rate / 60.0
+                
+                inhale_exhale_ratio = 0.4
+                
+                phase = 2 * np.pi * breathing_freq * real_time
+                if (phase % (2 * np.pi)) < (2 * np.pi * inhale_exhale_ratio):
+                    normalized_phase = (phase % (2 * np.pi)) / (2 * np.pi * inhale_exhale_ratio)
+                    breathing = np.sin(np.pi * normalized_phase / 2)
+                else:
+                    normalized_phase = ((phase % (2 * np.pi)) - 2 * np.pi * inhale_exhale_ratio) / (2 * np.pi * (1 - inhale_exhale_ratio))
+                    breathing = 1 - normalized_phase
+                
+                signal_component = 60 + 3 * breathing
+                
+                y_value = signal_component + (sensor_noise * 0.3) + electronic_noise
+                
             else:
-                y_value = np.random.randn()  # Default to random noise if unknown type
+                y_value = np.sin(2 * np.pi * 0.1 * real_time) + (sensor_noise * 0.1) + electronic_noise
             
-            # Add data to deque with real-world timestamp
             with self.lock:
                 self.data_deque.append((real_time, float(y_value)))
+                
+                if self.adaptive_x_axis:
+                    self.x_max = real_time
+                    self.x_min = max(0, self.x_max - self.buffer_size)
             
-            # Real-time synchronization for precise timing
+            if i % int(self.sampling_rate * 20) == 0:
+                self.slow_noise_phase += np.random.uniform(-0.1, 0.1)
+            
             i += 1
             target_time = self.start_time + (i / self.sampling_rate)
             sleep_time = target_time - time.time()
             
             if sleep_time > 0:
                 time.sleep(sleep_time)
-            elif sleep_time < -1.0:  # Only log when more than 1 second behind
+            elif sleep_time < -1.0:
                 print(f"Generator falling behind by {-sleep_time:.1f}s")
 
     def _ensure_thread(self, signal_type, duration, sampling_rate, buffer_size, auto_restart=True, keep_window=True):
@@ -107,17 +239,14 @@ class SyntheticDataGenerator:
         self.buffer_size = buffer_size
         
         if restart:
-            # Explicitly clean up internal state to ensure fresh start
-            self._plot_nodes.clear()  # Clear any references to old plot windows
-            self.plot_thread = None   # Reset plot thread reference
+            self._plot_nodes.clear()
+            self.plot_thread = None
             
-            # Clean up properly
             self.signal_type = signal_type
             self.sampling_rate = sampling_rate
             self.duration = duration
             
-            # Set buffer size based on specified seconds
-            max_samples = int(sampling_rate * buffer_size)  # Convert seconds to samples
+            max_samples = int(sampling_rate * buffer_size)
             self.data_deque = deque(maxlen=max_samples)
             
             self.signal_complete = False
@@ -126,7 +255,6 @@ class SyntheticDataGenerator:
             if self.thread and self.thread.is_alive():
                 self.thread.join(timeout=0.1)
             
-            # Only close plot if we're restarting (not if first run)
             if self.thread is not None:
                 self._close_plot() 
             
@@ -142,13 +270,19 @@ class SyntheticDataGenerator:
             return False
             
         try:
-            # Configure the plot with our fps and sampling rate settings
-            plot_node = PygamePlot()
+            plot_node = PygamePlot(
+                width=self.window_width, 
+                height=self.window_height,
+                performance_mode=self.performance_mode
+            )
             plot_node.FPS = self.fps
-            plot_node.sampling_rate = self.sampling_rate  # Pass sampling rate to plot
+            plot_node.sampling_rate = self.sampling_rate
+            plot_node.adaptive_x_axis = self.adaptive_x_axis
+            plot_node.signal_type = self.signal_type
+            plot_node.LINE_THICKNESS = self.line_thickness
+            
             self._plot_nodes.add(plot_node)
             
-            # Adjust plot update interval based on FPS
             self._plot_update_interval = 1.0 / self.fps
             
             if self.plot_thread is None or not self.plot_thread.is_alive():
@@ -158,7 +292,7 @@ class SyntheticDataGenerator:
                 )
                 self.plot_thread.start()
             
-            print(f"Real-time plot started with FPS: {self.fps}")
+            print(f"Real-time plot started with FPS: {self.fps}, Performance mode: {self.performance_mode}, Downsampling: {self.enable_downsampling}")
             return True
         except Exception as e:
             print(f"Error starting real-time plot: {e}")
@@ -170,40 +304,36 @@ class SyntheticDataGenerator:
         """Update plots respecting real-time progression"""
         while self.running or (self.signal_complete and self.plot_after_complete):
             try:
-                # Only update at most at our fps rate
                 current_time = time.time()
                 if current_time - self.last_plot_update >= self._plot_update_interval and len(self._plot_nodes) > 0:
-                    # Get data snapshot
                     with self.lock:
                         data_snapshot = list(self.data_deque)
                     
-                    # Process data
                     if data_snapshot:
                         times, values = zip(*data_snapshot)
                         
-                        # Adjust times to be relative to signal start
-                        # This ensures plot shows proper timestamps whether we're viewing 
-                        # the start, middle or end of the signal
+                        x_min = min(times)
+                        x_max = max(times)
+                        
                         if self.signal_complete:
-                            # For completed signals, show the final buffer
                             fx_list = list(times)
                         else:
-                            # For ongoing signals, show only the buffer_size window
-                            current_runtime = current_time - self.start_time
-                            t_min = max(0, current_runtime - self.buffer_size)
-                            fx_list = [t for t in times if t >= t_min]
-                            values = [values[i] for i, t in enumerate(times) if t >= t_min]
+                            fx_list = list(times)
                         
-                        # Update plots
                         for plot_node in list(self._plot_nodes):
                             try:
-                                plot_node.plot(fx_list, list(values), False)
-                            except Exception:
+                                plot_node.plot(
+                                    fx_list, list(values), False, 
+                                    x_min=x_min, x_max=x_max, 
+                                    signal_type=self.signal_type,
+                                    enable_downsampling=self.enable_downsampling
+                                )
+                            except Exception as e:
+                                print(f"Error updating plot: {e}")
                                 self._plot_nodes.discard(plot_node)
                     
                     self.last_plot_update = current_time
                 
-                # Short sleep to prevent CPU hogging
                 time.sleep(0.01)
                 
             except Exception as e:
@@ -224,7 +354,6 @@ class SyntheticDataGenerator:
             except Exception as e:
                 print(f"Error closing plot: {e}")
         
-        # Force thread termination and cleanup
         if self.plot_thread and self.plot_thread.is_alive():
             try:
                 self.plot_thread.join(timeout=0.2)
@@ -232,47 +361,32 @@ class SyntheticDataGenerator:
                 pass
         
         self.plot_thread = None
-        # Additional cleanup to ensure we can re-create plots
         self.last_plot_update = 0
 
-    def generate(self, signal_type, duration, sampling_rate, buffer_size, plot=True, fps=60, auto_restart=True, keep_window=True):
+    def generate(self, signal_type, duration, sampling_rate, buffer_size, plot=True, 
+                fps=60, auto_restart=True, keep_window=True, performance_mode=False, 
+                window_width=640, window_height=480, line_thickness=1, enable_downsampling=False):
         """Generate signal data with proper buffer handling"""
-        # Update settings
         self.fps = fps
+        self.performance_mode = performance_mode
+        self.window_width = window_width
+        self.window_height = window_height
+        self.line_thickness = line_thickness
+        self.signal_type = signal_type
+        self.enable_downsampling = enable_downsampling
         
-        # If completed but window still open, accept new parameters and force full reset
-        if self.signal_complete:
-            print("Signal completed, forcing full reset for new signal.")
-            self.signal_complete = False
-            self.running = False
-            
-            # Force plot cleanup to ensure we can create new ones
-            self._close_plot()
-            self._plot_nodes.clear()
-            self.plot_thread = None
-        
-        # Ensure thread is running with correct parameters
         self._ensure_thread(signal_type, duration, sampling_rate, buffer_size, auto_restart, keep_window)
         
-        # Handle plotting - make sure it's reset properly
-        if plot and PYGAME_AVAILABLE:
-            # Always attempt to start a plot when plot=True
-            if len(self._plot_nodes) == 0:
-                success = self._plot_data([], [])
-                print(f"Starting plot: {'Success' if success else 'Failed'}")
-        elif not plot and not (self.signal_complete and self.plot_after_complete):
-            self._close_plot()
-        
-        # Get current data
         with self.lock:
-            data_copy = list(self.data_deque)
+            data = list(self.data_deque)
             is_complete = self.signal_complete
         
-        # Process data for output
-        if data_copy:
-            times, values = zip(*data_copy)
+        if data:
+            times, values = zip(*data)
             
-            # Show buffer info and time remaining
+            if plot:
+                self._plot_data(times, values)
+                
             if self.start_time and not is_complete:
                 elapsed = time.time() - self.start_time
                 remaining = max(0, self.duration - elapsed)
