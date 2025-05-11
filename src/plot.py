@@ -33,6 +33,10 @@ class PygamePlot:
     PERFORMANCE_MODE = False
     SMART_DOWNSAMPLE = False  # Default to OFF for downsampling
     LINE_THICKNESS = 1
+    
+    # Minimum height per signal for multi-signal displays
+    MIN_HEIGHT_PER_SIGNAL = 180  # Minimum height per signal in pixels
+    MIN_WINDOW_HEIGHT = 300      # Minimum overall window height
 
     def __init__(self, width=None, height=None, performance_mode=False):
         self._plot_thread = None
@@ -150,6 +154,23 @@ class PygamePlot:
         self.enable_downsampling = enable_downsampling
         self.multi_signal_mode = True
         
+        # Count active signals (those with data)
+        active_signals = [signal for signal, data in data_snapshots.items() if data]
+        num_signals = len(active_signals)
+        
+        # Calculate window height based on number of signals
+        if num_signals > 0:
+            # Dynamic height calculation: minimum height per signal plus margins
+            target_height = max(
+                self.MIN_WINDOW_HEIGHT,
+                num_signals * self.MIN_HEIGHT_PER_SIGNAL + 100  # 100px for margins and labels
+            )
+            
+            # Only resize if needed
+            if target_height != self.height:
+                self.height = target_height
+                # Window will be resized in _plot_multi_loop if needed
+        
         # Compute a simple hash of the data to detect changes
         data_hash = hash(tuple(
             (signal_type, len(data), 
@@ -172,7 +193,7 @@ class PygamePlot:
             self._new_data.set()
         
         if self._plot_thread is None or not self._plot_thread.is_alive():
-            print("Starting new multi-signal plot thread")
+            print(f"Starting new multi-signal plot thread with {num_signals} signals")
             self._stop_event.clear()
             self._plot_thread = threading.Thread(target=self._plot_multi_loop, daemon=True)
             self._plot_thread.start()
@@ -360,7 +381,7 @@ class PygamePlot:
                 bg_color = (0, 0, 0)  # Black background for better performance
                 line_color = (100, 100, 100)  # Gray lines
             else:
-                bg_color = (30, 30, 30)  # Dark gray
+                bg_color = (0, 0, 0)  # Dark gray
                 line_color = (255, 255, 255)  # White
                 
             bg_surface.fill(bg_color)
@@ -528,7 +549,7 @@ class PygamePlot:
                         line_color = (0, 255, 0)  # Green for performance
                     else:
                         if self.signal_type == "ECG":
-                            line_color = (0, 0, 255)  # Blue for ECG
+                            line_color = (255, 0, 0)  # Red for ECG
                         elif self.signal_type == "EDA":
                             line_color = (0, 255, 0)  # Green for EDA
                         elif self.signal_type == "RR":
@@ -585,7 +606,7 @@ class PygamePlot:
                     sr_surface = font_normal.render(sr_str, True, (200, 200, 200))
                     screen.blit(sr_surface, (10, 10 + (font_size_bold + 5) * 3))
                 
-                # RESTORED: Latency calculation - critical for signal analysis
+                
                 if len(x_arr) > 0:
                     # Latency is how far behind real-time the latest data point is
                     latency = real_elapsed - x_max
@@ -666,6 +687,8 @@ class PygamePlot:
                 if current_w != w or current_h != h:
                     print(f"Resizing pygame window to {w}x{h}")
                     PygamePlot._screen = pygame.display.set_mode((w, h), flags, vsync=1)
+                    # Clear surface cache when window size changes
+                    PygamePlot._surf_cache = {}
         
         screen = PygamePlot._screen
         
@@ -690,8 +713,8 @@ class PygamePlot:
         plot_buffer = PygamePlot._surf_cache[buffer_key]
         
         # Reusable objects - adjust font size for smaller windows
-        font_size_normal = max(12, int(h * 0.04))
-        font_size_bold = max(14, int(h * 0.045))
+        font_size_normal = max(10, int(h * 0.04))
+        font_size_bold = max(12, int(h * 0.045))
         font_normal = self._get_font(font_size_normal)
         font_bold = self._get_font(font_size_bold)
         

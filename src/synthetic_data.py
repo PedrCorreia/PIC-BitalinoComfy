@@ -294,9 +294,20 @@ class SyntheticDataGenerator:
             return False
             
         try:
+            # Count active signals to calculate appropriate window height
+            active_signals = [s for s, enabled in self.enabled_signals.items() if enabled]
+            num_signals = len(active_signals)
+            
+            # Calculate window height based on number of signals
+            # Minimum 180px per signal plus margins
+            dynamic_height = max(
+                480,  # Minimum height
+                num_signals * 180 + 100  # Additional 100px for margins and labels
+            )
+            
             plot_node = PygamePlot(
                 width=self.window_width, 
-                height=self.window_height,
+                height=dynamic_height,  # Use dynamic height based on signal count
                 performance_mode=self.performance_mode
             )
             plot_node.FPS = self.fps
@@ -319,8 +330,7 @@ class SyntheticDataGenerator:
                 )
                 self.plot_thread.start()
             
-            active_signals = [s for s, enabled in self.enabled_signals.items() if enabled]
-            print(f"Real-time plot started for {', '.join(active_signals)} with FPS: {self.fps}")
+            print(f"Real-time plot started for {', '.join(active_signals)} with FPS: {self.fps}, window height: {dynamic_height}px")
             return True
         except Exception as e:
             print(f"Error starting real-time plot: {e}")
