@@ -48,14 +48,13 @@ except Exception as e:
 try:
     # Import all bio-processing nodes in a batch
     from .comfy.ecg import ECGNode
-    from .comfy.rr import RRNode, RRLastValueNode
+    from .comfy.rr import RRNode  # Removed RRLastValueNode
     from .comfy.eda import EDANode
     
     # Register nodes with consistent categories
     bio_nodes = {
         "ECGNode": ("❤️ ECG Processing", "Pedro_PIC/🔬 Bio-Processing"),
         "RRNode": ("🫁 RR Processing", "Pedro_PIC/🔬 Bio-Processing"),
-        "RRLastValueNode": ("🫁 RR Last Value", "Pedro_PIC/🔬 Bio-Processing"),
         "EDANode": ("💧 EDA Processing", "Pedro_PIC/🔬 Bio-Processing"),
     }
     
@@ -97,7 +96,7 @@ except Exception as e:
 
 # Tools and utility nodes
 try:
-    from .comfy.tools import CombineNode, SeparateNode, GetLastValueNode, IsPeakNode, PhysioNormalizeNode
+    from .comfy.tools import CombineNode, SeparateNode, GetLastValueNode, IsPeakNode
     
     # Register tools with consistent categories
     tool_nodes = {
@@ -105,7 +104,6 @@ try:
         "SeparateNode": ("✂️ Separate Signal Components", "Pedro_PIC/🧰 Tools"),
         "GetLastValueNode": ("📊 Get Last Signal Value", "Pedro_PIC/🧰 Tools"),
         "IsPeakNode": ("⚡ Is Peak", "Pedro_PIC/🧰 Tools"),
-        "PhysioNormalizeNode": ("📏 Physio Normalize", "Pedro_PIC/🧰 Tools"),
     }
     
     for node_name, (display_name, category) in tool_nodes.items():
@@ -119,3 +117,24 @@ except ImportError as e:
     print(f"{IMPORT_ERROR_MESSAGE} Tools nodes: ImportError - {e}")
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Tools nodes: {type(e).__name__} - {e}")
+
+# Add Arousal nodes
+try:
+    from .comfy.arousal import PhysioNormalizeNode
+    
+    # Register arousal nodes with consistent categories
+    arousal_nodes = {
+        "PhysioNormalizeNode": ("📏 Physio Normalize", "Pedro_PIC/🧭 Arousal"),
+    }
+    
+    for node_name, (display_name, category) in arousal_nodes.items():
+        node_class = locals()[node_name]
+        NODE_CLASS_MAPPINGS[node_name] = node_class
+        NODE_DISPLAY_NAME_MAPPINGS[node_name] = display_name
+        NODE_CATEGORY_MAPPINGS[node_name] = category
+    
+    print("Arousal nodes loaded successfully")
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Arousal nodes: ImportError - {e}")
+except Exception as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Arousal nodes: {type(e).__name__} - {e}")

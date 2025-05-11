@@ -19,11 +19,11 @@ except ImportError:
 class PygamePlot:
     # ==== CENTRALIZED CONFIGURATION SETTINGS ====
     # Window settings
-    DEFAULT_WIDTH = 900  # Increased default window width
-    DEFAULT_HEIGHT = 480
+    DEFAULT_WIDTH = 250  # Increased default window width
+    DEFAULT_HEIGHT = 350
     
     # Colors configuration
-    BACKGROUND_COLOR = (20, 20, 20)  # Dark background
+    BACKGROUND_COLOR = (10, 10, 10)  # Dark background
     AXIS_COLOR = (200, 200, 200)  # Light gray for axes
     GRID_COLOR = (60, 60, 60)  # Darker gray for grid lines
     TEXT_COLOR = (220, 220, 220)  # Light text
@@ -290,6 +290,19 @@ class PygamePlot:
             PygamePlot._font_cache[key] = pygame.font.SysFont(name, size)
         return PygamePlot._font_cache[key]
 
+    def _safe_min_max(self, arr):
+        """Calculate min and max of array, safely handling empty arrays and NaN values"""
+        if arr is None or len(arr) == 0:
+            return 0.0, 1.0
+
+        # Filter out NaN values
+        valid = arr[~np.isnan(arr)]
+
+        if len(valid) == 0:
+            return 0.0, 1.0
+
+        return float(np.min(valid)), float(np.max(valid))
+
     def _plot_loop(self):
         """Main plotting loop for pygame visualization"""
         if not PYGAME_AVAILABLE:
@@ -521,30 +534,29 @@ class PygamePlot:
                         screen.blit(signal_label, (w - margin_right - signal_label.get_width() - 10, margin_top))
                     
                     # Draw signal - use numpy operations as much as possible
-                    if as_points:
-                        # Batch the points for drawing - use smaller circles in performance mode
-                        radius = 1 if self.PERFORMANCE_MODE else 2
-                        point_coords = list(zip(x_norm, y_norm))
-                        for pt in point_coords:
-                            pygame.draw.circle(screen, line_color, (int(pt[0]), int(pt[1])), radius)
-                    else:
-                        # Draw lines more efficiently
-                        if len(x_norm) > 1:
-                            # Always use anti-aliased lines for smoother appearance
-                            thickness = 1 if self.PERFORMANCE_MODE else self.LINE_THICKNESS
+                    if len(x_norm) > 1:
+                        # Add NaN filtering before drawing lines
+                        valid_indices = ~(np.isnan(x_norm) | np.isnan(y_norm))
+                        if np.any(valid_indices):
+                            x_filtered = x_norm[valid_indices]
+                            y_filtered = y_norm[valid_indices]
                             
                             # Create list of points with integer coordinates
-                            pts = [(int(x), int(y)) for x, y in zip(x_norm, y_norm)]
+                            pts = [(int(x), int(y)) for x, y in zip(x_filtered, y_filtered)]
                             
                             # Draw smoother lines unless in performance mode
                             if self.PERFORMANCE_MODE:
                                 # In performance mode, use regular lines (faster)
-                                pygame.draw.lines(screen, line_color, False, pts, thickness)
+                                if pts:  # Only draw if we have valid points
+                                    pygame.draw.lines(screen, line_color, False, pts, thickness)
                             else:
                                 # Apply smoothing for better visual quality
-                                self._draw_smooth_line(screen, line_color, pts, thickness)
-                                
-                        elif len(x_norm) == 1:
+                                if pts:  # Only draw if we have valid points
+                                    self._draw_smooth_line(screen, line_color, pts, thickness)
+                        
+                    elif len(x_norm) == 1:
+                        # Check if single point is valid before drawing
+                        if not np.isnan(x_norm[0]) and not np.isnan(y_norm[0]):
                             pygame.draw.circle(screen, line_color, (int(x_norm[0]), int(y_norm[0])), 2)
 
                 # Consolidated status information row at the top
@@ -755,8 +767,10 @@ class PygamePlot:
                     for signal in active_signals:
                         x_arr = self._latest_multi_data[signal]['x']
                         if len(x_arr) > 0:
-                            x_min = min(x_min, float(np.min(x_arr)))
-                            x_max = max(x_max, float(np.max(x_arr)))
+                            # Use safe min/max calculation
+                            x_min_signal, x_max_signal = self._safe_min_max(x_arr)
+                            x_min = min(x_min, x_min_signal)
+                            x_max = max(x_max, x_max_signal)
                     
                     if x_min == float('inf'):
                         x_min = 0
@@ -953,15 +967,26 @@ class PygamePlot:
                     
                     # Draw signal
                     if len(x_norm) > 1:
-                        thickness = 1 if self.PERFORMANCE_MODE else self.LINE_THICKNESS
-                        pts = [(int(x), int(y)) for x, y in zip(x_norm, y_norm)]
-                        
-                        if self.PERFORMANCE_MODE:
-                            pygame.draw.lines(screen, line_color, False, pts, thickness)
-                        else:
-                            self._draw_smooth_line(screen, line_color, pts, thickness)
+                        # Filter out any NaN values before creating points
+                        valid_indices = ~(np.isnan(x_norm) | np.isnan(y_norm))
+                        if np.any(valid_indices):
+                            x_filtered = x_norm[valid_indices]
+                            y_filtered = y_norm[valid_indices]
+                            
+                            # Only create points from valid coordinates
+                            pts = [(int(x), int(y)) for x, y in zip(x_filtered, y_filtered)]
+                            
+                            thickness = 1 if self.PERFORMANCE_MODE else self.LINE_THICKNESS
+                            if pts:  # Only draw if we have valid points
+                                if self.PERFORMANCE_MODE:
+                                    pygame.draw.lines(screen, line_color, False, pts, thickness)
+                                else:
+                                    self._draw_smooth_line(screen, line_color, pts, thickness)
+                    
                     elif len(x_norm) == 1:
-                        pygame.draw.circle(screen, line_color, (int(x_norm[0]), int(y_norm[0])), 2)
+                        # Check if single point is valid before drawing
+                        if not np.isnan(x_norm[0]) and not np.isnan(y_norm[0]):
+                            pygame.draw.circle(screen, line_color, (int(x_norm[0]), int(y_norm[0])), 2)
                 
                 # Update display
                 pygame.display.flip()

@@ -33,7 +33,7 @@ class EDANode:
     RETURN_TYPES = ("ARRAY", "ARRAY", "ARRAY")
     RETURN_NAMES = ("Visualization_Data", "Tonic", "Phasic")
     FUNCTION = "process_eda"
-    CATEGORY = "Biosignal/EDA"
+    CATEGORY = "Pedro_PIC/🔬 Bio-Processing"
 
     def process_eda(self, signal_deque, output_type, viz_buffer_size, feature_buffer_size):
         """

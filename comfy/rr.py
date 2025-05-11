@@ -96,55 +96,11 @@ class RRNode:
 
         return visualization_data, rr, peak_positions, ymin, ymax
 
-class RRLastValueNode:
-    """
-    Node that outputs the last post-processed RR value and a boolean indicating if it is a peak.
-    """
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "signal_deque": ("ARRAY",),
-                "feature_buffer_size": ("INT", {"default": 5000}),
-            }
-        }
-
-    RETURN_TYPES = ("FLOAT", "BOOLEAN")
-    RETURN_NAMES = ("Last_Value", "Is_Peak")
-    FUNCTION = "get_last_value_and_peak"
-    CATEGORY = "Pedro_PIC/🔬 Bio-Processing"
-
-    def get_last_value_and_peak(self, signal_deque, feature_buffer_size):
-        """
-        Outputs the last post-processed value and whether it is a peak.
-        """
-        if signal_deque is None or len(signal_deque) < feature_buffer_size:
-            return 0.0, False
-
-        data = signal_deque
-        if data.ndim == 1:
-            data = np.expand_dims(data, axis=0)
-        timestamps = data[:, 0].astype(float)
-        raw_values = data[:, 1].astype(float)
-
-        feature_raw_values = raw_values[-feature_buffer_size:]
-        values = RR.preprocess_signal(feature_raw_values, fs=100)
-
-        last_value = float(values[-1]) if len(values) > 0 else 0.0
-
-        from ..src.signal_processing import NumpySignalProcessor
-        peaks = NumpySignalProcessor.find_peaks(values, fs=100)
-        is_peak = (len(peaks) > 0 and peaks[-1] == len(values) - 1)
-
-        return last_value, bool(is_peak)
-
 NODE_CLASS_MAPPINGS = {
-    "RRNode": RRNode,
-    "RRLastValueNode": RRLastValueNode,
+    "RRNode": RRNode
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "RRNode": "🌬️ RR Processor",
-    "RRLastValueNode": "🌬️ RR Last Value & Peak",
+    "RRNode": "🌬️ RR Processor"
 }
+

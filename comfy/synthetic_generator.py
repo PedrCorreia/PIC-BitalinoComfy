@@ -35,8 +35,8 @@ class SynthNode:
         # Return NaN to trigger node execution on each workflow run
         return float("NaN")
         
-    RETURN_TYPES = ("LIST", "LIST", "BOOLEAN", "TUPLE")
-    RETURN_NAMES = ("fx", "y", "plot_trigger", "data")
+    RETURN_TYPES = ("ARRAY", "ARRAY", "TUPLE")
+    RETURN_NAMES = ("x", "y", "data")
     OUTPUT_NODE = True
     FUNCTION = "generate"
     CATEGORY = "Pedro_PIC/🧰 Tools"
