@@ -138,3 +138,19 @@ except ImportError as e:
     print(f"{IMPORT_ERROR_MESSAGE} Arousal nodes: ImportError - {e}")
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Arousal nodes: {type(e).__name__} - {e}")
+
+# Plot Unit Node
+try:
+    from .comfy.plot_unit_node import PlotUnitNode
+    
+    # Register Plot Unit node with consistent category
+    NODE_CLASS_MAPPINGS["PlotUnitNode"] = PlotUnitNode
+    NODE_DISPLAY_NAME_MAPPINGS["PlotUnitNode"] = "📊 Signal Visualization Hub"
+    NODE_CATEGORY_MAPPINGS["PlotUnitNode"] = "Pedro_PIC/🧰 Tools"
+    
+    print("Plot Unit Visualization Hub loaded successfully")
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Plot Unit Node: ImportError - {e}")
+except Exception as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Plot Unit Node: {type(e).__name__} - {e}")
+
