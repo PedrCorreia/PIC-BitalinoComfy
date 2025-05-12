@@ -64,7 +64,9 @@ class PlotUnit:
             'caps_enabled': True,
             'light_mode': False,
             'performance_mode': False,
-            'connected_nodes': 0  # This will be updated dynamically
+            'connected_nodes': 0,  # This will be updated dynamically
+            'reset_plots': False,   # New setting for reset plots button
+            'reset_registry': False  # New setting for reset registry button
         }
         
         # Setup thread and window
@@ -95,6 +97,7 @@ class PlotUnit:
     def _run_visualization(self):
         """Main visualization loop running in separate thread"""
         try:
+            logger.info("Starting visualization thread")
             os.environ['SDL_VIDEODRIVER'] = 'windib'  # For Windows compatibility
             pygame.init()
             pygame.display.set_caption("ComfyUI - PlotUnit")
@@ -104,6 +107,7 @@ class PlotUnit:
             self.icon_font = pygame.font.SysFont("Arial", 24)
             
             self.initialized = True
+            logger.info("PlotUnit window initialized successfully")
             clock = pygame.time.Clock()
             
             while self.running:
@@ -121,11 +125,12 @@ class PlotUnit:
                 clock.tick(30)  # Limit to 30 FPS
                 
         except Exception as e:
-            logger.error(f"Visualization error: {e}")
+            logger.error(f"Visualization error: {e}", exc_info=True)  # Include traceback
         finally:
             pygame.quit()
             self.initialized = False
             self.running = False
+            logger.info("Visualization thread terminated")
     
     def _process_events(self):
         """Handle pygame events"""
@@ -155,7 +160,17 @@ class PlotUnit:
         # For each button in our settings view
         for button_rect, setting_key in getattr(self, 'settings_buttons', []):
             if button_rect.collidepoint(x, y):
-                # Toggle the setting
+                # Special handling for reset buttons
+                if setting_key == 'reset_plots':
+                    logger.info("Reset plots button clicked")
+                    self.clear_plots()
+                    return
+                elif setting_key == 'reset_registry':
+                    logger.info("Reset registry button clicked")
+                    self._reset_signal_registry()
+                    return
+                
+                # Normal toggle for other settings
                 self.settings[setting_key] = not self.settings[setting_key]
                 
                 # Apply setting changes
@@ -163,6 +178,31 @@ class PlotUnit:
                 
                 logger.info(f"Setting '{setting_key}' changed to {self.settings[setting_key]}")
                 break
+    
+    def _reset_signal_registry(self):
+        """Reset the signal registry"""
+        try:
+            # Import here to avoid circular imports
+            import sys
+            import importlib
+            
+            # Try to import the signal registry
+            sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+            try:
+                from comfy.mock_signal_node import SignalRegistry
+                SignalRegistry.reset()
+                logger.info("Signal registry reset successfully")
+            except ImportError:
+                # Alternative import path
+                try:
+                    mock_signal = importlib.import_module('..comfy.mock_signal_node', package=__name__)
+                    mock_signal.SignalRegistry.reset()
+                    logger.info("Signal registry reset successfully (alternative import)")
+                except Exception as e:
+                    logger.error(f"Could not import SignalRegistry (alt): {str(e)}")
+        except Exception as e:
+            logger.error(f"Error resetting signal registry: {str(e)}")
     
     def _apply_setting_changes(self, setting_key):
         """Apply changes when settings are modified"""
@@ -192,6 +232,7 @@ class PlotUnit:
                     with self.data_lock:
                         data_type = message['data_type']
                         self.data[data_type] = message['data']
+                        logger.info(f"Updated {data_type} data: shape={np.shape(message['data'])}")
                 self.event_queue.task_done()
         except queue.Empty:
             pass
@@ -219,7 +260,7 @@ class PlotUnit:
     def _draw_sidebar_buttons(self):
         """Draw the sidebar navigation buttons"""
         button_height = 40
-        button_icons = ["R", "F", "S"]  # Raw, Filtered, Settings
+        button_icons = ["R", "P", "S"]  # Raw, Filtered, Settings
         
         for i, icon in enumerate(button_icons):
             button_y = i * button_height
@@ -281,6 +322,21 @@ class PlotUnit:
             # Store button bounds for click detection
             return pygame.Rect(button_x, y, button_width, button_height), setting_key
         
+        # Function to draw an action button
+        def draw_action_button(y, label, color, setting_key):
+            # Button background
+            pygame.draw.rect(self.surface, color, 
+                            (button_x, y, button_width, button_height), 
+                            border_radius=5)
+            
+            # Button text
+            text = self.font.render(label, True, (255, 255, 255))
+            text_rect = text.get_rect(center=(button_x + button_width // 2, y + button_height // 2))
+            self.surface.blit(text, text_rect)
+            
+            # Store button bounds for click detection
+            return pygame.Rect(button_x, y, button_width, button_height), setting_key
+        
         # Function to draw an info display
         def draw_info_display(y, label, value):
             # Background
@@ -301,6 +357,16 @@ class PlotUnit:
         
         # Connected nodes indicator
         draw_info_display(current_y, "Connected Nodes", self.settings['connected_nodes'])
+        current_y += button_height + button_spacing
+        
+        # Reset plots button (RED)
+        button, key = draw_action_button(current_y, "Reset All Plots", (180, 30, 30), 'reset_plots')
+        self.settings_buttons.append((button, key))
+        current_y += button_height + button_spacing
+        
+        # Reset registry button (ORANGE)
+        button, key = draw_action_button(current_y, "Reset Signal Registry", (180, 100, 30), 'reset_registry')
+        self.settings_buttons.append((button, key))
         current_y += button_height + button_spacing
         
         # Caps toggle
@@ -397,7 +463,11 @@ class PlotUnit:
     def update_data(self, data, data_type='raw'):
         """Update data in a thread-safe way"""
         if not self.initialized:
+            logger.warning("Cannot update data: PlotUnit not initialized")
             return
+        
+        # Debug log data properties
+        logger.info(f"Queueing {data_type} data: shape={np.shape(data)}, min={np.min(data)}, max={np.max(data)}")
         
         # Put update message in queue
         self.event_queue.put({
@@ -473,3 +543,36 @@ class PlotUnit:
         if self.settings['connected_nodes'] > 0:
             self.settings['connected_nodes'] -= 1
         logger.info(f"Node disconnected. Total connected nodes: {self.settings['connected_nodes']}")
+    
+    def clear_plots(self):
+        """Clear all plots and reset the visualization"""
+        try:
+            logger.info("Clearing all plots")
+            # Thread-safe access to clear plots
+            self._lock.acquire()
+            try:
+                # Reset main visualization data
+                with self.data_lock:
+                    self.data = {
+                        'raw': np.zeros(100),
+                        'filtered': np.zeros(100)
+                    }
+                
+                # Reset all other data structures
+                if hasattr(self, 'signals'):
+                    self.signals.clear()
+                
+                # Reset any other visualization-related properties
+                if hasattr(self, 'plot_data'):
+                    self.plot_data = {}
+                
+                logger.info("Plots cleared successfully")
+            finally:
+                self._lock.release()
+        except Exception as e:
+            logger.error(f"Error clearing plots: {str(e)}", exc_info=True)
+    
+    def reset_visualization(self):
+        """Alternative method to reset visualization if clear_plots is not implemented"""
+        print("[DEBUG-PLOT_UNIT] Reset visualization called")
+        self.clear_plots()

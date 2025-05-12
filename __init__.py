@@ -154,3 +154,24 @@ except ImportError as e:
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Plot Unit Node: {type(e).__name__} - {e}")
 
+try:
+    from .comfy.mock_signal_node import MockSignalGenerator
+    NODE_CLASS_MAPPINGS["MockSignalNode"] = MockSignalGenerator
+    NODE_DISPLAY_NAME_MAPPINGS["MockSignalNode"] = "📊 Mock Signal Generator"
+    NODE_CATEGORY_MAPPINGS["MockSignalNode"] = "Pedro_PIC/🧰 Tools" 
+    print("Mock Signal Generator loaded successfully")
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Mock Signal Node: ImportError - {e}")
+except Exception as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Mock Signal Node: {type(e).__name__} - {e}")
+
+try:
+    from .comfy.signal_connector_node import SignalConnectorNode
+    NODE_CLASS_MAPPINGS["SignalConnectorNode"] = SignalConnectorNode
+    NODE_DISPLAY_NAME_MAPPINGS["SignalConnectorNode"] = "🔗 Signal Connector"
+    NODE_CATEGORY_MAPPINGS["SignalConnectorNode"] = "Pedro_PIC/🧰 Tools" 
+    print("Signal Connector loaded successfully")
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Signal Connector Node: ImportError - {e}")
+except Exception as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Signal Connector Node: {type(e).__name__} - {e}")
