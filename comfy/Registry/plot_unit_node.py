@@ -2,8 +2,8 @@ import numpy as np
 import torch
 import uuid
 from ...src.plot.plot_unit import PlotUnit
-from ...src.plot.plot_registry import PlotRegistry
-from ...src.plot.plot_registry_integration import PlotRegistryIntegration
+from ...src.registry.plot_registry import PlotRegistry
+from ...src.registry.plot_registry_integration import PlotRegistryIntegration
 
 class PlotUnitNode:
     """

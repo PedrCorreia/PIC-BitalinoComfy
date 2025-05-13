@@ -22,7 +22,7 @@ def check_registry_setup():
     # Step 1: Check if PlotRegistry exists
     print("Checking PlotRegistry...")
     try:
-        from src.plot.plot_registry import PlotRegistry
+        from src.registry.plot_registry import PlotRegistry
         passed_tests.append("✅ PlotRegistry class exists")
         
         # Check if it's a singleton
@@ -56,7 +56,7 @@ def check_registry_setup():
     # Step 2: Check PlotRegistryIntegration
     print("\nChecking PlotRegistryIntegration...")
     try:
-        from src.plot.plot_registry_integration import PlotRegistryIntegration
+        from src.registry.plot_registry_integration import PlotRegistryIntegration
         passed_tests.append("✅ PlotRegistryIntegration class exists")
         
         # Check if it's a singleton

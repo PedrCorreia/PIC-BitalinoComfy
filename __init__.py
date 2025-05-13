@@ -1,3 +1,6 @@
+import os
+import sys
+
 NODE_CLASS_MAPPINGS = {}
 NODE_DISPLAY_NAME_MAPPINGS = {}
 NODE_CATEGORY_MAPPINGS = {}
@@ -83,19 +86,6 @@ try:
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Bitalino Receiver: {e}")
 
-# Import synthetic data generator node
-try:
-    from .comfy.legacy.synthetic_generator import SynthNode
-    NODE_CLASS_MAPPINGS["SynthNode"] = SynthNode
-    NODE_DISPLAY_NAME_MAPPINGS["SynthNode"] = "📊 Synthetic Data Generator"
-    NODE_CATEGORY_MAPPINGS["SynthNode"] = "Pedro_PIC/🧰 Tools"
-    
-    print("Synthetic Data Generator loaded successfully")
-except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} SynthNode: ImportError - {e}")
-except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} SynthNode: {type(e).__name__} - {e}")
-
 # Tools and utility nodes
 try:
     from .comfy.tools import CombineNode, SeparateNode, GetLastValueNode, IsPeakNode
@@ -158,24 +148,10 @@ except Exception as e:
 
 # Mock Signal Node was moved to Signal Registry Nodes section
 
-# Signal Registry Nodes
-
-# Mock Signal Generator
-try:
-    from .comfy.Registry.mock_signal_node import MockSignalGenerator
-    NODE_CLASS_MAPPINGS["MockSignalGenerator"] = MockSignalGenerator
-    NODE_DISPLAY_NAME_MAPPINGS["MockSignalGenerator"] = "📊 Mock Signal Generator"
-    NODE_CATEGORY_MAPPINGS["MockSignalGenerator"] = "Pedro_PIC/🌊 Signal Registry"
-    print("Mock Signal Generator loaded successfully")
-except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Mock Signal Generator: ImportError - {e}")
-except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Mock Signal Generator: {type(e).__name__} - {e}")
-
 # Signal Input Node (Modern signal connection approach)
 try:
-    from .comfy.Registry.signal_input_node import SignalInputNode
-    NODE_CLASS_MAPPINGS["SignalInputNode"] = SignalInputNode
+    from .comfy.Registry.unified_signal_connector import SignalConnectorNode
+    NODE_CLASS_MAPPINGS["SignalInputNode"] = SignalConnectorNode
     NODE_DISPLAY_NAME_MAPPINGS["SignalInputNode"] = "🔌 Signal Input"
     NODE_CATEGORY_MAPPINGS["SignalInputNode"] = "Pedro_PIC/🌊 Signal Registry"
     print("Signal Input Node loaded successfully")
@@ -183,19 +159,6 @@ except ImportError as e:
     print(f"{IMPORT_ERROR_MESSAGE} Signal Input Node: ImportError - {e}")
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Signal Input Node: {type(e).__name__} - {e}")
-
-# Legacy Registry Signal Connector (Deprecated)
-try:
-    from .comfy.Registry.registry_signal_connector import RegistrySignalConnector
-    NODE_CLASS_MAPPINGS["RegistrySignalConnector"] = RegistrySignalConnector
-    NODE_DISPLAY_NAME_MAPPINGS["RegistrySignalConnector"] = "⚠️ Registry Signal Connector (Legacy)"
-    NODE_CATEGORY_MAPPINGS["RegistrySignalConnector"] = "Pedro_PIC/🌊 Signal Registry"
-    print("Legacy Registry Signal Connector loaded successfully")
-except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Registry Signal Connector: ImportError - {e}")
-except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Registry Signal Connector: {type(e).__name__} - {e}")
-
 # Signal Debug Node
 try:
     from .comfy.Registry.signal_debug_node import SignalDebugNode
@@ -220,29 +183,17 @@ except ImportError as e:
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Logger Node: {type(e).__name__} - {e}")
 
-# Registry Signal Generator
+# Unified Signal Generator (New consolidated generator)
 try:
-    from .comfy.Registry.registry_signal_generator import RegistrySignalGenerator
-    NODE_CLASS_MAPPINGS["RegistrySignalGenerator"] = RegistrySignalGenerator
-    NODE_DISPLAY_NAME_MAPPINGS["RegistrySignalGenerator"] = "⚡ Registry Signal Generator"
-    NODE_CATEGORY_MAPPINGS["RegistrySignalGenerator"] = "Pedro_PIC/🌊 Signal Registry"
-    print("Registry Signal Generator loaded successfully")
+    from .comfy.Registry.unified_signal_generator import UnifiedSignalGenerator
+    NODE_CLASS_MAPPINGS["UnifiedSignalGenerator"] = UnifiedSignalGenerator
+    NODE_DISPLAY_NAME_MAPPINGS["UnifiedSignalGenerator"] = "🌊 Signal Generator"
+    NODE_CATEGORY_MAPPINGS["UnifiedSignalGenerator"] = "Pedro_PIC/🌊 Signal Registry"
+    print("Unified Signal Generator loaded successfully")
 except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Registry Signal Generator: ImportError - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} Unified Signal Generator: ImportError - {e}")
 except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Registry Signal Generator: {type(e).__name__} - {e}")
-
-# Registry Synthetic Generator
-try:
-    from .comfy.Registry.registry_synthetic_generator import RegistrySyntheticGenerator
-    NODE_CLASS_MAPPINGS["RegistrySyntheticGenerator"] = RegistrySyntheticGenerator
-    NODE_DISPLAY_NAME_MAPPINGS["RegistrySyntheticGenerator"] = "🧪 Registry Synthetic Generator"
-    NODE_CATEGORY_MAPPINGS["RegistrySyntheticGenerator"] = "Pedro_PIC/🌊 Signal Registry"
-    print("Registry Synthetic Generator loaded successfully")
-except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Registry Synthetic Generator: ImportError - {e}")
-except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Registry Synthetic Generator: {type(e).__name__} - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} Unified Signal Generator: {type(e).__name__} - {e}")
 
 # Add a final message confirming initialization
 print("[DEBUG-INIT] PIC-2025 nodes loaded successfully")

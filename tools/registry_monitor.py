@@ -13,7 +13,7 @@ from tabulate import tabulate
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from src.plot.plot_registry import PlotRegistry
+    from src.registry.plot_registry import PlotRegistry
     import numpy as np
 except ImportError as e:
     print(f"Error importing required modules: {e}")

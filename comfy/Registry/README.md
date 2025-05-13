@@ -4,8 +4,10 @@
 
 The PIC-2025 system uses a two-registry architecture with a clear separation of concerns:
 
-1. **SignalRegistry** - Central repository for all signals
-2. **PlotRegistry** - Manages visualization of signals
+1. **SignalRegistry** - Central repository for all signals (`src/registry/signal_registry.py`)
+2. **PlotRegistry** - Manages visualization of signals (`src/registry/plot_registry.py`)
+
+> **Architecture Update (May 2025):** Registry components have been consolidated in the `src/registry` directory for better organization.
 
 ## Current Status (May 2025)
 

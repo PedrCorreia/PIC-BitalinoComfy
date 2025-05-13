@@ -26,8 +26,8 @@ except Exception as e:
 
 # Load Plot Registry System
 try:
-    from .src.plot.plot_registry import PlotRegistry
-    from .src.plot.plot_registry_integration import PlotRegistryIntegration
+    from .src.registry.plot_registry import PlotRegistry
+    from .src.registry.plot_registry_integration import PlotRegistryIntegration
     print("PlotRegistry system loaded successfully")
 except ImportError as e:
     print(f"{IMPORT_ERROR_MESSAGE} PlotRegistry system: ImportError - {e}")

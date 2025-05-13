@@ -1,6 +1,6 @@
 import sys
 import os
-from ...src.plot.plot_registry import PlotRegistry
+from ...src.registry.plot_registry import PlotRegistry
 import numpy as np
 import logging
 import uuid

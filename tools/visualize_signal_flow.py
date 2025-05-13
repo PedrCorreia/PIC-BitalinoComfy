@@ -13,7 +13,7 @@ from matplotlib.animation import FuncAnimation
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
-    from src.plot.plot_registry import PlotRegistry
+    from src.registry.plot_registry import PlotRegistry
 except ImportError as e:
     print(f"Error importing required modules: {e}")
     print("Make sure to run this script from the PIC-2025 directory")

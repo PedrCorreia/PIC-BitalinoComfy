@@ -28,15 +28,15 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 registry_available = False
 try:
     # This is the most common location
-    from src.plot.plot_registry import PlotRegistry
+    from src.registry.plot_registry import PlotRegistry
     registry_available = True
-    print(f"{Fore.GREEN}Successfully imported PlotRegistry from src.plot{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}Successfully imported PlotRegistry from src.registry{Style.RESET_ALL}")
 except ImportError:
     try:
         # Try with full path
         parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         sys.path.insert(0, parent_dir)
-        from src.plot.plot_registry import PlotRegistry
+        from src.registry.plot_registry import PlotRegistry
         registry_available = True
         print(f"{Fore.GREEN}Successfully imported PlotRegistry using absolute path{Style.RESET_ALL}")
     except ImportError:

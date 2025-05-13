@@ -7,8 +7,8 @@ import numpy as np
 import logging
 import sys
 import os
-from ...src.plot.plot_registry import PlotRegistry
-from ...src.plot.plot_registry_integration import PlotRegistryIntegration
+from ...src.registry.plot_registry import PlotRegistry
+from ...src.registry.plot_registry_integration import PlotRegistryIntegration
 
 # Configure logger
 logger = logging.getLogger('SignalConnectorNode')

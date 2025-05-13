@@ -2,7 +2,7 @@ import threading
 import numpy as np
 import torch
 from typing import Dict, Optional, List, Tuple, Any
-from .signal_registry import SignalRegistry
+from src.registry.signal_registry import SignalRegistry
 
 class RegistrySender:
     """
