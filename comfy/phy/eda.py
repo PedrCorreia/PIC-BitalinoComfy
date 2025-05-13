@@ -1,6 +1,6 @@
 from collections import deque
 import numpy as np
-from ..src.phy.eda_signal_processing import EDA
+from ...src.phy.eda_signal_processing import EDA
 
 class EDANode:
     """

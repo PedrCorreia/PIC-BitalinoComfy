@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-from ..src.plot.plot_unit import PlotUnit
-from ..src.hubs.signal_registry import SignalRegistry
+from ...src.plot.plot_unit import PlotUnit
+from ...src.hubs.signal_registry import SignalRegistry
 
 class PlotUnitNode:
     """
@@ -25,13 +25,12 @@ class PlotUnitNode:
     OUTPUT_NODE = True
     FUNCTION = "run_visualization_hub"
     CATEGORY = "signal/visualization"
-    
     def __init__(self):
         # Get singleton PlotUnit instance
         self.plot_unit = PlotUnit.get_instance()
         self.plot_unit.start()
-        # Register as a connected node using the unified method
-        self.plot_unit.update_node_connections(is_connected=True)
+        # Register as a connected node
+        self.plot_unit.increment_connected_nodes()
         print("[DEBUG-PLOT] PlotUnitNode initialized")
         
         # Patch the PlotUnit class if it doesn't have clear_plots method
@@ -81,7 +80,7 @@ class PlotUnitNode:
         if not self.plot_unit.initialized:
             self.plot_unit.start()
             print("[DEBUG-PLOT] PlotUnit started")
-        
+        #
         # Reset visualization if requested explicitly or via auto-reset
         if reset or auto_reset:
             print("[DEBUG-PLOT] RESET REQUESTED! Clearing plots...")
@@ -129,13 +128,12 @@ class PlotUnitNode:
         return ()
     
     
-    
     def __del__(self):
         """Clean up when the node is deleted"""
         try:
-            # Unregister as a connected node using the unified method
+            # Unregister as a connected node
             plot_unit = PlotUnit.get_instance()
-            plot_unit.update_node_connections(is_connected=False)
+            plot_unit.decrement_connected_nodes()
             print("[DEBUG-PLOT] PlotUnitNode cleanup complete")
         except:
             # This might fail during shutdown, so we'll just ignore errors

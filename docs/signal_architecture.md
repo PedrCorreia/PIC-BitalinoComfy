@@ -98,6 +98,13 @@ The `SignalInputNode` retrieves signals from the registry and sends them to visu
 
 ```python
 class SignalInputNode:
+    def __init__(self):
+        # Get singleton PlotUnit instance
+        self.plot_unit = PlotUnit.get_instance()
+        self.plot_unit.start()
+        # Register as a connected node
+        self.plot_unit.increment_connected_nodes()
+        
     def process_signal(self, signal_id, enabled, color_r=220, color_g=180, color_b=0):
         # Handle comma-separated signal IDs
         if ',' in signal_id:
@@ -114,7 +121,7 @@ class SignalInputNode:
 
 ### PlotUnit
 
-The `PlotUnit` is responsible for visualizing signals:
+The `PlotUnit` is responsible for visualizing signals and managing the display window:
 
 ```python
 class PlotUnit:
@@ -129,6 +136,43 @@ class PlotUnit:
     def add_signal_data(self, signal_data, name="signal", color=None):
         # Convert tensor to numpy if needed
         # Put update message in queue for visualization thread
+        self.event_queue.put({
+            'type': 'update_data',
+            'data_type': name,
+            'data': data,
+            'color': color
+        })
+```
+
+The PlotUnit uses a thread-safe message queue system to handle updates from multiple nodes:
+
+```python
+def _process_queue(self):
+    """Process incoming messages from the main thread"""
+    try:
+        while True:
+            message = self.event_queue.get_nowait()
+            
+            if message['type'] == 'update_data':
+                with self.data_lock:
+                    data_type = message['data_type']
+                    self.data[data_type] = message['data']
+                    
+                    # Register new signal types with color information
+                    if data_type not in ['raw', 'filtered'] and data_type not in self.data:
+                        self.data[data_type] = message['data']
+                        if 'color' in message:
+                            if not hasattr(self, 'signal_colors'):
+                                self.signal_colors = {}
+                            self.signal_colors[data_type] = message['color']
+            
+            elif message['type'] == 'node_connected' or message['type'] == 'node_disconnected':
+                # These messages update the node connection counter display
+                pass
+                
+            self.event_queue.task_done()
+    except queue.Empty:
+        pass
 ```
 
 ## Connection Mechanism Between Components
@@ -138,6 +182,7 @@ The connection between components is primarily managed through the Signal Regist
 1. **Signal ID Generation**: Each signal is assigned a unique ID (e.g., "EDA", "ECG", "RR", or custom IDs).
 2. **Signal Registration**: Generators register signals with the registry using their IDs.
 3. **Signal Lookup**: Consumers look up signals in the registry using the same IDs.
+4. **Node Connection Tracking**: Visualization nodes track connected components through increment/decrement methods.
 
 The `SynthNode` outputs signal IDs that can be directly connected to `SignalInputNode` instances:
 
@@ -152,6 +197,49 @@ if show_rr:
     active_signals.append('RR')
 
 return x, y, plot_result, data, ','.join(active_signals)
+```
+
+### Node Connection Tracking
+
+The `PlotUnit` implements a node connection tracking mechanism to monitor how many nodes are connected to the visualization system:
+
+```python
+def increment_connected_nodes(self):
+    """Increment the count of connected nodes"""
+    self.settings['connected_nodes'] += 1
+    logger.info(f"Node connected. Total connected nodes: {self.settings['connected_nodes']}")
+    self.event_queue.put({'type': 'node_connected'})
+    return self.settings['connected_nodes']
+
+def decrement_connected_nodes(self):
+    """Decrement the count of connected nodes"""
+    if self.settings['connected_nodes'] > 0:
+        self.settings['connected_nodes'] -= 1
+    logger.info(f"Node disconnected. Total connected nodes: {self.settings['connected_nodes']}")
+    self.event_queue.put({'type': 'node_disconnected'})
+    return self.settings['connected_nodes']
+```
+
+These methods are called when:
+- A node connects to the visualization system (`increment_connected_nodes`) in the `__init__` method
+- A node disconnects from the visualization system (`decrement_connected_nodes`) in the `__del__` method
+- In `SignalInputNode` and `PlotUnitNode` initialization and cleanup
+
+The connection counter is displayed in the settings panel of the visualization window.
+
+```python
+# Example from PlotUnitNode
+def __init__(self):
+    # Get singleton PlotUnit instance
+    self.plot_unit = PlotUnit.get_instance()
+    self.plot_unit.start()
+    # Register as a connected node
+    self.plot_unit.increment_connected_nodes()
+    
+def __del__(self):
+    # Unregister as a connected node
+    plot_unit = PlotUnit.get_instance()
+    plot_unit.decrement_connected_nodes()
 ```
 
 ## Data Flow Example
@@ -176,6 +264,7 @@ Here's a step-by-step example of the data flow in the system:
    - `SignalInputNode` forwards the data to `PlotUnit`
    - `PlotUnit` converts data if needed and adds it to the rendering queue
    - The signal is displayed in the visualization window
+   - The connected node counter is incremented to track active visualizations
 
 ## Best Practices and Tips
 

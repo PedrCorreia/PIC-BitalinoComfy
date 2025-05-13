@@ -1,4 +1,4 @@
-from ..src.utils.synthetic_data import SyntheticDataGenerator
+from ...src.utils.synthetic_data import SyntheticDataGenerator
 
 # Node implementation for ComfyUI
 class SynthNode:
@@ -28,7 +28,7 @@ class SynthNode:
                 "enable_downsampling": ("BOOLEAN", {"default": False}),  # Control downsampling
             }
         }
-          @classmethod 
+    @classmethod 
     def IS_CHANGED(cls, show_eda, show_ecg, show_rr, duration, sampling_rate, buffer_size, 
                   plot, fps, performance_mode, line_thickness, enable_downsampling):
         # Return NaN to trigger node execution on each workflow run

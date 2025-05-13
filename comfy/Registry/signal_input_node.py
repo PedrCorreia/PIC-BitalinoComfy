@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-from ..src.plot.plot_unit import PlotUnit
-from ..src.hubs.signal_registry import SignalRegistry
+from ...src.plot.plot_unit import PlotUnit
+from ...src.hubs.signal_registry import SignalRegistry
 
 class SignalInputNode:
     """

@@ -1,6 +1,6 @@
 from collections import deque
 import numpy as np
-from ..src.phy.rr_signal_processing import RR
+from ...src.phy.rr_signal_processing import RR
 
 class RRNode:
     """
@@ -68,7 +68,7 @@ class RRNode:
         viz_values = values[-viz_len:]
         viz_data = np.column_stack((viz_timestamps, viz_values))
 
-        from ..src.utils.signal_processing import NumpySignalProcessor
+        from ...src.utils.signal_processing import NumpySignalProcessor
         peaks = NumpySignalProcessor.find_peaks(values, fs=100)
         # Only keep peaks that are within the visualization buffer
         peak_indices = peaks[peaks >= (len(values) - viz_len)] - (len(values) - viz_len)

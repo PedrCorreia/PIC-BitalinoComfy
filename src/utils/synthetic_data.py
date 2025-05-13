@@ -4,7 +4,7 @@ import numpy as np
 from collections import deque, OrderedDict
 import weakref
 from ..plot.plot import PygamePlot, PYGAME_AVAILABLE
-from ..utils.registry_sender import RegistrySender
+from ..hubs.registry_sender import RegistrySender
 
 class SyntheticDataGenerator:
     """

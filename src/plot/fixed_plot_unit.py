@@ -1,3 +1,4 @@
+# This is a fixed version of plot_unit.py that properly includes the _draw_plot method
 import pygame
 import threading
 import numpy as np
@@ -7,6 +8,7 @@ from enum import Enum
 import logging
 import os
 import atexit
+import time  # Added for timing functions
 
 # Configure logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -86,6 +88,7 @@ class PlotUnit:
                 self.thread = threading.Thread(target=self._run_visualization, daemon=True)
                 self.thread.start()
                 logger.info("PlotUnit visualization started")
+                print("Starting visualization thread")
     
     def cleanup(self):
         """Clean up resources when application exits"""
@@ -109,6 +112,7 @@ class PlotUnit:
             
             self.initialized = True
             logger.info("PlotUnit window initialized successfully")
+            print("PlotUnit window initialized successfully")
             clock = pygame.time.Clock()
             
             while self.running:
@@ -127,11 +131,15 @@ class PlotUnit:
                 
         except Exception as e:
             logger.error(f"Visualization error: {e}", exc_info=True)  # Include traceback
+            print(f"Visualization error: {e}")
+            import traceback
+            traceback.print_exc()
         finally:
             pygame.quit()
             self.initialized = False
             self.running = False
             logger.info("Visualization thread terminated")
+            print("Visualization thread terminated")
     
     def _process_events(self):
         """Handle pygame events"""
@@ -338,7 +346,7 @@ class PlotUnit:
             width=plot_area_width,
             height=plot_area_height
         )
-        
+    
     def _draw_processed_view(self):
         """Draw the processed signal visualization (renamed from filtered)"""
         # Get available signal IDs
@@ -647,9 +655,50 @@ class PlotUnit:
             pygame.draw.line(self.surface, self.grid_color, 
                             (x, line_y), (x + width, line_y))
     
+    def update_data(self, data, data_type='raw'):
+        """Update data in a thread-safe way"""
+        if not self.initialized:
+            logger.warning("Cannot update data: PlotUnit not initialized")
+            return
+        
+        # Debug log data properties
+        logger.info(f"Queueing {data_type} data: shape={np.shape(data)}, min={np.min(data)}, max={np.max(data)}")
+        
+        # Put update message in queue
+        self.event_queue.put({
+            'type': 'update_data',
+            'data_type': data_type,
+            'data': np.array(data)
+        })
+    
     def add_signal_data(self, signal_data, name="signal_1", color=None):
-        """Add signal data to the visualization"""
-        if isinstance(signal_data, (list, np.ndarray)):
+        """
+        Add a new signal to the visualization hub.
+        
+        Args:
+            signal_data: numpy array or torch.Tensor containing signal data
+            name: String name for the signal
+            color: Optional RGB tuple for the signal color
+        """
+        if not self.initialized:
+            return
+            
+        # Convert tensor to numpy if needed
+        if isinstance(signal_data, torch.Tensor):
+            # Convert to numpy and ensure it's 1D
+            if len(signal_data.shape) > 1:
+                # Take the first row/channel if multidimensional
+                data = signal_data[0].flatten().cpu().numpy()
+            else:
+                data = signal_data.cpu().numpy()
+            
+            # Limit to 100 data points
+            if len(data) > 100:
+                data = data[:100]
+            elif len(data) < 100:
+                # Pad with zeros if too short
+                data = np.pad(data, (0, 100 - len(data)), 'constant')
+        elif isinstance(signal_data, (list, np.ndarray)):
             data = np.array(signal_data)
             # Limit to 100 data points
             if len(data) > 100:
@@ -689,6 +738,7 @@ class PlotUnit:
         
         # Log and notify visualization thread
         logger.info(f"Node connected. Total connected nodes: {self.settings['connected_nodes']}")
+        print(f"Node connected. Total connected nodes: {self.settings['connected_nodes']}")
         
         # Put message in queue for display update
         if self.initialized:
@@ -715,6 +765,8 @@ class PlotUnit:
             self.event_queue.put({
                 'type': 'node_disconnected'
             })
+        
+        return self.settings['connected_nodes']
         
     def clear_plots(self):
         """Clear all plots and reset the visualization"""

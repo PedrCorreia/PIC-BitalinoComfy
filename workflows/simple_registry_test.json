@@ -1,0 +1,319 @@
+{
+  "last_node_id": 4,
+  "last_link_id": 3,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "RegistrySignalGenerator",
+      "pos": [341, 252],
+      "size": [315, 170],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "signal_type",
+          "type": "string",
+          "link": null,
+          "widget": {
+            "name": "signal_type"
+          },
+          "value": "sine"
+        },
+        {
+          "name": "frequency",
+          "type": "float",
+          "link": null,
+          "widget": {
+            "name": "frequency"
+          },
+          "value": 1
+        },
+        {
+          "name": "amplitude",
+          "type": "float",
+          "link": null,
+          "widget": {
+            "name": "amplitude"
+          },
+          "value": 2
+        },
+        {
+          "name": "duration",
+          "type": "float",
+          "link": null,
+          "widget": {
+            "name": "duration"
+          },
+          "value": 10
+        },
+        {
+          "name": "sample_rate",
+          "type": "int",
+          "link": null,
+          "widget": {
+            "name": "sample_rate"
+          },
+          "value": 100
+        },
+        {
+          "name": "noise_level",
+          "type": "float",
+          "link": null,
+          "widget": {
+            "name": "noise_level"
+          },
+          "value": 0.05
+        },
+        {
+          "name": "signal_id",
+          "type": "string",
+          "link": null,
+          "widget": {
+            "name": "signal_id"
+          },
+          "value": "test_signal"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "signal_id",
+          "type": "STRING",
+          "links": [
+            1
+          ],
+          "shape": 3,
+          "slot_index": 0
+        },
+        {
+          "name": "max_value",
+          "type": "FLOAT",
+          "links": [],
+          "shape": 3,
+          "slot_index": 1
+        },
+        {
+          "name": "samples_count",
+          "type": "INT",
+          "links": [],
+          "shape": 3,
+          "slot_index": 2
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "RegistrySignalGenerator"
+      },
+      "widgets_values": [
+        "sine",
+        1,
+        2,
+        10,
+        100,
+        0.05,
+        "test_signal",
+        42
+      ]
+    },    {
+      "id": 2,
+      "type": "SignalRegistryConnector",
+      "pos": [750, 211],
+      "size": [315, 130],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "signal_id",
+          "type": "STRING",
+          "link": 1,
+          "widget": {
+            "name": "signal_id"
+          },
+          "value": "test_signal",
+          "slot_index": 0
+        },
+        {
+          "name": "enabled",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "enabled"
+          },
+          "value": true,
+          "slot_index": 1
+        },
+        {
+          "name": "display_color",
+          "type": "COLOR",
+          "link": null,
+          "widget": {
+            "name": "display_color"
+          },
+          "value": "#FF5722"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "signal_id",
+          "type": "STRING",
+          "links": [
+            2
+          ],
+          "shape": 3,
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SignalRegistryConnector"
+      },
+      "widgets_values": [
+        "test_signal",
+        true,
+        "#FF5722"
+      ]
+    },    {
+      "id": 3,
+      "type": "SignalDebugNode",
+      "pos": [1112, 282],
+      "size": [315, 98],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "signal_id",
+          "type": "STRING",
+          "link": 2,
+          "widget": {
+            "name": "signal_id"
+          },
+          "value": "test_signal",
+          "slot_index": 0
+        },
+        {
+          "name": "log_level",
+          "type": "string",
+          "link": null,
+          "widget": {
+            "name": "log_level"
+          },
+          "value": "INFO",
+          "slot_index": 1
+        },
+        {
+          "name": "inspect_registry",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "inspect_registry"
+          },
+          "value": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": [],
+          "shape": 3,
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SignalDebugNode"
+      },
+      "widgets_values": [
+        "test_signal",
+        "INFO",
+        true
+      ]
+    },    {
+      "id": 4,
+      "type": "RegistryPlotNode",
+      "pos": [750, 419],
+      "size": [315, 146],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "reset",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "reset"
+          },
+          "value": false
+        },
+        {
+          "name": "signal_id",
+          "type": "STRING",
+          "link": 3,
+          "widget": {
+            "name": "signal_id"
+          },
+          "value": "test_signal",
+          "slot_index": 0
+        },
+        {
+          "name": "clear_registry",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "clear_registry"
+          },
+          "value": false
+        },
+        {
+          "name": "auto_reset",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "auto_reset"
+          },
+          "value": false
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "RegistryPlotNode"
+      },
+      "widgets_values": [
+        false,
+        "test_signal",
+        false,
+        false
+      ]
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "STRING"
+    ],
+    [
+      2,
+      2,
+      0,
+      3,
+      0,
+      "STRING"
+    ],
+    [
+      3,
+      2,
+      0,
+      4,
+      1,
+      "STRING"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

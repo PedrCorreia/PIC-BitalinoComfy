@@ -1,0 +1,172 @@
+import numpy as np
+import threading
+import logging
+import time
+from collections import OrderedDict
+
+# Configure logger
+logger = logging.getLogger('PlotRegistry')
+
+class PlotRegistry:
+    """
+    A dedicated registry for the PlotUnit to track signals and visualization connections.
+    This acts as the bridge between signal sources and visualization.
+    """
+    _instance = None
+    _lock = threading.Lock()
+    
+    @classmethod
+    def get_instance(cls):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = cls()
+                logger.info("Created new PlotRegistry singleton instance")
+            return cls._instance
+    
+    def __init__(self):
+        """Initialize the registry with empty containers"""
+        self.signals = OrderedDict()  # Signal data keyed by ID
+        self.metadata = {}           # Signal metadata keyed by ID
+        self.connections = {}        # Track which nodes connect to which signals
+        self.visualized_signals = set()  # Track signals actually being visualized
+        self.creation_time = time.time()
+        self.connected_nodes = 0     # Count of connected nodes
+        
+        # Thread-safety lock for registry operations
+        self.registry_lock = threading.Lock()
+    
+    def register_signal(self, signal_id, signal_data, metadata=None):
+        """
+        Register a signal in the registry.
+        
+        Args:
+            signal_id (str): Unique identifier for the signal
+            signal_data (array): The signal data (numpy array or list)
+            metadata (dict, optional): Metadata for the signal (color, etc)
+        """
+        with self.registry_lock:
+            # Convert to numpy array if needed
+            if not isinstance(signal_data, np.ndarray):
+                signal_data = np.array(signal_data)
+                
+            # Store the signal data
+            self.signals[signal_id] = signal_data
+            
+            # Store metadata if provided
+            if metadata:
+                self.metadata[signal_id] = metadata
+            elif signal_id not in self.metadata:
+                # Default metadata if none exists
+                self.metadata[signal_id] = {
+                    'color': self._generate_color_from_id(signal_id),
+                    'created': time.time()
+                }
+                
+            logger.debug(f"Signal '{signal_id}' registered with shape {signal_data.shape}")
+    
+    def connect_node_to_signal(self, node_id, signal_id):
+        """
+        Connect a visualization node to a specific signal.
+        
+        Args:
+            node_id (str): Unique identifier for the node
+            signal_id (str): Identifier of the signal to connect to
+        """
+        with self.registry_lock:
+            # Make sure the signal exists
+            if signal_id not in self.signals:
+                logger.warning(f"Attempted to connect node {node_id} to non-existent signal {signal_id}")
+                return False
+            
+            # Register the connection
+            if node_id not in self.connections:
+                self.connections[node_id] = set()
+                self.connected_nodes += 1
+            
+            self.connections[node_id].add(signal_id)
+            self.visualized_signals.add(signal_id)
+            
+            logger.debug(f"Node {node_id} connected to signal {signal_id}")
+            return True
+    
+    def disconnect_node(self, node_id):
+        """
+        Disconnect a node from all its signals.
+        
+        Args:
+            node_id (str): Identifier of the node to disconnect
+        """
+        with self.registry_lock:
+            if node_id in self.connections:
+                # Remove all connections for this node
+                del self.connections[node_id]
+                self.connected_nodes -= 1
+                
+                # Update visualized signals
+                self._update_visualized_signals()
+                
+                logger.debug(f"Node {node_id} disconnected from all signals")
+                return True
+            return False
+    
+    def get_signal(self, signal_id):
+        """Get a signal by its ID"""
+        with self.registry_lock:
+            if signal_id in self.signals:
+                return self.signals[signal_id]
+            return None
+    
+    def get_signal_metadata(self, signal_id):
+        """Get metadata for a signal"""
+        with self.registry_lock:
+            if signal_id in self.metadata:
+                return self.metadata[signal_id]
+            return None
+    
+    def get_all_signals(self):
+        """Get all signal IDs in the registry"""
+        with self.registry_lock:
+            return list(self.signals.keys())
+    
+    def get_visualized_signals(self):
+        """Get IDs of signals that are actively visualized"""
+        with self.registry_lock:
+            return list(self.visualized_signals)
+    
+    def clear_signals(self):
+        """Clear all signals from the registry"""
+        with self.registry_lock:
+            self.signals.clear()
+            self.metadata.clear()
+            self.visualized_signals.clear()
+            # Don't clear connections - just the signal data
+            logger.info("All signals cleared from registry")
+    
+    def reset(self):
+        """Reset the entire registry"""
+        with self.registry_lock:
+            self.signals.clear()
+            self.metadata.clear()
+            self.connections.clear()
+            self.visualized_signals.clear()
+            self.connected_nodes = 0
+            self.creation_time = time.time()
+            logger.info("PlotRegistry completely reset")
+    
+    def _update_visualized_signals(self):
+        """Update the set of visualized signals based on connections"""
+        active_signals = set()
+        for node_id, signals in self.connections.items():
+            active_signals.update(signals)
+        self.visualized_signals = active_signals
+    
+    def _generate_color_from_id(self, signal_id):
+        """Generate a consistent color based on signal ID"""
+        import hashlib
+        hash_val = int(hashlib.md5(signal_id.encode()).hexdigest(), 16)
+        r = (hash_val & 0xFF0000) >> 16
+        g = (hash_val & 0x00FF00) >> 8
+        b = hash_val & 0x0000FF
+        # Make colors brighter for better visibility
+        color = (min(r + 100, 255), min(g + 100, 255), min(b + 100, 255))
+        return color

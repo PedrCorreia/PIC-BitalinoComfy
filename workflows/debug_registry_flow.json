@@ -1,0 +1,433 @@
+{  "last_node_id": 6,
+  "last_link_id": 7,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "RegistrySignalGenerator",
+      "pos": [341, 252],
+      "size": [315, 170],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "signal_type",
+          "type": "string",
+          "link": null,
+          "widget": {
+            "name": "signal_type"
+          },
+          "value": "sine"
+        },
+        {
+          "name": "frequency",
+          "type": "float",
+          "link": null,
+          "widget": {
+            "name": "frequency"
+          },
+          "value": 1
+        },
+        {
+          "name": "amplitude",
+          "type": "float",
+          "link": null,
+          "widget": {
+            "name": "amplitude"
+          },
+          "value": 1
+        },
+        {
+          "name": "duration",
+          "type": "float",
+          "link": null,
+          "widget": {
+            "name": "duration"
+          },
+          "value": 10
+        },
+        {
+          "name": "sample_rate",
+          "type": "int",
+          "link": null,
+          "widget": {
+            "name": "sample_rate"
+          },
+          "value": 100
+        },
+        {
+          "name": "noise_level",
+          "type": "float",
+          "link": null,
+          "widget": {
+            "name": "noise_level"
+          },
+          "value": 0
+        },
+        {
+          "name": "signal_id",
+          "type": "string",
+          "link": null,
+          "widget": {
+            "name": "signal_id"
+          },
+          "value": "test_sine_wave"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "signal_id",
+          "type": "STRING",
+          "links": [
+            1
+          ],
+          "shape": 3,
+          "slot_index": 0
+        },
+        {
+          "name": "max_value",
+          "type": "FLOAT",
+          "links": [],
+          "shape": 3,
+          "slot_index": 1
+        },
+        {
+          "name": "samples_count",
+          "type": "INT",
+          "links": [],
+          "shape": 3,
+          "slot_index": 2
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "RegistrySignalGenerator"
+      },
+      "widgets_values": [
+        "sine",
+        1,
+        1,
+        10,
+        100,
+        0,
+        "test_sine_wave",
+        -1
+      ]
+    },    {
+      "id": 2,
+      "type": "SignalRegistryConnector",
+      "pos": [750, 211],
+      "size": [315, 130],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "signal_id",
+          "type": "STRING",
+          "link": 1,
+          "widget": {
+            "name": "signal_id"
+          },
+          "value": "test_sine_wave",
+          "slot_index": 0
+        },
+        {
+          "name": "enabled",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "enabled"
+          },
+          "value": true,
+          "slot_index": 1
+        },
+        {
+          "name": "display_color",
+          "type": "COLOR",
+          "link": null,
+          "widget": {
+            "name": "display_color"
+          },
+          "value": "#42A5F5"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "signal_id",
+          "type": "STRING",
+          "links": [
+            3
+          ],
+          "shape": 3,
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SignalRegistryConnector"
+      },
+      "widgets_values": [
+        "test_sine_wave",
+        true,
+        "#42A5F5"
+      ]
+    },    {
+      "id": 3,
+      "type": "RegistryPlotNode",
+      "pos": [786, 419],
+      "size": [315, 98],
+      "flags": {},
+      "order": 3,
+      "mode": 0,      "inputs": [
+        {
+          "name": "reset",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "reset"
+          },
+          "value": false
+        },
+        {
+          "name": "signal_id",
+          "type": "STRING",
+          "link": 6,
+          "widget": {
+            "name": "signal_id"
+          },
+          "value": "test_sine_wave",
+          "slot_index": 0
+        },
+        {
+          "name": "clear_registry",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "clear_registry"
+          },
+          "value": false
+        },
+        {
+          "name": "auto_reset",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "auto_reset"
+          },
+          "value": false
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "RegistryPlotNode"
+      },
+      "widgets_values": [
+        false,
+        "",
+        false,
+        false
+      ]
+    },    {
+      "id": 4,
+      "type": "SignalDebugNode",
+      "pos": [1112, 282],
+      "size": [315, 98],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "signal_id",
+          "type": "STRING",
+          "link": 3,
+          "widget": {
+            "name": "signal_id"
+          },
+          "value": "test_sine_wave",
+          "slot_index": 0
+        },
+        {
+          "name": "log_level",
+          "type": "string",
+          "link": null,
+          "widget": {
+            "name": "log_level"
+          },
+          "value": "DEBUG",
+          "slot_index": 1
+        },
+        {
+          "name": "inspect_registry",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "inspect_registry"
+          },
+          "value": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": [
+            4
+          ],
+          "shape": 3,
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SignalDebugNode"
+      },
+      "widgets_values": [
+        "test_sine_wave",
+        "DEBUG",
+        true
+      ]
+    },    {
+      "id": 5,
+      "type": "LoggerNode",
+      "pos": [1482, 422],
+      "size": [315, 146],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "message",
+          "type": "STRING",
+          "link": 4,
+          "widget": {
+            "name": "message"
+          },
+          "value": "Debug status information:"
+        },
+        {
+          "name": "level",
+          "type": "string",
+          "link": null,
+          "widget": {
+            "name": "level"
+          },
+          "value": "INFO"
+        },
+        {
+          "name": "signal_id",
+          "type": "STRING",
+          "link": 5,
+          "widget": {
+            "name": "signal_id"
+          },
+          "value": "test_sine_wave"
+        },
+        {
+          "name": "signal_data",
+          "type": "SIGNAL",
+          "link": null,
+          "widget": {
+            "name": "signal_data"
+          }
+        },
+        {
+          "name": "include_timestamp",
+          "type": "BOOLEAN",
+          "link": null,
+          "widget": {
+            "name": "include_timestamp"
+          },
+          "value": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "message",
+          "type": "STRING",
+          "links": [],
+          "shape": 3,
+          "slot_index": 0
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoggerNode"
+      },
+      "widgets_values": [
+        "Debug status information:",
+        "INFO",
+        "test_sine_wave",
+        true
+      ]
+    },
+    {
+      "id": 6,
+      "type": "PrimitiveNode",
+      "pos": [1238, 537],
+      "size": [210, 82],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "outputs": [
+        {
+          "name": "STRING",
+          "type": "STRING",
+          "links": [
+            5
+          ],
+          "slot_index": 0,
+          "widget": {
+            "name": "text"
+          }
+        }
+      ],
+      "title": "Signal ID",
+      "properties": {},
+      "widgets_values": [
+        "test_sine_wave"
+      ]
+    }
+  ],  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "STRING"
+    ],
+    [
+      3,
+      2,
+      0,
+      4,
+      0,
+      "STRING"
+    ],
+    [
+      4,
+      4,
+      0,
+      5,
+      0,
+      "STRING"
+    ],
+    [
+      5,
+      6,
+      0,
+      5,
+      2,
+      "STRING"
+    ],
+    [
+      6,
+      2,
+      0,
+      3,
+      1,
+      "STRING"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

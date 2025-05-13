@@ -1,5 +1,5 @@
 # filepath: c:\Users\corre\ComfyUI\custom_nodes\PIC-2025\comfy\synthetic_generator.py
-from ..src.utils.synthetic_data import SyntheticDataGenerator
+from ...src.utils.synthetic_data import SyntheticDataGenerator
 
 # Node implementation for ComfyUI
 class SynthNode:

@@ -1,6 +1,6 @@
 from collections import deque
 import numpy as np
-from ..src.phy.ecg_signal_processing import ECG
+from ...src.phy.ecg_signal_processing import ECG
 
 class ECGNode:
     """
@@ -52,7 +52,7 @@ class ECGNode:
         viz_values = values[-viz_buffer_size:]
         viz_data = np.column_stack((viz_timestamps, viz_values)) # Combine timestamps and values
         # Use NumpySignalProcessor for peak detection
-        from ..src.utils.signal_processing import NumpySignalProcessor
+        from ...src.utils.signal_processing import NumpySignalProcessor
         peaks = NumpySignalProcessor.find_peaks(values[-feature_buffer_size:], fs=1000)
         peak_indices = np.intersect1d(np.arange(len(values))[-viz_buffer_size:], peaks, assume_unique=True)
         is_peak = np.zeros_like(viz_data[:, 1], dtype=int)

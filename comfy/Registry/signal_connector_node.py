@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from ..src.plot.plot_unit import PlotUnit
+from ...src.plot.plot_unit import PlotUnit
 
 class SignalConnectorNode:
     """
@@ -24,7 +24,7 @@ class SignalConnectorNode:
     RETURN_NAMES = ("status",)
     FUNCTION = "connect_signal"
     CATEGORY = "Pedro_PIC/🧰 Tools"
-    
+    OUTPUT_NODE = True
     def __init__(self):
         # Initialize connection to the visualization hub
         self.plot_unit = PlotUnit.get_instance()
