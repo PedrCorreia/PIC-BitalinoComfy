@@ -1,0 +1,271 @@
+{
+  "last_node_id": 4,
+  "last_link_id": 4,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "RegistrySyntheticGenerator",
+      "pos": [
+        200,
+        200
+      ],
+      "size": {
+        "0": 315,
+        "1": 422
+      },
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "show_eda",
+          "type": "BOOLEAN",
+          "links": null,
+          "widget": {
+            "name": "show_eda"
+          },
+          "value": true
+        },
+        {
+          "name": "show_ecg",
+          "type": "BOOLEAN",
+          "links": null,
+          "widget": {
+            "name": "show_ecg"
+          },
+          "value": true
+        },
+        {
+          "name": "show_rr",
+          "type": "BOOLEAN",
+          "links": null,
+          "widget": {
+            "name": "show_rr"
+          },
+          "value": false
+        },
+        {
+          "name": "duration",
+          "type": "INT",
+          "links": null,
+          "widget": {
+            "name": "duration"
+          },
+          "value": 10
+        },
+        {
+          "name": "sampling_rate",
+          "type": "INT",
+          "links": null,
+          "widget": {
+            "name": "sampling_rate"
+          },
+          "value": 100
+        },
+        {
+          "name": "noise_level",
+          "type": "FLOAT",
+          "links": null,
+          "widget": {
+            "name": "noise_level"
+          },
+          "value": 0.1
+        },
+        {
+          "name": "signal_amplitude",
+          "type": "FLOAT",
+          "links": null,
+          "widget": {
+            "name": "signal_amplitude"
+          },
+          "value": 1.0
+        }
+      ],
+      "outputs": [
+        {
+          "name": "signal_ids",
+          "type": "STRING",
+          "links": [
+            1
+          ],
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "RegistrySyntheticGenerator"
+      }
+    },
+    {
+      "id": 2,
+      "type": "SignalInputNode",
+      "pos": [
+        600,
+        200
+      ],
+      "size": {
+        "0": 315,
+        "1": 166
+      },
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "signal_id",
+          "type": "STRING",
+          "links": [
+            1
+          ],
+          "widget": {
+            "name": "signal_id"
+          },
+          "value": "default_signal"
+        },
+        {
+          "name": "visualize",
+          "type": "BOOLEAN",
+          "links": null,
+          "widget": {
+            "name": "visualize"
+          },
+          "value": true
+        },
+        {
+          "name": "display_color",
+          "type": "COLOR",
+          "links": null,
+          "value": "#42A5F5"
+        },
+        {
+          "name": "signal_alias",
+          "type": "STRING",
+          "links": null,
+          "widget": {
+            "name": "signal_alias"
+          },
+          "value": ""
+        }
+      ],
+      "outputs": [
+        {
+          "name": "status",
+          "type": "STRING",
+          "links": [
+            3
+          ],
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "SignalInputNode"
+      }
+    },
+    {
+      "id": 3,
+      "type": "PlotUnitNode",
+      "pos": [
+        1000,
+        300
+      ],
+      "size": {
+        "0": 315,
+        "1": 206
+      },
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "reset",
+          "type": "BOOLEAN",
+          "links": null,
+          "widget": {
+            "name": "reset"
+          },
+          "value": false
+        },
+        {
+          "name": "clear_all_signals",
+          "type": "BOOLEAN",
+          "links": null,
+          "widget": {
+            "name": "clear_all_signals"
+          },
+          "value": false
+        },
+        {
+          "name": "auto_reset",
+          "type": "BOOLEAN",
+          "links": null,
+          "widget": {
+            "name": "auto_reset"
+          },
+          "value": false
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "PlotUnitNode"
+      }
+    },
+    {
+      "id": 4,
+      "type": "Note",
+      "pos": [
+        600,
+        400
+      ],
+      "size": {
+        "0": 400,
+        "1": 200
+      },
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "links": [
+            3
+          ],
+          "widget": {
+            "name": "text"
+          },
+          "value": "Example of PIC-2025 Unified Signal Architecture\n\nSignal flow:\n1. RegistrySyntheticGenerator creates signals and registers them in SignalRegistry\n2. SignalInputNode bridges between SignalRegistry and PlotRegistry\n3. PlotUnitNode visualizes signals from PlotRegistry"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "type": "STRING",
+          "links": [],
+          "shape": 3
+        }
+      ],
+      "properties": {}
+    }
+  ],
+  "links": [
+    [
+      1,
+      1,
+      0,
+      2,
+      0,
+      "STRING"
+    ],
+    [
+      3,
+      2,
+      0,
+      4,
+      0,
+      "STRING"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

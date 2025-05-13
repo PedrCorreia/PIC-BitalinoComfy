@@ -9,7 +9,7 @@ import math
 from typing import Dict, List, Tuple, Union
 
 # Import from registry
-from ...src.plot.plot_registry import PlotRegistry
+from ...src.plot.signal_registry import SignalRegistry
 
 class RegistrySignalGenerator:
     """
@@ -39,13 +39,12 @@ class RegistrySignalGenerator:
     FUNCTION = "generate_signal"
     CATEGORY = "signal/generators"
     OUTPUT_NODE = True
-    
     def __init__(self):
         # Generate a unique ID for this node
         self.node_id = f"registry_generator_{str(uuid.uuid4())[:8]}"
         
         # Get registry singleton
-        self.registry = PlotRegistry.get_instance()
+        self.registry = SignalRegistry.get_instance()
         print(f"[Registry Generator] Node {self.node_id} initialized")
     
     def generate_signal(self, signal_type, frequency, amplitude, duration, sample_rate, noise_level, signal_id="signal_1", seed=-1):

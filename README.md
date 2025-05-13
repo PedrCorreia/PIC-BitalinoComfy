@@ -41,8 +41,15 @@ This repository provides tools and custom nodes for integrating PLUX/BITalino bi
 - **`src/synthetic_data.py`**  
   Synthetic data generation for EDA, ECG, and RR signals for testing and demonstration purposes.
 
+- **`src/plot/signal_registry.py` and `src/plot/plot_registry.py`**  
+  Core registry classes that implement a clean, unified architecture for signal management and visualization.
+  `SignalRegistry` stores and manages signals, while `PlotRegistry` manages visualization connections.
+
 - **`comfy/`**  
-  Custom ComfyUI nodes for signal processing tasks. The `synthetic_generator.py` module provides a ComfyUI node for generating synthetic physiological signals.
+  Custom ComfyUI nodes for signal processing tasks:
+  - `Registry/signal_input_node.py` bridges between SignalRegistry and PlotRegistry
+  - `Registry/plot_unit_node.py` visualizes signals from PlotRegistry
+  - `Registry/registry_synthetic_generator.py` generates synthetic signals
 
 - **`Archive/`**  
   **Legacy nodes and scripts**. Older nodes have been moved here and may not work with the current codebase or ComfyUI. They are retained for reference only.

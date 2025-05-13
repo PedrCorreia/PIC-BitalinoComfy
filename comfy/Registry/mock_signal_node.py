@@ -3,7 +3,7 @@ import numpy as np
 import random
 import traceback
 import time
-from ...src.hubs.signal_registry import SignalRegistry  # Import the SignalRegistry class
+from ...src.plot.signal_registry import SignalRegistry  # Import the SignalRegistry class
 
 # Create a global signal registry to store signals by ID
 

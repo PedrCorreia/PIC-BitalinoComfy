@@ -1,0 +1,24 @@
+# filepath: c:\Users\corre\ComfyUI\custom_nodes\PIC-2025\src\hubs\signal_registry.py
+"""
+DEPRECATED: This module provides compatibility with the older signal_registry.py location.
+For new code, please import from src.plot.signal_registry instead.
+"""
+
+import logging
+import warnings
+
+# Set up logger
+logger = logging.getLogger('SignalRegistryCompat')
+
+# Issue a deprecation warning
+warnings.warn(
+    "Importing from src.hubs.signal_registry is deprecated and will be removed in future versions. "
+    "Please import from src.plot.signal_registry instead.",
+    DeprecationWarning, stacklevel=2
+)
+
+# Import and re-export the new SignalRegistry class
+from ..plot.signal_registry import SignalRegistry
+
+# Log the import
+logger.warning("Using deprecated signal_registry.py from src/hubs. Please update your imports.")

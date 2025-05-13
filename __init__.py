@@ -141,9 +141,9 @@ except ImportError as e:
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Arousal nodes: {type(e).__name__} - {e}")
 
-# Plot Unit Node
+# Plot Unit Node - Updated to non-legacy version
 try:
-    from .comfy.legacy.plot_unit_node import PlotUnitNode
+    from .comfy.Registry.plot_unit_node import PlotUnitNode
     
     # Register Plot Unit node with consistent category
     NODE_CLASS_MAPPINGS["PlotUnitNode"] = PlotUnitNode
@@ -157,17 +157,6 @@ except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Plot Unit Node: {type(e).__name__} - {e}")
 
 # Mock Signal Node was moved to Signal Registry Nodes section
-
-try:
-    from .comfy.Registry.signal_connector_node import SignalConnectorNode
-    NODE_CLASS_MAPPINGS["SignalConnectorNode"] = SignalConnectorNode
-    NODE_DISPLAY_NAME_MAPPINGS["SignalConnectorNode"] = "🔗 Signal Connector"
-    NODE_CATEGORY_MAPPINGS["SignalConnectorNode"] = "Pedro_PIC/🧰 Tools" 
-    print("Signal Connector loaded successfully")
-except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Signal Connector Node: ImportError - {e}")
-except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Signal Connector Node: {type(e).__name__} - {e}")
 
 # Signal Registry Nodes
 
@@ -183,9 +172,9 @@ except ImportError as e:
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Mock Signal Generator: {type(e).__name__} - {e}")
 
-# Signal Input Node
+# Signal Input Node (Modern signal connection approach)
 try:
-    from .comfy.Registry.signal_input_node import SignalInputNode  # Using the new version
+    from .comfy.Registry.signal_input_node import SignalInputNode
     NODE_CLASS_MAPPINGS["SignalInputNode"] = SignalInputNode
     NODE_DISPLAY_NAME_MAPPINGS["SignalInputNode"] = "🔌 Signal Input"
     NODE_CATEGORY_MAPPINGS["SignalInputNode"] = "Pedro_PIC/🌊 Signal Registry"
@@ -195,29 +184,17 @@ except ImportError as e:
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Signal Input Node: {type(e).__name__} - {e}")
 
-# Signal Registry Connector
+# Legacy Registry Signal Connector (Deprecated)
 try:
-    from .comfy.Registry.signal_registry_connector import SignalRegistryConnector
-    NODE_CLASS_MAPPINGS["SignalRegistryConnector"] = SignalRegistryConnector
-    NODE_DISPLAY_NAME_MAPPINGS["SignalRegistryConnector"] = "🔗 Signal Registry Connector"
-    NODE_CATEGORY_MAPPINGS["SignalRegistryConnector"] = "Pedro_PIC/🌊 Signal Registry"
-    print("Signal Registry Connector loaded successfully")
+    from .comfy.Registry.registry_signal_connector import RegistrySignalConnector
+    NODE_CLASS_MAPPINGS["RegistrySignalConnector"] = RegistrySignalConnector
+    NODE_DISPLAY_NAME_MAPPINGS["RegistrySignalConnector"] = "⚠️ Registry Signal Connector (Legacy)"
+    NODE_CATEGORY_MAPPINGS["RegistrySignalConnector"] = "Pedro_PIC/🌊 Signal Registry"
+    print("Legacy Registry Signal Connector loaded successfully")
 except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Signal Registry Connector: ImportError - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} Registry Signal Connector: ImportError - {e}")
 except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Signal Registry Connector: {type(e).__name__} - {e}")
-
-# Registry Plot Node
-try:
-    from .comfy.Registry.registry_plot_node import RegistryPlotNode
-    NODE_CLASS_MAPPINGS["RegistryPlotNode"] = RegistryPlotNode
-    NODE_DISPLAY_NAME_MAPPINGS["RegistryPlotNode"] = "📈 Registry Plot"
-    NODE_CATEGORY_MAPPINGS["RegistryPlotNode"] = "Pedro_PIC/🌊 Signal Registry"
-    print("Registry Plot Node loaded successfully")
-except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Registry Plot Node: ImportError - {e}")
-except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Registry Plot Node: {type(e).__name__} - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} Registry Signal Connector: {type(e).__name__} - {e}")
 
 # Signal Debug Node
 try:

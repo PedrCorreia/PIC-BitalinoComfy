@@ -1,291 +1,247 @@
-# ComfyUI Plot Signal Sharing Network Architecture
+# Unified Signal Architecture for PIC-2025
 
-This document provides a comprehensive explanation of the signal sharing network architecture implemented in the PIC-2025 custom nodes for ComfyUI. It focuses on how signals are generated, registered, retrieved, and visualized across different components.
+This document describes the unified signal architecture of the PIC-2025 system, highlighting the core components, data flow, and best practices for implementation.
 
-## Table of Contents
-1. [Overall Network Architecture](#overall-network-architecture)
-2. [Signal Generation and Registration](#signal-generation-and-registration)
-3. [Signal Retrieval and Visualization](#signal-retrieval-and-visualization)
-4. [Connection Mechanism Between Components](#connection-mechanism-between-components)
-5. [Data Flow Example](#data-flow-example)
-6. [Best Practices and Tips](#best-practices-and-tips)
+## Architecture Overview
 
-## Overall Network Architecture
-
-The signal sharing network architecture follows a registry pattern with three main components:
-
-1. **Signal Generators**: Components that create synthetic or real-world signals (EDA, ECG, RR).
-2. **Signal Registry**: A central hub that stores and manages signals by their unique IDs.
-3. **Signal Consumers**: Components that retrieve signals from the registry for visualization or further processing.
-
-The architecture enables decoupling between signal generators and consumers, allowing for flexible workflows where signals can be generated and visualized independently.
+The PIC-2025 system uses a two-registry architecture with a clear separation of concerns:
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│                 │     │                 │     │                 │
-│ Signal          │     │ Signal          │     │ Signal          │
-│ Generators      │ ──► │ Registry        │ ──► │ Consumers       │
-│                 │     │                 │     │                 │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
- (SyntheticData,         (SignalRegistry)       (SignalInputNode,
-  MockSignalGen,                                PlotUnit)
-  BitalinoReciever)
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│                 │     │                 │     │                 │     │                 │
+│ Signal          │     │ Signal          │     │ Plot            │     │ Visualization   │
+│ Generators      │ ──► │ Registry        │ ──► │ Registry        │ ──► │ System          │
+│                 │     │                 │     │                 │     │                 │
+└─────────────────┘     └─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
 
-## Signal Generation and Registration
+### Core Components
 
-### Signal Generators
+1. **Signal Registry** (`SignalRegistry`)
+   - Central singleton class for storing all available signals
+   - Located in `src/plot/signal_registry.py`
+   - Acts as the primary repository for all signal data
+   - Thread-safe with validation and error handling
 
-The system includes several signal generators:
+2. **Plot Registry** (`PlotRegistry`)
+   - Singleton class for managing signals for visualization
+   - Located in `src/plot/plot_registry.py`
+   - Manages connections between signals and visualization nodes
+   - Handles signal metadata for proper visualization
 
-1. **`SyntheticDataGenerator`**: Generates synthetic physiological data like EDA, ECG, and RR signals.
-2. **`MockSignalGenerator`**: Creates test signals (sine waves, square waves, etc.) for system testing.
-3. **`BitalinoReceiver`**: Captures real physiological data from Bitalino devices.
+3. **Signal Input Node** (`SignalInputNode`)
+   - Bridges between SignalRegistry and PlotRegistry
+   - Located in `comfy/Registry/signal_input_node.py`
+   - Key connector in the unified architecture
 
-### Registry Sender
+4. **Plot Registry Integration** (`PlotRegistryIntegration`)
+   - Middleware connecting Plot Registry to visualization system
+   - Located in `src/plot/plot_registry_integration.py`
+   - Handles the transfer of signals from registry to visualization
 
-The `RegistrySender` class bridges signal generators with the registry:
+5. **Plot Unit Node** (`PlotUnitNode`)
+   - Manages visualization using PlotRegistry
+   - Located in `comfy/Registry/plot_unit_node.py`
+   - Handles display and user interaction
 
-```python
-class RegistrySender:
-    def __init__(self):
-        self.registry = SignalRegistry.get_instance()
-        
-    def send_signal(self, signal_id, signal_data, metadata=None):
-        # Convert data to tensor if needed
-        # Register the signal in the registry
-```
+## Data Flow
 
-Signal generators call the `send_signal` method to register their signals:
+The data flows through the system in the following order:
 
-```python
-# Example from SyntheticDataGenerator
-if self.use_registry:
-    for signal_type, enabled in self.enabled_signals.items():
-        if enabled and self.signal_data[signal_type]:
-            metadata = {"sampling_rate": self.sampling_rate}
-            self.registry_sender.send_signal(signal_type, list(self.signal_data[signal_type]), metadata)
-```
+1. **Signal Generation**
+   - Signal generators (like `RegistrySyntheticGenerator` or `RegistrySignalGenerator`) create signal data
+   - Generated signals are registered in the SignalRegistry with unique IDs
+   - Type validation ensures all signal IDs are properly formatted as strings
 
-### Signal Registry
+2. **Signal Connection**
+   - `SignalInputNode` receives signal IDs from generators
+   - Retrieves signal data from SignalRegistry
+   - Registers the signal in PlotRegistry with proper metadata
+   - Establishes connection between the node and signal for visualization
 
-The `SignalRegistry` is a singleton that stores all signals by ID:
+3. **Visualization**
+   - `PlotUnitNode` connects to PlotRegistry through `PlotRegistryIntegration`
+   - `PlotRegistryIntegration._update_thread` continuously monitors for new signals
+   - Signals are visualized in real-time in a Pygame window
+
+## Signal Registry
+
+The `SignalRegistry` is responsible for storing all signals in the system:
 
 ```python
 class SignalRegistry:
-    _instance = None
-    
-    @staticmethod
-    def get_instance():
-        if SignalRegistry._instance is None:
-            SignalRegistry._instance = SignalRegistry()
-        return SignalRegistry._instance
-        
-    def register_signal(self, signal_id, signal_tensor):
-        self.signals[signal_id] = signal_tensor
+    def register_signal(self, signal_id, signal_data, metadata=None):
+        """Register a signal with the registry"""
+        if not isinstance(signal_id, str):
+            logger.error(f"Invalid signal_id type: {type(signal_id)}. Expected string.")
+            return None
+            
+        # Converts signal_data to numpy array if needed
+        # Stores signal and its metadata with thread safety
         
     def get_signal(self, signal_id):
-        if signal_id in self.signals:
-            return self.signals[signal_id]
-        return None
-```
-
-## Signal Retrieval and Visualization
-
-### Signal Input Node
-
-The `SignalInputNode` retrieves signals from the registry and sends them to visualization components:
-
-```python
-class SignalInputNode:
-    def __init__(self):
-        # Get singleton PlotUnit instance
-        self.plot_unit = PlotUnit.get_instance()
-        self.plot_unit.start()
-        # Register as a connected node
-        self.plot_unit.increment_connected_nodes()
+        """Retrieve a signal from the registry"""
+        # Returns the signal data for the given ID
         
-    def process_signal(self, signal_id, enabled, color_r=220, color_g=180, color_b=0):
-        # Handle comma-separated signal IDs
-        if ',' in signal_id:
-            signal_id = signal_id.split(',')[0]
-            
-        # Get signal from registry
-        registry = SignalRegistry.get_instance()
-        signal = registry.get_signal(signal_id)
+    def get_signal_metadata(self, signal_id):
+        """Get metadata for a signal"""
+        # Returns metadata for the given signal
+```
+
+## Plot Registry
+
+The `PlotRegistry` manages signals that should be visualized:
+
+```python
+class PlotRegistry:
+    def register_signal(self, signal_id, signal_data, metadata=None):
+        """Register a signal for visualization"""
+        # Similar to SignalRegistry but specifically for visualization
         
-        if signal is not None:
-            # Send to visualization
-            self.plot_unit.add_signal_data(signal, name=signal_id, color=(color_r, color_g, color_b))
-```
-
-### PlotUnit
-
-The `PlotUnit` is responsible for visualizing signals and managing the display window:
-
-```python
-class PlotUnit:
-    _instance = None
-    
-    @classmethod
-    def get_instance(cls):
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
+    def connect_node_to_signal(self, node_id, signal_id):
+        """Connect a visualization node to a signal"""
+        # Validates signal_id is a string
+        if not isinstance(signal_id, str):
+            logger.error(f"Invalid signal_id type: {type(signal_id)}. Expected string.")
+            return False
+            
+        # Tracks which nodes are visualizing which signals
         
-    def add_signal_data(self, signal_data, name="signal", color=None):
-        # Convert tensor to numpy if needed
-        # Put update message in queue for visualization thread
-        self.event_queue.put({
-            'type': 'update_data',
-            'data_type': name,
-            'data': data,
-            'color': color
-        })
+    def disconnect_node(self, node_id):
+        """Disconnect a node from all signals"""
+        # Removes all connections for a node
 ```
 
-The PlotUnit uses a thread-safe message queue system to handle updates from multiple nodes:
+## Plot Registry Integration
+
+The `PlotRegistryIntegration` connects the Plot Registry to the visualization system:
 
 ```python
-def _process_queue(self):
-    """Process incoming messages from the main thread"""
-    try:
-        while True:
-            message = self.event_queue.get_nowait()
+class PlotRegistryIntegration:
+    def connect_node_to_signal(self, node_id, signal_id):
+        """Connect a node to a signal for visualization"""
+        # Validate the signal_id
+        if not isinstance(signal_id, str):
+            logger.warning(f"Attempted to connect node {node_id} to non-string signal ID: {signal_id}")
+            return False
             
-            if message['type'] == 'update_data':
-                with self.data_lock:
-                    data_type = message['data_type']
-                    self.data[data_type] = message['data']
-                    
-                    # Register new signal types with color information
-                    if data_type not in ['raw', 'filtered'] and data_type not in self.data:
-                        self.data[data_type] = message['data']
-                        if 'color' in message:
-                            if not hasattr(self, 'signal_colors'):
-                                self.signal_colors = {}
-                            self.signal_colors[data_type] = message['color']
-            
-            elif message['type'] == 'node_connected' or message['type'] == 'node_disconnected':
-                # These messages update the node connection counter display
-                pass
-                
-            self.event_queue.task_done()
-    except queue.Empty:
-        pass
+        # Add signal to node's connections and update registry
 ```
 
-## Connection Mechanism Between Components
+## Using the Architecture
 
-The connection between components is primarily managed through the Signal Registry:
+### Creating Signals
 
-1. **Signal ID Generation**: Each signal is assigned a unique ID (e.g., "EDA", "ECG", "RR", or custom IDs).
-2. **Signal Registration**: Generators register signals with the registry using their IDs.
-3. **Signal Lookup**: Consumers look up signals in the registry using the same IDs.
-4. **Node Connection Tracking**: Visualization nodes track connected components through increment/decrement methods.
-
-The `SynthNode` outputs signal IDs that can be directly connected to `SignalInputNode` instances:
+Signal generators should register their signals with the `SignalRegistry`:
 
 ```python
-# In SynthNode.generate()
-active_signals = []
-if show_eda:
-    active_signals.append('EDA')
-if show_ecg:
-    active_signals.append('ECG')
-if show_rr:
-    active_signals.append('RR')
-
-return x, y, plot_result, data, ','.join(active_signals)
+# Example from a generator node
+registry = SignalRegistry.get_instance()
+registry.register_signal(
+    signal_id="ECG",
+    signal_data=data,
+    metadata={
+        'color': (255, 0, 0),  # RGB color
+        'sampling_rate': 100,  # Hz
+        'source': 'synthetic'
+    }
+)
 ```
 
-### Node Connection Tracking
+### Connecting Signals to Visualization
 
-The `PlotUnit` implements a node connection tracking mechanism to monitor how many nodes are connected to the visualization system:
+To visualize signals, connect your generator node to a `SignalInputNode` in the ComfyUI workflow:
+
+1. Your generator node outputs the signal ID(s) as strings
+2. `SignalInputNode` takes the signal ID as input
+3. `SignalInputNode` bridges between SignalRegistry and PlotRegistry
+4. Connect a `PlotUnitNode` to visualize all signals in PlotRegistry
+
+### Multiple Signals
+
+The architecture supports handling multiple signals at once:
 
 ```python
-def increment_connected_nodes(self):
-    """Increment the count of connected nodes"""
-    self.settings['connected_nodes'] += 1
-    logger.info(f"Node connected. Total connected nodes: {self.settings['connected_nodes']}")
-    self.event_queue.put({'type': 'node_connected'})
-    return self.settings['connected_nodes']
+# Generators can output comma-separated lists of signal IDs
+return (",".join(active_signals),)
 
-def decrement_connected_nodes(self):
-    """Decrement the count of connected nodes"""
-    if self.settings['connected_nodes'] > 0:
-        self.settings['connected_nodes'] -= 1
-    logger.info(f"Node disconnected. Total connected nodes: {self.settings['connected_nodes']}")
-    self.event_queue.put({'type': 'node_disconnected'})
-    return self.settings['connected_nodes']
+# SignalInputNode can process these to connect multiple signals
 ```
 
-These methods are called when:
-- A node connects to the visualization system (`increment_connected_nodes`) in the `__init__` method
-- A node disconnects from the visualization system (`decrement_connected_nodes`) in the `__del__` method
-- In `SignalInputNode` and `PlotUnitNode` initialization and cleanup
+## Best Practices
 
-The connection counter is displayed in the settings panel of the visualization window.
-
-```python
-# Example from PlotUnitNode
-def __init__(self):
-    # Get singleton PlotUnit instance
-    self.plot_unit = PlotUnit.get_instance()
-    self.plot_unit.start()
-    # Register as a connected node
-    self.plot_unit.increment_connected_nodes()
-    
-def __del__(self):
-    # Unregister as a connected node
-    plot_unit = PlotUnit.get_instance()
-    plot_unit.decrement_connected_nodes()
-```
-
-## Data Flow Example
-
-Here's a step-by-step example of the data flow in the system:
-
-1. **Signal Generation**:
-   - `SynthNode` creates synthetic data in `SyntheticDataGenerator`
-   - Generator calls `self.registry_sender.send_signal("EDA", signal_data, metadata)`
-
-2. **Signal Registration**:
-   - `RegistrySender` converts the data to a tensor if necessary
-   - Calls `self.registry.register_signal("EDA", tensor)`
-   - Signal is now stored in the `SignalRegistry` singleton
-
-3. **Signal Retrieval**:
-   - `SignalInputNode` receives the signal ID ("EDA") from a ComfyUI workflow connection
-   - Calls `registry.get_signal("EDA")` to retrieve the tensor
-   - Signal data is now available in the node
-
-4. **Signal Visualization**:
-   - `SignalInputNode` forwards the data to `PlotUnit`
-   - `PlotUnit` converts data if needed and adds it to the rendering queue
-   - The signal is displayed in the visualization window
-   - The connected node counter is incremented to track active visualizations
-
-## Best Practices and Tips
-
-1. **Signal IDs**:
-   - Use clear, descriptive signal IDs
+1. **Use Proper Signal IDs**
+   - Use descriptive, unique string IDs for signals
    - Standard physiological signals use "EDA", "ECG", and "RR"
-   - Custom signals should use unique identifiers
+   - Never use non-string values as signal IDs
 
-2. **Working with Multiple Signals**:
-   - The architecture supports comma-separated signal IDs for handling multiple signals
-   - When sending multiple signals from a generator, join their IDs with commas
+2. **Include Useful Metadata**
+   - Always include sampling rate, source information, and colors
+   - Add x-values for time-series data when available
 
-3. **Custom Signal Generators**:
-   - Implement your own signal generator by following the pattern in `synthetic_data.py`
-   - Use the `RegistrySender` to send signals to the registry
+3. **Proper Cleanup**
+   - Implement `__del__` methods to disconnect nodes when deleted
+   - Use registry disconnect methods to keep connections clean
 
-4. **Extending the System**:
-   - New visualization components can be added by retrieving signals from the registry
-   - Process signals before visualization for analysis, filtering, etc.
+4. **Type Safety**
+   - Always check that signal IDs are strings
+   - Validate signal data can be converted to numpy arrays
+   - Handle errors gracefully with proper logging
 
-5. **Cleanup**:
-   - Use the `reset()` method on `SignalRegistry` when needed to clear all signals
+5. **Use New Architecture**
+   - Use `SignalInputNode` instead of legacy connector nodes
+   - Avoid direct connections to `SignalRegistry` from visualization nodes
+   - Follow the proper signal flow from generation to visualization
 
-By following this architecture, you can create complex signal processing and visualization workflows in ComfyUI that are modular, flexible, and maintainable.
+## Example Workflow
+
+1. **Generate Synthetic Signals**
+   - Use `RegistrySyntheticGenerator` to create EDA, ECG, or RR signals
+   - Signals are registered in SignalRegistry with proper IDs
+
+2. **Connect Signals to Visualization**
+   - Connect the output (signal_id) of the generator to `SignalInputNode`
+   - Set the `visualize` toggle to TRUE
+   - Set display color and optional alias for better identification
+
+3. **Visualize Signals**
+   - Add a `PlotUnitNode` to your workflow
+   - It automatically connects to PlotRegistry
+   - All connected signals are visualized in real-time
+
+## Troubleshooting
+
+- If you see "connecting to signal: False" error, check that your signal IDs are strings
+- If signals aren't visible, ensure IDs match between generators and connectors
+- Use the `SignalDebugNode` to inspect signals and diagnose issues
+- Verify signals exist in SignalRegistry before trying to visualize them
+
+## Diagnostic Tools
+
+The system includes several diagnostic tools:
+
+1. **Signal Debug Node**
+   - Shows comprehensive information about registered signals
+   - Verifies if signals are properly registered
+   - Checks if signals are marked for visualization
+
+2. **Registry Monitor**
+   - External tool for monitoring registry state
+   - Located in `tools/registry_monitor.py`
+   - Real-time view of all signals and connections
+
+## Architecture Benefits
+
+- **Decoupling**: Signal generators are separated from visualization
+- **Flexibility**: Signals can be generated once and visualized multiple ways
+- **Type Safety**: Validation at all levels prevents the "connecting to signal: False" error
+- **Extensibility**: New signal sources can be easily added
+- **Thread-safety**: Registries use locks to prevent race conditions
+
+## Legacy Support
+
+The architecture maintains backward compatibility with older nodes:
+
+- Legacy connector nodes are marked with deprecation notices
+- The system can still handle old workflows with proper redirection
+- Use `SignalInputNode` for all new development

@@ -171,7 +171,6 @@ class PlotRegistryIntegration:
             if self.plot_unit:
                 self.plot_unit.increment_connected_nodes()
             logger.info(f"Node '{node_id}' registered with integration")
-    
     def connect_node_to_signal(self, node_id, signal_id):
         """
         Connect a node to a signal for visualization
@@ -180,6 +179,11 @@ class PlotRegistryIntegration:
             node_id: ID of the node
             signal_id: ID of the signal to connect to
         """
+        # Validate the signal_id
+        if not isinstance(signal_id, str):
+            logger.warning(f"Attempted to connect node {node_id} to non-string signal ID: {signal_id} (type: {type(signal_id)})")
+            return False
+            
         # Register node if needed
         if node_id not in self._node_connections:
             self.register_node(node_id)
@@ -188,9 +192,12 @@ class PlotRegistryIntegration:
         self._node_connections[node_id].add(signal_id)
         
         # Tell registry about connection
-        self.registry.connect_node_to_signal(node_id, signal_id)
+        result = self.registry.connect_node_to_signal(node_id, signal_id)
         
-        logger.info(f"Node '{node_id}' connected to signal '{signal_id}'")
+        if result:
+            logger.info(f"Node '{node_id}' connected to signal '{signal_id}'")
+        
+        return result
     
     def disconnect_node(self, node_id):
         """

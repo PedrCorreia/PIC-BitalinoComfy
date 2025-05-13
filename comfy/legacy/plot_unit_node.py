@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from ...src.plot.plot_unit import PlotUnit
+# This file is using legacy imports - in new implementations, use src.plot.signal_registry
 from ...src.hubs.signal_registry import SignalRegistry
 
 class PlotUnitNode:

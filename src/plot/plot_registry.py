@@ -63,7 +63,6 @@ class PlotRegistry:
                 }
                 
             logger.debug(f"Signal '{signal_id}' registered with shape {signal_data.shape}")
-    
     def connect_node_to_signal(self, node_id, signal_id):
         """
         Connect a visualization node to a specific signal.
@@ -73,6 +72,11 @@ class PlotRegistry:
             signal_id (str): Identifier of the signal to connect to
         """
         with self.registry_lock:
+            # Validate input parameters
+            if not isinstance(signal_id, str):
+                logger.error(f"Invalid signal_id type: {type(signal_id)}. Expected string.")
+                return False
+            
             # Make sure the signal exists
             if signal_id not in self.signals:
                 logger.warning(f"Attempted to connect node {node_id} to non-existent signal {signal_id}")

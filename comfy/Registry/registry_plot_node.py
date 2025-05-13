@@ -9,8 +9,13 @@ from ...src.plot.plot_registry_integration import PlotRegistryIntegration
 
 class RegistryPlotNode:
     """
-    A visualization node that connects to a centralized signal registry.
+    A visualization node that connects to a centralized plot registry.
     This node visualizes signals from the registry in a Pygame window.
+    
+    NOTE: This node uses the older architecture and may not handle 
+    string validation properly. For the newer unified architecture,
+    use the PlotUnitNode alongside the SignalInputNode which includes
+    proper signal validation and error handling.
     """
     
     @classmethod
@@ -94,5 +99,5 @@ NODE_CLASS_MAPPINGS = {
 
 # Node display name mappings
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "RegistryPlotNode": "Registry Plot"
+    "RegistryPlotNode": "⚠️ Registry Plot (Legacy)"
 }

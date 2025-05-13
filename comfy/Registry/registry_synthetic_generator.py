@@ -6,15 +6,15 @@ import torch
 import random
 import time
 from typing import Dict, List, Tuple, Union
-# Import from registry
-from ...src.plot.plot_registry import PlotRegistry
+# Import from registries
+from ...src.plot.signal_registry import SignalRegistry
 from ...src.utils.synthetic_data import SyntheticDataGenerator
 
 class RegistrySyntheticGenerator:
     """
-    Registry-compatible synthetic data generator that sends signals to the PlotRegistry.
+    Registry-compatible synthetic data generator that sends signals to the SignalRegistry.
     This node creates synthetic physiological signals (EDA, ECG, RR) and registers them
-    with the centralized PlotRegistry.
+    with the centralized SignalRegistry for later visualization.
     """
     
     @classmethod
@@ -47,13 +47,12 @@ class RegistrySyntheticGenerator:
     FUNCTION = "generate_signals"
     CATEGORY = "signal/generators"
     OUTPUT_NODE = False
-    
     def __init__(self):
         # Generate a unique ID for this node
         self.node_id = f"registry_synthetic_{str(uuid.uuid4())[:8]}"
         
         # Get registry singleton
-        self.registry = PlotRegistry.get_instance()
+        self.registry = SignalRegistry.get_instance()
         
         # Create synthetic data generator
         self.generator = SyntheticDataGenerator()
@@ -181,12 +180,3 @@ class RegistrySyntheticGenerator:
                 print(f"[Registry Synthetic] Registered {signal_type} signal as '{reg_id}' with {len(y_values)} samples")
         
         return (",".join(active_signals),)
-
-# Register nodes for ComfyUI
-NODE_CLASS_MAPPINGS = {
-    "RegistrySyntheticGenerator": RegistrySyntheticGenerator
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "RegistrySyntheticGenerator": "Registry Synthetic Generator"
-}
