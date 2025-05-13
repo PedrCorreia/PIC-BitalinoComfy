@@ -21,13 +21,12 @@ class SignalConnectorNode:
     This node has been replaced by the more robust SignalInputNode which properly
     handles connections between SignalRegistry and PlotRegistry.
     """
-    
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
                 "signal_id": ("STRING", {"default": "default_signal"}),
-                "signal_type": (["P", "F"], {"default": "P"}),
+                "signal_type": (["R", "P"], {"default": "R"}),  # 'R' for Raw, 'P' for Processed
                 "connect": ("BOOLEAN", {"default": True}),
             },
             "optional": {
@@ -35,11 +34,10 @@ class SignalConnectorNode:
                 "display_color": ("COLOR", {"default": "#42A5F5"}),  # Default blue color
             }
         }
-    
     RETURN_TYPES = ("STRING",)
     RETURN_NAMES = ("status",)
     FUNCTION = "connect_signal"
-    CATEGORY = "Pedro_PIC/🧰 Tools"
+    CATEGORY = "Pedro_PIC/🌊 Signal Registry"  # Consistent with PlotUnitNode in __init__.py
     OUTPUT_NODE = True
     
     def __init__(self):

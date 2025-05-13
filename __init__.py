@@ -138,7 +138,7 @@ try:
     # Register Plot Unit node with consistent category
     NODE_CLASS_MAPPINGS["PlotUnitNode"] = PlotUnitNode
     NODE_DISPLAY_NAME_MAPPINGS["PlotUnitNode"] = "📊 Signal Visualization Hub"
-    NODE_CATEGORY_MAPPINGS["PlotUnitNode"] = "Pedro_PIC/🧰 Tools"
+    NODE_CATEGORY_MAPPINGS["PlotUnitNode"] = "Pedro_PIC/🌊 Signal Registry"
     
     print("Plot Unit Visualization Hub loaded successfully")
 except ImportError as e:
@@ -150,8 +150,8 @@ except Exception as e:
 
 # Signal Input Node (Modern signal connection approach)
 try:
-    from .comfy.Registry.unified_signal_connector import SignalConnectorNode
-    NODE_CLASS_MAPPINGS["SignalInputNode"] = SignalConnectorNode
+    from .comfy.Registry.signal_input_node import SignalInputNode
+    NODE_CLASS_MAPPINGS["SignalInputNode"] = SignalInputNode
     NODE_DISPLAY_NAME_MAPPINGS["SignalInputNode"] = "🔌 Signal Input"
     NODE_CATEGORY_MAPPINGS["SignalInputNode"] = "Pedro_PIC/🌊 Signal Registry"
     print("Signal Input Node loaded successfully")

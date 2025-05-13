@@ -1,94 +1,74 @@
 """
 Unified Signal Generator for PIC-2025.
-This node combines the functionality of RegistrySyntheticGenerator and RegistrySignalGenerator
-into a single cohesive generator that can produce both physiological and standard waveforms.
+This node generates either physiological or standard waveform signals based on the selected mode.
+Each signal is generated in its own background thread and registered with the SignalRegistry.
 """
 
 import sys
 import os
 import uuid
 import numpy as np
-import torch
 import random
 import time
 import threading
 import logging
 from typing import Dict, List, Tuple, Union, Optional
 import math
-from ...src.utils.synthetic_data import SyntheticDataGenerator
-from ...src.registry.signal_registry import SignalRegistry
+from ...src.registry.signal_registry  import SignalRegistry
 
 # Set up logger
 logger = logging.getLogger("ComfyUI")
+
 class UnifiedSignalGenerator:
     """
-    Unified signal generator that provides both physiological and standard waveforms.
+    Simplified Unified Signal Generator that follows the single signal type per node principle.
     
-    This node combines two previous generators:
-    1. RegistrySyntheticGenerator - for physiological signals (EDA, ECG, RR)
-    2. RegistrySignalGenerator - for standard waveforms (sine, square, etc.)
-    
-    All signals are properly registered with SignalRegistry for visualization.
+    Key features:
+    - Single signal type per node instance
+    - Mode selection between physiological and waveform signals
+    - Continuous live data generation in background thread
+    - Direct signal registration with the registry system
     """
     
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                # Signal type selection
-                "generator_mode": (["physiological", "waveform"], {"default": "physiological"}),
+                # Signal identification
+                "id": ("STRING", {"default": "signal_1"}),
+                
+                # Mode selection
+                "mode": (["physiological", "waveform"], {"default": "physiological"}),
+                
+                # Signal type depends on mode - will be conditionally shown 
+                "signal_type": (["EDA", "ECG", "RR", "sine", "square", "triangle", "sawtooth", "noise", "random"], {"default": "EDA"}),
                 
                 # Core parameters
-                "duration": ("INT", {"default": 10, "min": 1, "max": 60}),
-                "sampling_rate": ("INT", {"default": 100, "min": 1, "max": 1000}),
-                
-                # Signal characteristics
-                "noise_level": ("FLOAT", {"default": 0.1, "min": 0.0, "max": 1.0, "step": 0.05}),
+                "sampling_rate": ("INT", {"default": 100, "min": 10, "max": 1000}),
                 "amplitude": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 5.0, "step": 0.1}),
-            },
-            "optional": {
-                # Physiological signal options
-                "show_eda": ("BOOLEAN", {"default": True}),
-                "show_ecg": ("BOOLEAN", {"default": False}),
-                "show_rr": ("BOOLEAN", {"default": False}),
-                "custom_eda_id": ("STRING", {"default": "EDA"}),
-                "custom_ecg_id": ("STRING", {"default": "ECG"}),
-                "custom_rr_id": ("STRING", {"default": "RR"}),
-                
-                # Waveform options
-                "waveform_type": (["sine", "square", "triangle", "sawtooth", "noise", "ecg_synthetic", "random"], {"default": "sine"}),
-                "frequency": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 10.0, "step": 0.1}),
-                "signal_id": ("STRING", {"default": "signal_1"}),
-                
-                # Common options
-                "seed": ("INT", {"default": -1, "min": -1, "max": 0x7FFFFFFFFFFFFFFF}),
-                "live_generation": ("BOOLEAN", {"default": True, "label_on": "Live Data", "label_off": "Static Data"}),
+                "noise_level": ("FLOAT", {"default": 0.05, "min": 0.0, "max": 1.0, "step": 0.01}),
             }
         }
     
     RETURN_TYPES = ("STRING",)
-    RETURN_NAMES = ("signal_ids",)
-    FUNCTION = "generate_signals"
+    RETURN_NAMES = ("signal_id",)
+    FUNCTION = "generate_signal"
     CATEGORY = "signal/generators"
     OUTPUT_NODE = False
     
     def __init__(self):
-        # Generate a unique ID for this node
-        self.node_id = f"unified_generator_{str(uuid.uuid4())[:8]}"
+        # Generate a unique ID for this node instance
+        self.node_id = f"signal_gen_{str(uuid.uuid4())[:8]}"
         
         # Get registry singleton
         self.registry = SignalRegistry.get_instance()
         
-        # Create synthetic data generator for physiological signals
-        self.physio_generator = SyntheticDataGenerator()
-        self.physio_generator.plot = False  # Disable direct plotting
-        
         # Thread for live signal generation
         self.generation_thread = None
         self.stop_event = threading.Event()
-        self.active_signals = {}  # Track active signals for live updates
+        self.signal_metadata = None  # Store metadata about the current signal
         
-        logger.info(f"Unified Signal Generator Node {self.node_id} initialized")
+        logger.info(f"Signal Generator Node {self.node_id} initialized")
     
     def __del__(self):
         """Clean up any running threads when the node is deleted"""
@@ -99,227 +79,175 @@ class UnifiedSignalGenerator:
         if self.generation_thread and self.generation_thread.is_alive():
             self.stop_event.set()
             self.generation_thread.join(timeout=2.0)  # Wait up to 2 seconds
-            logger.info("Live signal generation stopped")
+            logger.info(f"Live signal generation stopped for node {self.node_id}")
     
-    def generate_signals(self, 
-                         generator_mode,
-                         duration, sampling_rate, 
-                         noise_level, amplitude,
-                         show_eda=True, show_ecg=False, show_rr=False, 
-                         custom_eda_id="EDA", custom_ecg_id="ECG", custom_rr_id="RR",
-                         waveform_type="sine", frequency=1.0, signal_id="signal_1",
-                         seed=-1, live_generation=True):
+    def generate_signal(self, id, mode, signal_type, sampling_rate, amplitude, noise_level):
         """
-        Unified method to generate signals based on the selected mode
+        Generate a single signal based on the selected mode and type
         
         Args:
-            generator_mode: "physiological" or "waveform"
-            duration: Duration in seconds
+            id: Unique identifier for the signal
+            mode: "physiological" or "waveform"  
+            signal_type: Type of signal to generate
             sampling_rate: Sample rate (samples per second)
-            noise_level: Amount of noise (0.0-1.0)
             amplitude: Signal amplitude multiplier
-            show_eda: Whether to generate EDA signal (physiological mode)
-            show_ecg: Whether to generate ECG signal (physiological mode)
-            show_rr: Whether to generate RR signal (physiological mode)
-            custom_eda_id: Custom ID for the EDA signal
-            custom_ecg_id: Custom ID for the ECG signal
-            custom_rr_id: Custom ID for the RR signal
-            waveform_type: Type of waveform to generate (waveform mode)
-            frequency: Frequency of the waveform in Hz (waveform mode)
-            signal_id: ID for the waveform signal
-            seed: Random seed (-1 for random)
-            live_generation: Generate signals in real-time
+            noise_level: Amount of noise (0.0-1.0)
             
         Returns:
-            signal_ids: Comma-separated list of generated signal IDs
+            signal_id: The ID of the generated signal
         """
-        # Use specified random seed if provided
-        if seed != -1:
-            # Ensure seed is within numpy's valid range (0 to 2^32-1)
-            valid_seed = abs(seed) % (2**32)
-            random.seed(valid_seed)
-            np.random.seed(valid_seed)
-        
-        # Stop any existing generation threads
+        # Stop any existing generation thread
         self.stop_live_generation()
         
-        # Generate signals based on the selected mode
-        if generator_mode == "physiological":
-            # Generate physiological signals (EDA, ECG, RR)
-            signal_ids = self._generate_physiological_signals(
-                show_eda, show_ecg, show_rr,
-                custom_eda_id, custom_ecg_id, custom_rr_id,
-                duration, sampling_rate, noise_level, amplitude
-            )
+        # Initial data duration in seconds
+        duration = 10
+        
+        # Create the initial signal
+        if mode == "physiological":
+            # Validate signal type for physiological mode
+            if signal_type not in ["EDA", "ECG", "RR"]:
+                signal_type = "EDA"  # Default to EDA for physiological mode
+                logger.warning(f"Invalid signal type '{signal_type}' for physiological mode, defaulting to EDA")
+                
+            self._generate_physiological_signal(signal_type, id, duration, sampling_rate, amplitude, noise_level)
         else:
-            # Generate standard waveform signals
-            signal_ids = self._generate_waveform_signal(
-                waveform_type, frequency, amplitude,
-                duration, sampling_rate, noise_level, signal_id
-            )
+            # Validate signal type for waveform mode
+            valid_waveforms = ["sine", "square", "triangle", "sawtooth", "noise", "random"]
+            if signal_type not in valid_waveforms:
+                signal_type = "sine"  # Default to sine wave for waveform mode
+                logger.warning(f"Invalid signal type '{signal_type}' for waveform mode, defaulting to sine")
+                
+            self._generate_waveform_signal(signal_type, id, duration, sampling_rate, amplitude, noise_level)
         
-        # Start live generation if requested
-        if live_generation and signal_ids:
-            self._start_live_generation(
-                generator_mode, signal_ids,
-                duration, sampling_rate, noise_level, amplitude,
-                show_eda, show_ecg, show_rr,
-                waveform_type, frequency
-            )
+        # Start continuous live generation in background thread
+        self._start_live_generation(mode, signal_type, id, sampling_rate, amplitude, noise_level)
         
-        # Return comma-separated list of signal IDs
-        return (",".join(signal_ids),)
+        return (id,)
     
-    def _generate_physiological_signals(self, 
-                                       show_eda, show_ecg, show_rr,
-                                       custom_eda_id, custom_ecg_id, custom_rr_id,
-                                       duration, sampling_rate, noise_level, amplitude):
-        """Generate physiological signals using the SyntheticDataGenerator"""
-        logger.info(f"Generating physiological signals: EDA={show_eda}, ECG={show_ecg}, RR={show_rr}")
+    def _generate_physiological_signal(self, signal_type, signal_id, duration, sampling_rate, amplitude, noise_level):
+        """Generate a physiological signal (EDA, ECG, or RR)"""
+        logger.info(f"Generating {signal_type} physiological signal with ID '{signal_id}'")
         
-        # Make sure at least one signal is enabled
-        if not (show_eda or show_ecg or show_rr):
-            show_eda = True  # Default to EDA if none selected
+        # Determine number of samples
+        num_samples = int(duration * sampling_rate)
         
-        # Create mapping of signal types to IDs
-        signal_ids = {}
-        if show_eda:
-            signal_ids["EDA"] = custom_eda_id
-        if show_ecg:
-            signal_ids["ECG"] = custom_ecg_id
-        if show_rr:
-            signal_ids["RR"] = custom_rr_id
+        # Create time array
+        t = np.linspace(0, duration, num_samples, endpoint=False)
+        
+        # Generate the appropriate physiological signal
+        if signal_type == "EDA":
+            # EDA: Skin conductance with slow drift and occasional responses
+            baseline = 2.0 + 0.3 * np.sin(2 * np.pi * 0.005 * t)
             
-        # Configure the generator
-        self.physio_generator.buffer_size = duration
+            # Add skin conductance responses at random intervals
+            scr_contribution = np.zeros_like(t)
+            
+            # Add a few random SCRs
+            for _ in range(3):
+                scr_time = np.random.uniform(1, duration-3)
+                scr_amplitude = np.random.uniform(0.2, 0.8)
+                scr_rise = np.random.uniform(1.0, 2.0)
+                scr_decay = np.random.uniform(3.0, 7.0)
+                
+                idx = np.where((t >= scr_time) & (t <= scr_time + scr_rise + scr_decay))[0]
+                for i in idx:
+                    time_since_onset = t[i] - scr_time
+                    if time_since_onset <= scr_rise:
+                        # Rising phase (using sine function for smooth onset)
+                        normalized_time = time_since_onset / scr_rise
+                        scr_contribution[i] = scr_amplitude * np.sin(np.pi * normalized_time / 2)
+                    else:
+                        # Decay phase (exponential decay)
+                        decay_time = time_since_onset - scr_rise
+                        decay_factor = np.exp(-decay_time / (scr_decay * 0.5))
+                        scr_contribution[i] = scr_amplitude * decay_factor
+            
+            signal = baseline + scr_contribution
+            color = (0, 255, 0)  # Green
+            
+        elif signal_type == "ECG":
+            # ECG: Cardiac signal with characteristic PQRST waves
+            heart_rate = 60 + 5 * np.sin(2 * np.pi * 0.05 * t)  # Varying heart rate
+            signal = np.zeros_like(t)
+            
+            for i, time in enumerate(t):
+                # Current heart rate in Hz
+                hr_hz = heart_rate[i] / 60.0
+                
+                # Phase within cardiac cycle
+                phase = (time * hr_hz) % 1.0
+                
+                # Generate PQRST complex
+                p_wave = 0.15 * np.exp(-((phase - 0.1) ** 2) / 0.002)
+                q_wave = -0.1 * np.exp(-((phase - 0.2) ** 2) / 0.0005)
+                r_wave = 1.0 * np.exp(-((phase - 0.22) ** 2) / 0.0002)
+                s_wave = -0.3 * np.exp(-((phase - 0.24) ** 2) / 0.0005)
+                t_wave = 0.3 * np.exp(-((phase - 0.35) ** 2) / 0.003)
+                
+                signal[i] = p_wave + q_wave + r_wave + s_wave + t_wave
+            
+            signal = signal * amplitude
+            color = (255, 0, 0)  # Red
+            
+        else:  # RR signal
+            # RR: Respiratory signal with realistic breathing pattern
+            breathing_rate = 15 + 2 * np.sin(2 * np.pi * 0.01 * t)  # ~15 breaths per minute with variation
+            signal = np.zeros_like(t)
+            
+            for i, time in enumerate(t):
+                br_hz = breathing_rate[i] / 60.0
+                phase = (time * br_hz) % 1.0
+                
+                # Asymmetric breathing pattern (inhale is shorter than exhale)
+                if phase < 0.4:
+                    normalized_phase = phase / 0.4
+                    breathing = np.sin(np.pi * normalized_phase / 2)
+                else:
+                    normalized_phase = (phase - 0.4) / 0.6
+                    breathing = 1.0 - normalized_phase
+                
+                signal[i] = breathing
+            
+            signal = (signal * amplitude) + 60.0  # Baseline around 60
+            color = (255, 165, 0)  # Orange
         
-        # Generate the data without plotting
-        result = self.physio_generator.generate_multi(
-            show_eda=show_eda, 
-            show_ecg=show_ecg, 
-            show_rr=show_rr,
-            duration=duration, 
-            sampling_rate=sampling_rate, 
-            buffer_size=duration,
-            plot=False,
-            fps=60,
-            auto_restart=False, 
-            keep_window=False,
-            performance_mode=False,
-            line_thickness=1,
-            enable_downsampling=False
+        # Add noise
+        if noise_level > 0:
+            noise = np.random.normal(0, noise_level * np.std(signal), len(signal))
+            signal = signal + noise
+        
+        # Store signal metadata
+        self.signal_metadata = {
+            'signal_id': signal_id,
+            'signal_type': signal_type,
+            'mode': 'physiological',
+            'color': color,
+            'sampling_rate': sampling_rate,
+            'last_x': t[-1],
+            'amplitude': amplitude,
+            'noise_level': noise_level
+        }
+        
+        # Register with the registry
+        self.registry.register_signal(
+            signal_id=signal_id,
+            signal_data=signal,
+            metadata={
+                'color': color,
+                'source_node': self.node_id,
+                'signal_type': signal_type, 
+                'x_values': t,
+                'sampling_rate': sampling_rate,
+                'generator_mode': 'physiological'
+            }
         )
         
-        # Extract data depending on the return format
-        if len(result) == 5:
-            _, _, _, data, _ = result
-        elif len(result) == 4:
-            _, _, _, data = result
-        else:
-            logger.error("Unexpected result format from generator")
-            return list(signal_ids.values())
-            
-        # Register each signal with the registry
-        active_signals = []
-        for signal_type, reg_id in signal_ids.items():
-            if signal_type in data and len(data[signal_type]) > 0:
-                # Extract x and y values
-                x_values = np.array([point[0] for point in data[signal_type]], dtype=np.float32)
-                y_values = np.array([point[1] for point in data[signal_type]], dtype=np.float32)
-                
-                # Apply amplitude scaling and noise
-                y_values = y_values * amplitude
-                
-                if noise_level > 0:
-                    noise = np.random.normal(0, noise_level * np.std(y_values), len(y_values))
-                    y_values = y_values + noise
-                
-                # Determine color based on signal type
-                if signal_type == "EDA":
-                    color = (0, 255, 0)  # Green
-                elif signal_type == "ECG":
-                    color = (255, 0, 0)  # Red
-                elif signal_type == "RR":
-                    color = (255, 165, 0)  # Orange
-                else:
-                    color = (0, 0, 255)  # Blue default
-                
-                # Register with the registry
-                self.registry.register_signal(
-                    signal_id=reg_id,
-                    signal_data=y_values,
-                    metadata={
-                        'color': color,
-                        'source_node': self.node_id,
-                        'signal_type': signal_type,
-                        'x_values': x_values,
-                        'sampling_rate': sampling_rate,
-                        'generator_mode': 'physiological'
-                    }
-                )
-                
-                # Store for tracking live updates
-                self.active_signals[reg_id] = {
-                    'type': signal_type,
-                    'color': color,
-                    'sampling_rate': sampling_rate,
-                    'last_x': x_values[-1] if len(x_values) > 0 else 0
-                }
-                
-                active_signals.append(reg_id)
-                logger.info(f"Registered {signal_type} signal as '{reg_id}' with {len(y_values)} samples")
-        
-        return active_signals
-
-    def _generate_ecg_signal(self, t, amplitude, frequency):
-        """Generate a synthetic ECG-like signal"""
-        # Parameter to control the sharpness of the peak (R wave)
-        r_sharpness = 30.0
-        
-        # Parameters for P and T waves
-        p_offset = -0.2
-        p_width = 0.1
-        p_height = 0.2
-        
-        t_offset = 0.2
-        t_width = 0.15
-        t_height = 0.3
-        
-        # Base frequency for heart rate
-        # frequency is the heart rate in Hz (e.g., 1.2 Hz = 72 BPM)
-        
-        # Normalize the time to the frequency to get phases in [0, 1] range
-        phase = (t * frequency) % 1.0
-        
-        # Initialize the signal with a small baseline
-        signal = np.zeros_like(t)
-        
-        # R peak (sharp spike)
-        r_peak = amplitude * np.exp(-r_sharpness * (phase - 0.0)**2)
-        
-        # P wave (before R peak)
-        p_wave = p_height * amplitude * np.exp(-(phase - p_offset)**2 / p_width)
-        
-        # T wave (after R peak)
-        t_wave = t_height * amplitude * np.exp(-(phase - t_offset)**2 / t_width)
-        
-        # Q and S waves (small negative deflections before and after R)
-        q_wave = -0.1 * amplitude * np.exp(-80.0 * (phase - (-0.05))**2)
-        s_wave = -0.2 * amplitude * np.exp(-50.0 * (phase - 0.05)**2)
-        
-        # Combine all components
-        signal = r_peak + p_wave + t_wave + q_wave + s_wave
-        
-        # Add a small baseline to prevent too low values
-        signal += 0.1 * amplitude
-        
-        return signal
-
-    def _generate_waveform_signal(self, 
-                                 waveform_type, frequency, amplitude,
-                                 duration, sampling_rate, noise_level, signal_id):
-        """Generate a waveform signal (sine, square, etc.)"""
-        logger.info(f"Generating {waveform_type} waveform with frequency {frequency}Hz")
+        logger.info(f"Registered {signal_type} signal as '{signal_id}' with {len(signal)} samples")
+        return True
+    
+    def _generate_waveform_signal(self, waveform_type, signal_id, duration, sampling_rate, amplitude, noise_level):
+        """Generate a standard waveform signal"""
+        logger.info(f"Generating {waveform_type} waveform signal with ID '{signal_id}'")
         
         # Calculate the number of samples needed
         num_samples = int(duration * sampling_rate)
@@ -327,43 +255,56 @@ class UnifiedSignalGenerator:
         # Generate time values
         t = np.linspace(0, duration, num_samples, endpoint=False)
         
+        # Default frequency of 1Hz
+        frequency = 1.0
+        
         # Generate the appropriate waveform
         if waveform_type == "sine":
             signal = amplitude * np.sin(2 * np.pi * frequency * t)
             color = (0, 100, 255)  # Blue
+            
         elif waveform_type == "square":
             signal = amplitude * np.sign(np.sin(2 * np.pi * frequency * t))
             color = (255, 100, 0)  # Orange
+            
         elif waveform_type == "triangle":
             signal = amplitude * (2 / np.pi) * np.arcsin(np.sin(2 * np.pi * frequency * t))
             color = (0, 200, 100)  # Green
+            
         elif waveform_type == "sawtooth":
             signal = amplitude * ((2 * (frequency * t - np.floor(0.5 + frequency * t))))
             color = (200, 50, 200)  # Purple
-        elif waveform_type == "ecg_synthetic":
-            signal = self._generate_ecg_signal(t, amplitude, frequency)
-            color = (255, 0, 0)  # Red
+            
         elif waveform_type == "noise":
             signal = amplitude * np.random.randn(num_samples)
             color = (150, 150, 150)  # Gray
-        elif waveform_type == "random":
-            # Random walk with some drift
+            
+        else:  # Random walk
             steps = np.random.randn(num_samples)
             signal = np.cumsum(steps) * 0.1 * amplitude
-            # Normalize to keep within amplitude
+            # Normalize to keep within amplitude range
             signal = (signal - np.min(signal)) / (np.max(signal) - np.min(signal) + 1e-6) * 2 * amplitude - amplitude
             color = (100, 200, 200)  # Teal
-        else:
-            # Default to sine if unknown type
-            signal = amplitude * np.sin(2 * np.pi * frequency * t)
-            color = (0, 100, 255)  # Blue
-            
+        
         # Add noise if specified
         if noise_level > 0:
             noise = np.random.normal(0, noise_level * amplitude, len(signal))
             signal = signal + noise
-            
-        # Register the signal with the registry
+        
+        # Store signal metadata
+        self.signal_metadata = {
+            'signal_id': signal_id,
+            'signal_type': waveform_type,
+            'mode': 'waveform',
+            'color': color,
+            'sampling_rate': sampling_rate,
+            'frequency': frequency,
+            'last_x': t[-1],
+            'amplitude': amplitude,
+            'noise_level': noise_level
+        }
+        
+        # Register with the registry
         self.registry.register_signal(
             signal_id=signal_id,
             signal_data=signal,
@@ -378,160 +319,40 @@ class UnifiedSignalGenerator:
             }
         )
         
-        # Store for tracking live updates
-        self.active_signals[signal_id] = {
-            'type': waveform_type,
-            'color': color,
-            'sampling_rate': sampling_rate,
-            'frequency': frequency,
-            'last_x': duration
-        }
-        
         logger.info(f"Registered {waveform_type} signal as '{signal_id}' with {len(signal)} samples")
-        
-        return [signal_id]
+        return True
     
-    def _process_signal(self, signal, signal_type):
-        """Process a signal for visualization (optional)"""
-        processed = signal.copy()
-        
-        # Apply signal-specific processing
-        if signal_type == "ECG":
-            # Emphasize peaks for ECG
-            processed = signal * 1.2
-            
-        # Add slight phase shift for visualization
-        processed = np.roll(processed, len(signal) // 20)
-            
-        return processed
-        
-    def _start_live_generation(self, 
-                              generator_mode, signal_ids,
-                              duration, sampling_rate, noise_level, amplitude,
-                              show_eda, show_ecg, show_rr,
-                              waveform_type, frequency):
+    def _start_live_generation(self, mode, signal_type, signal_id, sampling_rate, amplitude, noise_level):
         """Start a thread for live signal generation"""
-        if not signal_ids:
-            return
-            
-        # Convert to list if string
-        if isinstance(signal_ids, str):
-            signal_ids = signal_ids.split(",")
-        
         # Reset the stop event
         self.stop_event = threading.Event()
         
-        # Start the appropriate generation thread
-        if generator_mode == "physiological":
-            self.generation_thread = threading.Thread(
-                target=self._live_physiological_generation,
-                args=(signal_ids, sampling_rate, noise_level, amplitude, show_eda, show_ecg, show_rr),
-                daemon=True
-            )
-        else:
-            self.generation_thread = threading.Thread(
-                target=self._live_waveform_generation,
-                args=(signal_ids[0], waveform_type, frequency, amplitude, sampling_rate, noise_level),
-                daemon=True
-            )
-            
-        self.generation_thread.start()
-        logger.info(f"Started live generation thread for {len(signal_ids)} signal(s)")
+        # Start the generation thread
+        self.generation_thread = threading.Thread(
+            target=self._live_signal_generation,
+            args=(mode, signal_type, signal_id, sampling_rate, amplitude, noise_level),
+            daemon=True
+        )
         
-    def _live_physiological_generation(self, 
-                                      signal_ids, sampling_rate, noise_level, amplitude,
-                                      show_eda, show_ecg, show_rr):
-        """Generate physiological signals continuously in a background thread"""
-        try:
-            # Create a mapping of signal IDs to types
-            signal_types = {}
-            for sig_id in signal_ids:
-                for active_id, info in self.active_signals.items():
-                    if sig_id == active_id:
-                        signal_types[sig_id] = info['type']
-                        
-            # Loop until stopped
-            while not self.stop_event.is_set():
-                for sig_id, sig_type in signal_types.items():
-                    # Get current signal data
-                    signal_data = self.registry.get_signal(sig_id)
-                    if signal_data is None:
-                        continue
-                        
-                    metadata = self.registry.get_signal_metadata(sig_id)
-                    if metadata is None:
-                        continue
-                    
-                    # Generate a small segment of new data (1/10 second)
-                    new_samples = max(1, int(sampling_rate / 10))
-                    new_signal = None
-                    
-                    # Last x value from existing data
-                    last_x = metadata.get('x_values', [0])[-1] if 'x_values' in metadata else 0
-                    
-                    # Generate new data based on signal type
-                    if sig_type == "EDA":
-                        # EDA: Slow changing signal with small fluctuations
-                        base = np.mean(signal_data[-20:]) if len(signal_data) > 20 else 0.5
-                        new_signal = base + np.random.normal(0, 0.01, new_samples) + np.linspace(0, 0.01, new_samples)
-                    elif sig_type == "ECG":
-                        # ECG: Continue the pattern with peaks
-                        new_t = np.linspace(last_x, last_x + new_samples/sampling_rate, new_samples)
-                        new_signal = self._generate_ecg_signal(new_t, amplitude, 1.2)  # 1.2 Hz = ~72 BPM
-                    elif sig_type == "RR":
-                        # RR: Respiratory rate - slower sine wave
-                        new_t = np.linspace(last_x, last_x + new_samples/sampling_rate, new_samples)
-                        new_signal = 0.8 * amplitude * np.sin(2 * np.pi * 0.25 * new_t)
-                        
-                    if new_signal is not None:
-                        # Add noise
-                        if noise_level > 0:
-                            noise = np.random.normal(0, noise_level * amplitude * 0.1, new_samples)
-                            new_signal = new_signal + noise
-                        
-                        # Append to existing signal
-                        updated_signal = np.concatenate([signal_data, new_signal])
-                        
-                        # Keep a maximum of 10 seconds of data
-                        max_samples = 10 * sampling_rate
-                        if len(updated_signal) > max_samples:
-                            updated_signal = updated_signal[-max_samples:]
-                            
-                        # Update x values
-                        new_x = np.linspace(last_x, last_x + new_samples/sampling_rate, new_samples)
-                        if 'x_values' in metadata:
-                            x_values = np.concatenate([metadata['x_values'], new_x])
-                            if len(x_values) > max_samples:
-                                x_values = x_values[-max_samples:]
-                        else:
-                            x_values = new_x
-                            
-                        # Update metadata
-                        metadata['x_values'] = x_values
-                        
-                        # Update registry
-                        self.registry.register_signal(sig_id, updated_signal, metadata)
-                        
-                # Sleep before next update
-                time.sleep(0.1)  # Update 10 times per second
-                
-        except Exception as e:
-            logger.error(f"Error in live physiological generation: {e}")
-            
-    def _live_waveform_generation(self, 
-                                signal_id, waveform_type, frequency, amplitude, 
-                                sampling_rate, noise_level):
-        """Generate waveform signals continuously in a background thread"""
+        self.generation_thread.start()
+        logger.info(f"Started live generation thread for {signal_type} signal with ID '{signal_id}'")
+    
+    def _live_signal_generation(self, mode, signal_type, signal_id, sampling_rate, amplitude, noise_level):
+        """Generate signal continuously in a background thread"""
         try:
             # Loop until stopped
             while not self.stop_event.is_set():
                 # Get current signal data
                 signal_data = self.registry.get_signal(signal_id)
                 if signal_data is None:
+                    logger.warning(f"Signal {signal_id} not found in registry, waiting...")
+                    time.sleep(0.5)
                     continue
                     
                 metadata = self.registry.get_signal_metadata(signal_id)
                 if metadata is None:
+                    logger.warning(f"Metadata for signal {signal_id} not found, waiting...")
+                    time.sleep(0.5)
                     continue
                 
                 # Generate a small segment of new data (1/10 second)
@@ -541,62 +362,123 @@ class UnifiedSignalGenerator:
                 last_x = metadata.get('x_values', [0])[-1] if 'x_values' in metadata else 0
                 new_t = np.linspace(last_x, last_x + new_samples/sampling_rate, new_samples)
                 
-                # Generate the appropriate waveform for the new segment
-                if waveform_type == "sine":
-                    new_signal = amplitude * np.sin(2 * np.pi * frequency * new_t)
-                elif waveform_type == "square":
-                    new_signal = amplitude * np.sign(np.sin(2 * np.pi * frequency * new_t))
-                elif waveform_type == "triangle":
-                    new_signal = amplitude * (2 / np.pi) * np.arcsin(np.sin(2 * np.pi * frequency * new_t))
-                elif waveform_type == "sawtooth":
-                    new_signal = amplitude * ((2 * (frequency * new_t - np.floor(0.5 + frequency * new_t))))
-                elif waveform_type == "ecg_synthetic":
-                    new_signal = self._generate_ecg_signal(new_t, amplitude, frequency)
-                elif waveform_type == "noise":
-                    new_signal = amplitude * np.random.randn(new_samples)
-                elif waveform_type == "random":
-                    # Random walk - continue from last value
-                    last_value = signal_data[-1] if len(signal_data) > 0 else 0
-                    steps = np.random.randn(new_samples) * 0.1 * amplitude
-                    new_signal = np.cumsum(steps) + last_value
-                    # Keep within bounds
-                    new_signal = np.clip(new_signal, -amplitude, amplitude)
-                else:
-                    # Default to sine
-                    new_signal = amplitude * np.sin(2 * np.pi * frequency * new_t)
+                # Generate new data based on signal type and mode
+                new_signal = self._generate_live_segment(mode, signal_type, new_t, amplitude, noise_level, signal_data)
                 
-                # Add noise if specified
-                if noise_level > 0:
-                    noise = np.random.normal(0, noise_level * amplitude, new_samples)
-                    new_signal = new_signal + noise
+                if new_signal is not None:
+                    # Append to existing signal
+                    updated_signal = np.concatenate([signal_data, new_signal])
                     
-                # Append to existing signal
-                updated_signal = np.concatenate([signal_data, new_signal])
-                
-                # Keep a maximum of 10 seconds of data
-                max_samples = 10 * sampling_rate
-                if len(updated_signal) > max_samples:
-                    updated_signal = updated_signal[-max_samples:]
+                    # Keep a maximum of 10 seconds of data
+                    max_samples = 10 * sampling_rate
+                    if len(updated_signal) > max_samples:
+                        updated_signal = updated_signal[-max_samples:]
+                        
+                    # Update x values
+                    new_x = np.linspace(last_x, last_x + new_samples/sampling_rate, new_samples)
+                    if 'x_values' in metadata:
+                        x_values = np.concatenate([metadata['x_values'], new_x])
+                        if len(x_values) > max_samples:
+                            x_values = x_values[-max_samples:]
+                    else:
+                        x_values = new_x
+                        
+                    # Update metadata
+                    metadata['x_values'] = x_values
                     
-                # Update x values
-                if 'x_values' in metadata:
-                    x_values = np.concatenate([metadata['x_values'], new_t])
-                    if len(x_values) > max_samples:
-                        x_values = x_values[-max_samples:]
-                else:
-                    x_values = new_t
-                    
-                # Update metadata
-                metadata['x_values'] = x_values
-                
-                # Update registry
-                self.registry.register_signal(signal_id, updated_signal, metadata)
+                    # Update registry
+                    self.registry.register_signal(signal_id, updated_signal, metadata)
                 
                 # Sleep before next update
                 time.sleep(0.1)  # Update 10 times per second
                 
         except Exception as e:
-            logger.error(f"Error in live waveform generation: {e}")
+            logger.error(f"Error in live signal generation: {str(e)}")
+    
+    def _generate_live_segment(self, mode, signal_type, t, amplitude, noise_level, last_signal):
+        """Generate a small segment of signal for live updates"""
+        new_signal = None
+        
+        if mode == "physiological":
+            if signal_type == "EDA":
+                # Continue from last value with small changes
+                last_value = last_signal[-1] if len(last_signal) > 0 else 2.0
+                drift = np.random.normal(0, 0.01, len(t))
+                trend = np.linspace(0, 0.01 * np.random.choice([-1, 1]), len(t))
+                new_signal = last_value + drift + trend
+                
+            elif signal_type == "ECG":
+                # ECG with a fixed heart rate for the segment
+                heart_rate = 60 + 5 * np.sin(2 * np.pi * 0.05 * t[0])  # Basic variation
+                hr_hz = heart_rate / 60.0
+                
+                new_signal = np.zeros_like(t)
+                for i, time in enumerate(t):
+                    phase = (time * hr_hz) % 1.0
+                    
+                    p_wave = 0.15 * np.exp(-((phase - 0.1) ** 2) / 0.002)
+                    q_wave = -0.1 * np.exp(-((phase - 0.2) ** 2) / 0.0005)
+                    r_wave = 1.0 * np.exp(-((phase - 0.22) ** 2) / 0.0002)
+                    s_wave = -0.3 * np.exp(-((phase - 0.24) ** 2) / 0.0005)
+                    t_wave = 0.3 * np.exp(-((phase - 0.35) ** 2) / 0.003)
+                    
+                    new_signal[i] = p_wave + q_wave + r_wave + s_wave + t_wave
+                
+                new_signal = new_signal * amplitude
+                
+            elif signal_type == "RR":
+                # Respiratory rate with slow variations
+                breathing_rate = 15 + 2 * np.sin(2 * np.pi * 0.01 * t[0])
+                br_hz = breathing_rate / 60.0
+                
+                new_signal = np.zeros_like(t)
+                for i, time in enumerate(t):
+                    phase = (time * br_hz) % 1.0
+                    
+                    if phase < 0.4:
+                        normalized_phase = phase / 0.4
+                        breathing = np.sin(np.pi * normalized_phase / 2)
+                    else:
+                        normalized_phase = (phase - 0.4) / 0.6
+                        breathing = 1.0 - normalized_phase
+                    
+                    new_signal[i] = breathing
+                
+                new_signal = (new_signal * amplitude) + 60.0  # Baseline around 60
+        
+        else:  # Waveform mode
+            frequency = 1.0  # Fixed frequency for simplicity
+            
+            if signal_type == "sine":
+                new_signal = amplitude * np.sin(2 * np.pi * frequency * t)
+                
+            elif signal_type == "square":
+                new_signal = amplitude * np.sign(np.sin(2 * np.pi * frequency * t))
+                
+            elif signal_type == "triangle":
+                new_signal = amplitude * (2 / np.pi) * np.arcsin(np.sin(2 * np.pi * frequency * t))
+                
+            elif signal_type == "sawtooth":
+                new_signal = amplitude * ((2 * (frequency * t - np.floor(0.5 + frequency * t))))
+                
+            elif signal_type == "noise":
+                new_signal = amplitude * np.random.randn(len(t))
+                
+            else:  # Random walk
+                # Continue from last value
+                last_value = last_signal[-1] if len(last_signal) > 0 else 0
+                steps = np.random.randn(len(t)) * 0.1 * amplitude
+                random_walk = np.cumsum(steps)
+                new_signal = random_walk + last_value
+                # Keep within amplitude bounds
+                new_signal = np.clip(new_signal, -amplitude, amplitude)
+        
+        # Add noise
+        if noise_level > 0 and new_signal is not None:
+            noise = np.random.normal(0, noise_level * amplitude * 0.1, len(new_signal))
+            new_signal = new_signal + noise
+            
+        return new_signal
 
 # Node registration
 NODE_CLASS_MAPPINGS = {

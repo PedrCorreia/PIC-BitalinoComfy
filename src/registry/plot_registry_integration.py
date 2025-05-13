@@ -171,6 +171,7 @@ class PlotRegistryIntegration:
             if self.plot_unit:
                 self.plot_unit.increment_connected_nodes()
             logger.info(f"Node '{node_id}' registered with integration")
+    
     def connect_node_to_signal(self, node_id, signal_id):
         """
         Connect a node to a signal for visualization
@@ -201,25 +202,40 @@ class PlotRegistryIntegration:
     
     def disconnect_node(self, node_id):
         """
-        Disconnect a node from all signals
+        Disconnect a node from the integration
         
         Args:
             node_id: ID of the node to disconnect
         """
+        # Remove from our tracking
         if node_id in self._node_connections:
-            # Remove from local tracking
+            # Get signals this node was connected to
+            signals = list(self._node_connections[node_id])
+            
+            # Disconnect node from all signals
+            for signal_id in signals:
+                self.registry.disconnect_node_from_signal(node_id, signal_id)
+            
+            # Remove from our tracking
             del self._node_connections[node_id]
             
-            # Tell registry about disconnection
-            self.registry.disconnect_node(node_id)
-            
+            # Decrement connected nodes in PlotUnit if available
             if self.plot_unit:
                 self.plot_unit.decrement_connected_nodes()
                 
-            logger.info(f"Node '{node_id}' disconnected from all signals")
-    
+            logger.info(f"Node '{node_id}' disconnected from integration")
+            
+    def get_connected_nodes(self):
+        """
+        Get all node IDs connected to the integration
+        
+        Returns:
+            list: List of node IDs that are connected
+        """
+        return list(self._node_connections.keys())
+        
     def reset(self):
-        """Reset the integration and registry"""
+        """Reset the integration state"""
         # Reset the registry
         self.registry.reset()
         

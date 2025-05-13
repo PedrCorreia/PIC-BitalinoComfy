@@ -29,10 +29,11 @@ class PlotUnitNode:
                 "signal_id": ("STRING", {"default": ""}),
             }
         }
+    
     RETURN_TYPES = ()  # No outputs
     OUTPUT_NODE = True
     FUNCTION = "run_visualization_hub"
-    CATEGORY = "Pedro_PIC/🌊 Signal Registry"
+    CATEGORY = "signal/visualization"
     
     def __init__(self):
         # Generate a unique ID for this node

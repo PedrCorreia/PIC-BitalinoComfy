@@ -7,6 +7,9 @@ from enum import Enum
 import logging
 import os
 import atexit
+import time
+import time
+from .plot_unit_extensions import PlotUnitExtensions
 
 # Configure logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -250,6 +253,9 @@ class PlotUnit:
                 elif message['type'] == 'node_connected' or message['type'] == 'node_disconnected':
                     # These messages just serve to update the display
                     logger.info(f"Processed {message['type']} event. Current connected nodes: {self.settings['connected_nodes']}")
+                    
+                elif message['type'] == 'refresh':
+                    logger.info("Refresh event received. Forcing visualization update.")
                     
                 self.event_queue.task_done()
         except queue.Empty:
@@ -731,6 +737,20 @@ class PlotUnit:
         except Exception as e:
             logger.error(f"Error clearing plots: {str(e)}", exc_info=True)
 
+    def update(self):
+        """
+        Force an update of the visualization.
+        This method ensures the plot is refreshed with the latest data.
+        """
+        # Put a refresh message in the queue
+        self.event_queue.put({
+            'type': 'refresh',
+            'timestamp': time.time()
+        })
+        
+        # Log the update request
+        logger.info("Plot update requested")
+    
     def reset_visualization(self):
         """Alternative method to reset visualization if clear_plots is not implemented"""
         logger.info("Reset visualization called")
