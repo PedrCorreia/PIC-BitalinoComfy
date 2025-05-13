@@ -7,7 +7,7 @@ IMPORT_ERROR_MESSAGE = "PIC nodes: failed to import"
 # Main categories: Pedro_PIC/🧰 Tools, Pedro_PIC/🔬 Processing, Pedro_PIC/🔬 Bio-Processing, Pedro_PIC/📡 Bitalino
 
 try:
-    from .src.plot import PygamePlot
+    from .src.plot.plot import PygamePlot
     PYGAME_PLOT_AVAILABLE = True
     print("PygamePlot base class loaded successfully")
 except ImportError as e:

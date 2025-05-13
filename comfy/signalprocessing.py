@@ -1,4 +1,4 @@
-from ..src.signal_processing import NumpySignalProcessor  # Use NumpySignalProcessor class
+from ..src.utils.signal_processing import NumpySignalProcessor  # Use NumpySignalProcessor class
 import numpy as np
 from collections import deque
 import json  # For loading JSON files

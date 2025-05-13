@@ -3,7 +3,8 @@ import time
 import numpy as np
 from collections import deque, OrderedDict
 import weakref
-from ..src.plot import PygamePlot, PYGAME_AVAILABLE
+from ..plot.plot import PygamePlot, PYGAME_AVAILABLE
+from ..utils.registry_sender import RegistrySender
 
 class SyntheticDataGenerator:
     """
@@ -37,6 +38,10 @@ class SyntheticDataGenerator:
         self.artifact_active = False
         self.artifact_value = 0.0
         self.artifact_duration = 0.0
+        
+        # Initialize registry sender for signal distribution
+        self.registry_sender = RegistrySender()
+        self.use_registry = True  # Flag to control whether to use registry
 
         # Replace single signal type with a dictionary of signal data
         self.enabled_signals = {"EDA": False, "ECG": False, "RR": False}
@@ -69,7 +74,6 @@ class SyntheticDataGenerator:
         i = 0
         self.start_time = time.time()
         self.signal_complete = False
-        target_time = self.start_time
         
         # Reset data structures for each signal
         with self.lock:
@@ -161,6 +165,14 @@ class SyntheticDataGenerator:
                 if self.adaptive_x_axis:
                     self.x_max = real_time
                     self.x_min = max(0, self.x_max - self.buffer_size)
+            
+            if self.use_registry:
+                # Send each enabled signal to the registry individually
+                for signal_type, enabled in self.enabled_signals.items():
+                    if enabled and self.signal_data[signal_type]:
+                        # Use send_signal method from RegistrySender with metadata
+                        metadata = {"sampling_rate": self.sampling_rate}
+                        self.registry_sender.send_signal(signal_type, list(self.signal_data[signal_type]), metadata)
             
             if i % int(self.sampling_rate * 20) == 0:
                 self.slow_noise_phase += np.random.uniform(-0.1, 0.1)
@@ -498,3 +510,4 @@ class SyntheticDataGenerator:
                 return list(fx), list(y), bool(plot), data
             
         return [], [], bool(plot), data
+

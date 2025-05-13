@@ -1,5 +1,5 @@
 import numpy as np
-from ..src.utils import Arousal
+from ..src.utils.utils import Arousal
 
 class PhysioNormalizeNode:
     """

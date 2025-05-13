@@ -1,7 +1,7 @@
 import pygame
 import threading
 import numpy as np
-import time
+import torch
 import queue
 from enum import Enum
 import logging
@@ -228,11 +228,26 @@ class PlotUnit:
         try:
             while True:
                 message = self.event_queue.get_nowait()
+                
                 if message['type'] == 'update_data':
                     with self.data_lock:
                         data_type = message['data_type']
                         self.data[data_type] = message['data']
                         logger.info(f"Updated {data_type} data: shape={np.shape(message['data'])}")
+                        
+                        # If this is a new data type, make sure it's registered
+                        if data_type not in ['raw', 'filtered'] and data_type not in self.data:
+                            self.data[data_type] = message['data']
+                            if 'color' in message:
+                                # Store the color information for this signal
+                                if not hasattr(self, 'signal_colors'):
+                                    self.signal_colors = {}
+                                self.signal_colors[data_type] = message['color']
+                
+                elif message['type'] == 'node_connected' or message['type'] == 'node_disconnected':
+                    # These messages just serve to update the display
+                    logger.info(f"Processed {message['type']} event. Current connected nodes: {self.settings['connected_nodes']}")
+                    
                 self.event_queue.task_done()
         except queue.Empty:
             pass
@@ -533,17 +548,40 @@ class PlotUnit:
             'color': color
         })
     
-    def increment_connected_nodes(self):
-        """Increment the count of connected nodes"""
-        self.settings['connected_nodes'] += 1
-        logger.info(f"Node connected. Total connected nodes: {self.settings['connected_nodes']}")
-    
-    def decrement_connected_nodes(self):
-        """Decrement the count of connected nodes"""
-        if self.settings['connected_nodes'] > 0:
-            self.settings['connected_nodes'] -= 1
-        logger.info(f"Node disconnected. Total connected nodes: {self.settings['connected_nodes']}")
-    
+    def update_node_connections(self, change=0, is_connected=None):
+        """
+        Update the count of connected nodes.
+        
+        Args:
+            change: Integer value to add to the connection count (negative to decrease)
+            is_connected: Boolean flag to explicitly set whether a node connected (True) or disconnected (False)
+        """
+        if is_connected is not None:
+            # If is_connected is provided, we're explicitly stating the connection state
+            event_type = 'node_connected' if is_connected else 'node_disconnected'
+            
+            # Only increment if connecting and only decrement if disconnecting
+            if is_connected:
+                self.settings['connected_nodes'] += 1
+            elif self.settings['connected_nodes'] > 0:
+                self.settings['connected_nodes'] -= 1
+        else:
+            # Otherwise use the change parameter
+            new_count = self.settings['connected_nodes'] + change
+            self.settings['connected_nodes'] = max(0, new_count)  # Ensure never negative
+            
+            # Determine event type based on change direction
+            event_type = 'node_connected' if change > 0 else 'node_disconnected'
+        
+        # Put the appropriate event in the queue
+        self.event_queue.put({
+            'type': event_type
+        })
+        
+        logger.info(f"Node {event_type.replace('node_', '')}. Total connected nodes: {self.settings['connected_nodes']}")
+        
+        return self.settings['connected_nodes']
+
     def clear_plots(self):
         """Clear all plots and reset the visualization"""
         try:

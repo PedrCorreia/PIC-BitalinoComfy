@@ -1,6 +1,7 @@
 import numpy as np
 import torch
-from ..src.plot_unit import PlotUnit
+from ..src.plot.plot_unit import PlotUnit
+from ..src.hubs.signal_registry import SignalRegistry
 
 class PlotUnitNode:
     """
@@ -29,14 +30,23 @@ class PlotUnitNode:
         # Get singleton PlotUnit instance
         self.plot_unit = PlotUnit.get_instance()
         self.plot_unit.start()
-        # Register as a connected node
-        self.plot_unit.increment_connected_nodes()
+        # Register as a connected node using the unified method
+        self.plot_unit.update_node_connections(is_connected=True)
         print("[DEBUG-PLOT] PlotUnitNode initialized")
         
         # Patch the PlotUnit class if it doesn't have clear_plots method
         if not hasattr(self.plot_unit, 'clear_plots'):
             print("[DEBUG-PLOT] Adding clear_plots method to PlotUnit")
             setattr(self.plot_unit, 'clear_plots', self._patch_clear_plots)
+        self.settings = {
+        'caps_enabled': True,
+        'light_mode': False,
+        'performance_mode': False,
+        'auto_refresh': True,  # New setting for auto-refresh
+        'connected_nodes': 0,
+        'reset_plots': False,
+        'reset_registry': False
+    }
     
     def _patch_clear_plots(self):
         """Patch method for the PlotUnit if clear_plots isn't available"""
@@ -89,10 +99,28 @@ class PlotUnitNode:
                 self._patch_clear_plots()
         
         # Clear signal registry if requested
+        registry_signals = SignalRegistry().get_all_signals()
+        print(f"[DEBUG-PLOT] Found {len(registry_signals)} signals in registry")
+            
+        # Visualize each signal from the registry
+        for signal_id, signal_data in registry_signals.items():
+            if isinstance(signal_data, dict) and 'tensor' in signal_data:
+                # If the registry stores metadata with the tensor
+                tensor_data = signal_data['tensor']
+                print(f"[DEBUG-PLOT] Visualizing signal {signal_id} from registry")
+                self.plot_unit.add_signal_data(tensor_data, name=signal_id)
+            elif hasattr(signal_data, 'shape'):  # Directly stored tensor
+                print(f"[DEBUG-PLOT] Visualizing signal {signal_id} from registry")
+                self.plot_unit.add_signal_data(signal_data, name=signal_id)
+            else:
+                print(f"[WARNING-PLOT] Signal {signal_id} has unknown format: {type(signal_data)}")
+        
+        
+        print("[DEBUG-PLOT] PlotUnitNode processing complete")
+
         if clear_all_signals:
             print("[DEBUG-PLOT] CLEAR REGISTRY REQUESTED! Resetting signal registry...")
             # Reset the signal registry
-            from .mock_signal_node import SignalRegistry
             SignalRegistry.reset()
             print("[DEBUG-PLOT] Signal registry reset complete")
         
@@ -100,12 +128,14 @@ class PlotUnitNode:
         # Return empty tuple (no outputs)
         return ()
     
+    
+    
     def __del__(self):
         """Clean up when the node is deleted"""
         try:
-            # Unregister as a connected node
+            # Unregister as a connected node using the unified method
             plot_unit = PlotUnit.get_instance()
-            plot_unit.decrement_connected_nodes()
+            plot_unit.update_node_connections(is_connected=False)
             print("[DEBUG-PLOT] PlotUnitNode cleanup complete")
         except:
             # This might fail during shutdown, so we'll just ignore errors

@@ -64,6 +64,7 @@ This repository provides tools and custom nodes for integrating PLUX/BITalino bi
   - Respiration rate extraction, deep breath detection, and visualization.
 
 ---
+
 ## Demos
 
 Each signal processing class includes a demo script for working with recorded signals:
@@ -76,3 +77,59 @@ Each signal processing class includes a demo script for working with recorded si
 
 - **RR Demo:**  
   Provides an example of respiration rate extraction and deep breath detection using a sample respiration signal.
+
+---
+
+# PlotUnit for ComfyUI
+
+A persistent visualization tool for monitoring signals in ComfyUI workflows.
+
+## Features
+
+- Persistent window for continuous signal monitoring
+- Sidebar UI for toggling between Raw/Filtered signal displays
+- Thread-safe implementation (won't block ComfyUI workflow)
+- Signal statistics (min, max, average values)
+
+## Installation
+
+1. Clone this repository into your ComfyUI custom_nodes folder:
+```bash
+cd ComfyUI/custom_nodes
+git clone https://github.com/yourusername/PIC-2025.git
+```
+
+2. Install the required dependencies:
+```bash
+pip install -r PIC-2025/requirements.txt
+```
+
+3. Restart ComfyUI
+
+## Usage
+
+1. Add a "Plot Unit" node to your workflow
+2. Connect your signal tensor to the "signal" input
+3. Optionally connect a filtered version to "filtered_signal"
+4. Choose between "raw" or "filtered" modes
+5. Run your workflow to visualize the data
+
+The window will persist between workflow runs, allowing you to monitor signals continuously.
+
+## Interface
+
+- Sidebar buttons:
+  - R: Raw signal view
+  - F: Filtered signal view
+  - S: Settings view
+
+## Example Workflows
+
+[Add examples here]
+
+## Extending PlotUnit
+
+The PlotUnit architecture is designed to be extensible. Future updates might include:
+- Additional visualization types
+- Custom plotting options
+- Data export capabilities

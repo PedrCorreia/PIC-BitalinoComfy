@@ -3,7 +3,7 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets
 from scipy.signal import welch, hilbert
 
-from ..src.signal_processing import NumpySignalProcessor
+from ..utils.signal_processing import NumpySignalProcessor
 import os
 
 

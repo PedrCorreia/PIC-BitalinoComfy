@@ -8,8 +8,8 @@ script_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.dirname(os.path.dirname(script_dir))
 sys.path.append(parent_dir)
 
-from src.synthetic_data import SyntheticDataGenerator 
-from src.plot import PygamePlot
+from src.utils.synthetic_data import SyntheticDataGenerator 
+from src.plot.plot import PygamePlot
 
 def test_enhanced_real_time_plot():
     """Test the enhanced real-time plotting with dynamic x-axis"""

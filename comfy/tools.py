@@ -1,5 +1,5 @@
 import numpy as np
-from  ..src.utils import Utils_Arrays
+from  ..src.utils.utils import Utils_Arrays
 
 class CombineNode:
     """
@@ -112,7 +112,7 @@ class IsPeakNode:
         Check if the last element in the signal array is a peak
         When use_buffer is True, output remains True for buffer_duration seconds after peak
         """
-        from ..src.utils import Utils_Arrays
+        from ..src.utils.utils import Utils_Arrays
         import numpy as np
         import time
         

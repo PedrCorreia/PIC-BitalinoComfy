@@ -2,7 +2,7 @@ import platform
 import sys
 from collections import deque
 
-from ..src.bitalino_receiver import BitalinoReceiver
+from ..src.utils.bitalino_receiver import BitalinoReceiver
 import numpy as np
 
 class LRBitalinoReceiver:

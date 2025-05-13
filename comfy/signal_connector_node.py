@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from ..src.plot_unit import PlotUnit
+from ..src.plot.plot_unit import PlotUnit
 
 class SignalConnectorNode:
     """

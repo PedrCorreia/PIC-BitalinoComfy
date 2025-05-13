@@ -1,5 +1,5 @@
 import pygame
-from .plot_unit import PlotUnit
+from .plot import PlotUnit
 import threading
 import time
 
@@ -101,7 +101,7 @@ class PlotUnitWithButtons(PlotUnit):
         """Clear signal registry"""
         print("[DEBUG-GUI] Clear registry button clicked")
         try:
-            from ..comfy.mock_signal_node import SignalRegistry
+            from ...comfy.mock_signal_node import SignalRegistry
             SignalRegistry.reset()
             print("[DEBUG-GUI] Signal registry reset")
         except ImportError:
@@ -141,6 +141,18 @@ class PlotUnitWithButtons(PlotUnit):
         if hasattr(self, 'signals'):
             self.signals = {}
             print("[DEBUG-GUI] Cleared all plot signals")
+
+    def _draw_settings_view(self):
+
+        # Performance mode toggle
+        button, key = draw_toggle_button(current_y, "Performance Mode", self.settings['performance_mode'], 'performance_mode')
+        self.settings_buttons.append((button, key))
+        current_y += button_height + button_spacing
+        
+        # Auto-refresh toggle
+        button, key = draw_toggle_button(current_y, "Auto-Refresh Signals", self.settings['auto_refresh'], 'auto_refresh')
+        self.settings_buttons.append((button, key))
+        current_y += button_height + button_spacing
 
 # Replace the original PlotUnit with our extended version
 # This line will be imported by the PlotUnit singleton mechanism
