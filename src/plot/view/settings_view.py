@@ -6,6 +6,8 @@ allowing users to adjust visualization parameters and trigger actions.
 """
 
 import pygame
+import sys
+import os
 from .base_view import BaseView
 from ..constants import *
 
@@ -31,7 +33,15 @@ class SettingsView(BaseView):
         super().__init__(surface, data_lock, data, font)
         self.settings = settings
         self.settings_buttons = []  # Will store (rect, setting_key) pairs
-    
+        
+        # Store a reference to the parent PlotUnit instance for action handling
+        try:
+            # Import here to avoid circular imports
+            from src.plot.plot_unit import PlotUnit
+            self.plot_unit = PlotUnit.get_instance()
+        except ImportError:
+            print("[SettingsView] Warning: Could not import PlotUnit")
+            self.plot_unit = None
     def draw(self):
         """
         Draw the settings interface.
@@ -42,32 +52,53 @@ class SettingsView(BaseView):
         # Clear the settings buttons list
         self.settings_buttons = []
         
-        # Draw settings header
+        # Debug message to confirm draw is being called
+        print(f"[SettingsView] Drawing settings interface")
+        
+        # Use plot_rect coordinates for positioning
+        rect = self.plot_rect
+        
+        # Draw settings header with proper padding
         header = "Settings"
         header_surface = self.font.render(header, True, TEXT_COLOR)
-        self.surface.blit(header_surface, (self.sidebar_width + 20, self.status_bar_height + 20))
+        self.surface.blit(header_surface, (rect.x + SECTION_MARGIN, rect.y + SECTION_MARGIN))
         
-        # Draw settings panels
-        self._draw_performance_settings(self.sidebar_width + 20, self.status_bar_height + 60)
-        self._draw_appearance_settings(self.sidebar_width + 20, self.status_bar_height + 200)
-        self._draw_action_buttons(self.sidebar_width + 20, self.status_bar_height + 340)
+        # Calculate positions with proper spacing between sections
+        first_section_y = rect.y + SECTION_MARGIN + TITLE_PADDING + self.font.get_height()
+        section_height = 120  # Approximate height needed for each settings section
         
-    def _draw_performance_settings(self, x, y):
+        # Draw visualization settings section
+        self._draw_visualization_settings(rect.x + SECTION_MARGIN, first_section_y, rect.width - (SECTION_MARGIN * 2))
+        
+        # Draw appearance settings section
+        self._draw_appearance_settings(rect.x + SECTION_MARGIN, first_section_y + section_height, rect.width - (SECTION_MARGIN * 2))
+        
+        # Draw action buttons section
+        self._draw_action_buttons(rect.x + SECTION_MARGIN, first_section_y + section_height * 2, rect.width - (SECTION_MARGIN * 2))
+    
+    def _draw_visualization_settings(self, x, y, width):
         """
-        Draw performance-related settings.
+        Draw visualization-related settings.
         
         Args:
             x (int): X coordinate for the panel
             y (int): Y coordinate for the panel
+            width (int): Width of the panel
         """
         # Draw section header
-        header = "Performance"
+        header = "Visualization"
         header_surface = self.font.render(header, True, TEXT_COLOR)
+        header_height = header_surface.get_height()
         self.surface.blit(header_surface, (x, y))
+        
+        # Calculate spacing between toggles
+        toggle_height = 35
+        toggle_spacing = CONTROL_MARGIN
+        first_toggle_y = y + header_height + TITLE_PADDING
         
         # Draw FPS cap toggle
         self._draw_toggle(
-            x, y + 40,
+            x, first_toggle_y,
             "FPS Cap",
             "caps_enabled",
             self.settings['caps_enabled']
@@ -75,19 +106,20 @@ class SettingsView(BaseView):
         
         # Draw performance mode toggle
         self._draw_toggle(
-            x, y + 80,
+            x, first_toggle_y + toggle_height + toggle_spacing,
             "Performance Mode",
             "performance_mode",
             self.settings['performance_mode']
         )
     
-    def _draw_appearance_settings(self, x, y):
+    def _draw_appearance_settings(self, x, y, width):
         """
         Draw appearance-related settings.
         
         Args:
             x (int): X coordinate for the panel
             y (int): Y coordinate for the panel
+            width (int): Width of the panel
         """
         # Draw section header
         header = "Appearance"
@@ -102,13 +134,14 @@ class SettingsView(BaseView):
             self.settings['light_mode']
         )
     
-    def _draw_action_buttons(self, x, y):
+    def _draw_action_buttons(self, x, y, width):
         """
         Draw action buttons for resetting plots and registry.
         
         Args:
             x (int): X coordinate for the panel
             y (int): Y coordinate for the panel
+            width (int): Width of the panel
         """
         # Draw section header
         header = "Actions"
@@ -135,7 +168,6 @@ class SettingsView(BaseView):
         nodes_text = f"Connected nodes: {self.settings['connected_nodes']}"
         text_surface = self.font.render(nodes_text, True, TEXT_COLOR)
         self.surface.blit(text_surface, (x, y + 150))
-    
     def _draw_toggle(self, x, y, label, setting_key, value):
         """
         Draw a toggle switch for a boolean setting.
@@ -147,28 +179,35 @@ class SettingsView(BaseView):
             setting_key (str): The key in the settings dictionary
             value (bool): The current value of the setting
         """
-        # Draw label
+        # Draw label with proper spacing
         label_surface = self.font.render(label, True, TEXT_COLOR)
-        self.surface.blit(label_surface, (x, y))
+        label_height = label_surface.get_height()
+        self.surface.blit(label_surface, (x + TEXT_MARGIN, y + TEXT_MARGIN))
         
-        # Draw toggle switch
-        switch_width = 50
-        switch_height = 24
-        switch_x = x + 200
+        # Calculate toggle dimensions and position with proper spacing
+        switch_width = 54  # Slightly wider for better visibility
+        switch_height = 26  # Slightly taller for better visibility
+        label_width = 180   # Fixed width allocation for label
+        switch_x = x + label_width + CONTROL_MARGIN
+        switch_y = y + (label_height - switch_height) // 2  # Center vertically with label
         
-        # Draw switch background
+        # Draw switch background with rounded corners
         bg_color = ACCENT_COLOR if value else GRID_COLOR
-        switch_bg_rect = pygame.Rect(switch_x, y, switch_width, switch_height)
-        pygame.draw.rect(self.surface, bg_color, switch_bg_rect, border_radius=12)
+        switch_bg_rect = pygame.Rect(switch_x, switch_y, switch_width, switch_height)
+        pygame.draw.rect(self.surface, bg_color, switch_bg_rect, border_radius=13)
         
-        # Draw switch handle
-        handle_pos = switch_x + switch_width - 20 if value else switch_x + 4
-        handle_rect = pygame.Rect(handle_pos, y + 4, 16, 16)
-        pygame.draw.rect(self.surface, TEXT_COLOR, handle_rect, border_radius=8)
+        # Draw switch handle with proper positioning
+        handle_size = 18
+        handle_margin = 4
+        handle_pos = switch_x + switch_width - handle_size - handle_margin if value else switch_x + handle_margin
+        handle_rect = pygame.Rect(handle_pos, switch_y + handle_margin, handle_size, handle_size)
+        pygame.draw.rect(self.surface, TEXT_COLOR, handle_rect, border_radius=9)
         
         # Store button rect and settings key for click handling
         self.settings_buttons.append((switch_bg_rect, setting_key))
-    
+        
+        # Debug output for button positioning
+        print(f"[SettingsView] Added toggle: {setting_key}, rect: {switch_bg_rect}, value: {value}")
     def _draw_button(self, x, y, label, action_key, color):
         """
         Draw an action button.
@@ -195,3 +234,6 @@ class SettingsView(BaseView):
         
         # Store button rect and action key for click handling
         self.settings_buttons.append((button_rect, action_key))
+        
+        # Debug output for button positioning
+        print(f"[SettingsView] Added action button: {action_key}, rect: {button_rect}")

@@ -15,9 +15,11 @@ class ViewMode(Enum):
         RAW: Display raw signals
         PROCESSED: Display processed signals
         TWIN: Display raw and processed signals side by side
+        STACKED: Display signals in a vertically stacked layout
         SETTINGS: Display settings panel
     """
     RAW = 0
     PROCESSED = 1
     TWIN = 2
-    SETTINGS = 3
+    STACKED = 3
+    SETTINGS = 4

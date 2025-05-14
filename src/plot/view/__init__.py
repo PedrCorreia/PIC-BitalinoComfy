@@ -9,6 +9,7 @@ from .base_view import BaseView
 from .raw_view import RawView
 from .processed_view import ProcessedView
 from .twin_view import TwinView
+from .stacked_view import StackedView
 from .settings_view import SettingsView
 from .signal_view import SignalView
 
@@ -18,6 +19,7 @@ __all__ = [
     'RawView',
     'ProcessedView',
     'TwinView',
+    'StackedView',
     'SettingsView',
     'SignalView',
 ]

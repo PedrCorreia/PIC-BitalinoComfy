@@ -17,7 +17,6 @@ class RawView(BaseView):
     This view is specialized for visualizing raw, unprocessed signals
     from various sources with appropriate labeling and color-coding.
     """
-    
     def draw(self):
         """
         Draw the raw signals visualization.
@@ -25,9 +24,21 @@ class RawView(BaseView):
         This method handles the rendering of raw signals on the surface,
         displaying up to 3 signals simultaneously with appropriate labeling.
         """
-        # Get available raw signals
-        raw_signals = self.get_available_signals(filter_processed=True)
+        # Get only raw signals - filter out processed signals
+        raw_signals = []
         
+        with self.data_lock:
+            for signal_id in self.data:
+                # Only include raw signals (exclude processed)
+                if ('_processed' not in signal_id and 
+                    'filtered' != signal_id and 
+                    'processed' != signal_id):
+                    raw_signals.append(signal_id)
+                
+                # Limit to 3 signals
+                if len(raw_signals) >= 3:
+                    break
+                    
         # Fall back to default 'raw' signal if no specific signals found
         if not raw_signals and 'raw' in self.data:
             raw_signals = ['raw']
@@ -36,9 +47,14 @@ class RawView(BaseView):
         if not raw_signals:
             self._draw_no_signals_message()
             return
-              # Draw signals with proper spacing
-        signal_count = min(len(raw_signals), 3)
-        panel_height = (self.plot_height - ((signal_count + 1) * PLOT_PADDING)) // signal_count
+        
+        # Use the plot_rect provided by PlotContainer
+        rect = self.plot_rect
+        
+        # Draw signals with equal heights and proper spacing
+        signal_count = len(raw_signals)
+        total_padding = (signal_count + 1) * PLOT_PADDING
+        panel_height = (rect.height - total_padding) // max(1, signal_count)
         
         for i, signal_id in enumerate(raw_signals[:3]):  # Limit to 3 signals
             with self.data_lock:
@@ -56,12 +72,12 @@ class RawView(BaseView):
                         color = RAW_SIGNAL_COLOR
                         title = f"Raw Signal: {signal_id}"
                     
-                    # Draw the signal panel with proper padding
-                    y_position = self.status_bar_height + PLOT_PADDING + (i * (panel_height + PLOT_PADDING))
+                    # Draw the signal panel with proper padding using the rect coordinates
+                    y_position = rect.y + PLOT_PADDING + (i * (panel_height + PLOT_PADDING))
                     self._draw_signal_panel(
                         data, title, color, 
-                        self.sidebar_width + PLOT_PADDING, y_position,
-                        self.plot_width - (PLOT_PADDING * 2), panel_height
+                        rect.x + PLOT_PADDING, y_position,
+                        rect.width - (PLOT_PADDING * 2), panel_height
                     )
     
     def _draw_no_signals_message(self):
@@ -70,8 +86,10 @@ class RawView(BaseView):
         """
         message = "No raw signals available"
         text_surface = self.font.render(message, True, TEXT_COLOR)
+        # Use plot_rect for positioning
+        rect = self.plot_rect
         text_rect = text_surface.get_rect(center=(
-            self.sidebar_width + self.plot_width // 2,
-            self.status_bar_height + self.plot_height // 2
+            rect.x + rect.width // 2,
+            rect.y + rect.height // 2
         ))
         self.surface.blit(text_surface, text_rect)

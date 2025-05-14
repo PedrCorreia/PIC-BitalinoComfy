@@ -1,8 +1,25 @@
 """
+=====Overview=====
 FPSCounter module for the PlotUnit visualization system.
 
 This module provides FPS (frames per second) tracking functionality
 for the PlotUnit system, helping monitor visualization performance.
+
+=====Usage=====
+Create an instance of FPSCounter and call update() each time a frame is rendered.
+Access current FPS with get_fps(), average frame time with get_frame_time(),
+and time since the last frame with get_time_since_last_frame().
+
+Example:
+    fps_counter = FPSCounter()
+    while rendering:
+        fps = fps_counter.update()
+        print(f"Current FPS: {fps}")
+
+=====Classes=====
+- FPSCounter: Tracks frame rendering times and calculates FPS metrics.
+
+=====API Reference=====
 """
 
 import time
@@ -10,6 +27,7 @@ from collections import deque
 
 class FPSCounter:
     """
+    =====Class: FPSCounter=====
     FPS counter for tracking visualization performance.
     
     This class tracks frame rendering times and calculates FPS
@@ -23,6 +41,7 @@ class FPSCounter:
     
     def __init__(self, history_size=60):
         """
+        =====Method: __init__=====
         Initialize the FPS counter.
         
         Args:
@@ -34,6 +53,7 @@ class FPSCounter:
         
     def update(self):
         """
+        =====Method: update=====
         Record a new frame and update FPS calculation.
         
         Returns:
@@ -56,6 +76,7 @@ class FPSCounter:
     
     def get_fps(self):
         """
+        =====Method: get_fps=====
         Get the current frames per second.
         
         Returns:
@@ -65,6 +86,7 @@ class FPSCounter:
     
     def get_frame_time(self):
         """
+        =====Method: get_frame_time=====
         Get the average time per frame.
         
         Returns:
@@ -77,6 +99,7 @@ class FPSCounter:
     
     def get_time_since_last_frame(self):
         """
+        =====Method: get_time_since_last_frame=====
         Get time elapsed since the last frame was rendered.
         
         Returns:

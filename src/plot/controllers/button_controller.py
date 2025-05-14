@@ -10,8 +10,7 @@ import logging
 import threading
 import time
 from ..constants import *
-from ..ui import Button, ResetButton, ToggleButton
-
+from ..ui import ResetButton, ToggleButton
 # Configure logger
 logger = logging.getLogger('ButtonController')
 
@@ -43,7 +42,7 @@ class ButtonController:
         # Start a delayed initialization thread
         self._init_thread = threading.Thread(target=self._delayed_init)
         self._init_thread.daemon = True
-        self._init_thread.start()
+        self._init_thread.start()    
     
     def _delayed_init(self):
         """
@@ -55,82 +54,87 @@ class ButtonController:
         # Wait for pygame to initialize
         time.sleep(2)
         self._init_buttons()
-    
+        
     def _init_buttons(self):
         """
-        Initialize the buttons for the UI.
-        
-        This method creates all button instances and adds them to the
-        button list for rendering and event handling.
+        Initialize the buttons for the right sidebar.
         """
         if self.initialized:
             return
         
-        logger.info("Initializing UI buttons")
-        
-        # Configuration
-        button_width = 120
-        button_height = 30
-        button_margin = 10
-        
-        # Button positions - at top of window in the plot area
-        buttons_y = 10
-        
-        # Clear plots button
+        logger.info("Initializing right sidebar UI buttons")
+
+        # Sidebar config (match left sidebar)
+        sidebar_width = SIDEBAR_WIDTH
+        sidebar_height = self.plot_unit.height
+        button_height = TAB_HEIGHT + 10  # Match sidebar button height
+        button_margin = 15               # Match sidebar button spacing
+        button_width = sidebar_width - 2 * ELEMENT_PADDING
+        num_buttons = 3
+
+        # Calculate vertical positions for stacked buttons (starting from top)
+        buttons_y_start = button_margin + self.plot_unit.status_bar_height
+        buttons_x = self.plot_unit.width - sidebar_width + ELEMENT_PADDING
+
+        # Create buttons stacked vertically
         clear_plots_button = ResetButton(
-            button_margin, 
-            buttons_y, 
-            button_width, 
+            buttons_x,
+            buttons_y_start,
+            button_width,
             button_height,
-            "Clear Plots", 
+            "Clear Plots",
             self._clear_plots
         )
-        
-        # Clear registry button
         clear_registry_button = ResetButton(
-            button_margin * 2 + button_width, 
-            buttons_y, 
-            button_width, 
+            buttons_x,
+            buttons_y_start + (button_height + button_margin) * 1,
+            button_width,
             button_height,
-            "Clear Registry", 
+            "Clear Registry",
             self._clear_registry
         )
-        
-        # Performance mode toggle
         perf_toggle = ToggleButton(
-            button_margin * 3 + button_width * 2,
-            buttons_y,
+            buttons_x,
+            buttons_y_start + (button_height + button_margin) * 2,
             button_width,
             button_height,
             "Performance",
             self.plot_unit.settings.get('performance_mode', False),
             self._toggle_performance
         )
-        
-        # Add buttons to list
+
         self.buttons = [
             clear_plots_button,
             clear_registry_button,
             perf_toggle
         ]
-        
+
         self.initialized = True
-        logger.info(f"Initialized {len(self.buttons)} UI buttons")
-    
+        logger.info(f"Initialized {len(self.buttons)} right sidebar buttons")
     def draw(self, surface):
         """
-        Draw all buttons on the provided surface.
-        
-        Args:
-            surface (pygame.Surface): Surface to draw buttons on
+        Draw the right sidebar and its buttons.
         """
         if not self.initialized:
             return
-            
-        # Get font from plot_unit if available
-        font = self.plot_unit.font if hasattr(self.plot_unit, 'font') else None
+
+        # Draw sidebar background - full height right sidebar
+        sidebar_rect = pygame.Rect(
+            self.plot_unit.width - SIDEBAR_WIDTH, 0, SIDEBAR_WIDTH, self.plot_unit.height
+        )
+        pygame.draw.rect(surface, SIDEBAR_COLOR, sidebar_rect)
         
-        # Process mouse events for hover effects
+        # Draw a divider line to match left sidebar aesthetics
+        pygame.draw.line(
+            surface, 
+            TEXT_COLOR, 
+            (self.plot_unit.width - SIDEBAR_WIDTH, 0), 
+            (self.plot_unit.width - SIDEBAR_WIDTH, self.plot_unit.height),
+            1
+        )
+
+        # Draw each button
+        font = self.plot_unit.font if hasattr(self.plot_unit, 'font') else None
         mouse_pos = pygame.mouse.get_pos()
         for button in self.buttons:
             button.check_hover(mouse_pos)
@@ -156,7 +160,7 @@ class ButtonController:
                     return button.handle_click()
                     
         return False
-    
+
     def _clear_plots(self):
         """
         Clear all plots from the visualization.

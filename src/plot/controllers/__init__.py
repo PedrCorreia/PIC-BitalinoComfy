@@ -5,9 +5,8 @@ This module provides controller components that connect UI elements with functio
 creating a clean separation of concerns between presentation and business logic.
 """
 
-from .button_controller import ButtonController
+# ButtonController has been removed
 
 # Define what gets imported with *
 __all__ = [
-    'ButtonController',
 ]

@@ -31,7 +31,7 @@ from .view_mode import ViewMode
 
 # Import main classes to expose at the package level
 from .plot_unit import PlotUnit
-from .constants import *
+from . import constants
 
 # Import module namespaces for organization
 from . import view

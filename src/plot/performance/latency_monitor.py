@@ -1,8 +1,27 @@
 """
+=====Overview=====
 LatencyMonitor module for the PlotUnit visualization system.
 
 This module provides latency tracking and monitoring functionality
 for the PlotUnit system, helping identify signal processing delays.
+
+=====Usage=====
+Instantiate the LatencyMonitor and call update_signal_time(signal_id)
+whenever a signal is processed. Retrieve latency metrics using the
+provided getter methods.
+
+Example:
+    monitor = LatencyMonitor()
+    monitor.update_signal_time("signal_1")
+    monitor.update_signal_time("signal_2")
+    print(monitor.get_current_latency())
+    print(monitor.get_average_latency())
+
+=====Classes=====
+- LatencyMonitor: Tracks timestamps for signals and calculates latency
+  metrics to help identify processing bottlenecks.
+
+=====API Reference=====
 """
 
 import time
@@ -10,6 +29,8 @@ from collections import deque
 
 class LatencyMonitor:
     """
+    =====Class: LatencyMonitor=====
+
     Latency monitor for tracking signal processing delays.
     
     This class tracks timestamps for signals and calculates latency
@@ -19,10 +40,12 @@ class LatencyMonitor:
         signal_times (dict): Dictionary mapping signal IDs to timestamps
         latency_history (deque): Queue of recent latency measurements
         last_update_time (float): Timestamp of the most recent signal update
+        last_calculated_latency (float): Most recently calculated latency value
     """
     
     def __init__(self, history_size=30):
         """
+        =====Method: __init__=====
         Initialize the latency monitor.
         
         Args:
@@ -35,10 +58,14 @@ class LatencyMonitor:
         
     def update_signal_time(self, signal_id):
         """
+        =====Method: update_signal_time=====
         Record a signal update timestamp.
         
         Args:
             signal_id (str): ID of the updated signal
+
+        Side Effects:
+            Updates signal_times, last_update_time, and latency metrics.
         """
         current_time = time.time()
         self.signal_times[signal_id] = current_time
@@ -50,7 +77,12 @@ class LatencyMonitor:
     
     def _calculate_latency(self):
         """
+        =====Method: _calculate_latency (private)=====
         Calculate the current latency between signal updates.
+
+        Finds the oldest and newest timestamps in signal_times and
+        computes the difference as the current latency. Updates
+        latency_history and last_calculated_latency.
         """
         if not self.signal_times:
             return
@@ -68,6 +100,7 @@ class LatencyMonitor:
     
     def get_current_latency(self):
         """
+        =====Method: get_current_latency=====
         Get the current signal latency.
         
         Returns:
@@ -77,6 +110,7 @@ class LatencyMonitor:
     
     def get_average_latency(self):
         """
+        =====Method: get_average_latency=====
         Get the average latency over recent history.
         
         Returns:
@@ -89,6 +123,7 @@ class LatencyMonitor:
     
     def get_signal_times(self):
         """
+        =====Method: get_signal_times=====
         Get the dictionary of signal timestamps.
         
         Returns:
@@ -98,6 +133,7 @@ class LatencyMonitor:
     
     def get_time_since_last_update(self):
         """
+        =====Method: get_time_since_last_update=====
         Get the time elapsed since the last signal update.
         
         Returns:
@@ -107,7 +143,10 @@ class LatencyMonitor:
     
     def clear(self):
         """
+        =====Method: clear=====
         Clear all latency tracking data.
+
+        Resets signal_times, latency_history, last_update_time, and last_calculated_latency.
         """
         self.signal_times.clear()
         self.latency_history.clear()

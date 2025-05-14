@@ -17,13 +17,14 @@ import atexit
 from collections import deque
 
 # Import components from restructured modules
-from .constants import *
-from .view import RawView, ProcessedView, TwinView, SettingsView
+from . import constants
+from .view import RawView, ProcessedView, TwinView, StackedView, SettingsView
 from .ui import Sidebar, StatusBar
+from .ui.plot_container import PlotContainer
 from .event_handler import EventHandler
 from .performance import LatencyMonitor, FPSCounter, PlotExtensions
-from .controllers import ButtonController
 from .utils import convert_to_numpy
+from .utils.signal_generator import generate_test_signals, update_test_signals
 
 # Import ViewMode enum
 from .view_mode import ViewMode
@@ -72,12 +73,11 @@ class PlotUnit:
         # Ensure this is only initialized once
         if PlotUnit._instance is not None:
             raise RuntimeError("Use PlotUnit.get_instance() to get the singleton instance")
-        
-        # Window properties
+          # Window properties
         self.width = WINDOW_WIDTH
         self.height = WINDOW_HEIGHT
         self.sidebar_width = SIDEBAR_WIDTH
-        self.status_bar_height = STATUS_BAR_HEIGHT
+        self.status_bar_height = STATUS_BAR_HEIGHT        # Update plot_width for just the left sidebar (no right sidebar anymore)
         self.plot_width = self.width - self.sidebar_width
         
         # UI State
@@ -103,14 +103,11 @@ class PlotUnit:
         self.surface = None
         self.font = None
         self.icon_font = None
-        
-        # UI Components
+          # UI Components
         self.sidebar = None
         self.status_bar = None
         self.event_handler = None
-        self.button_controller = None
         self.views = {}
-        
         # Extensions
         self.extensions = None
         
@@ -238,6 +235,12 @@ class PlotUnit:
                 self.data, 
                 self.font
             ),
+            ViewMode.STACKED: StackedView(
+                self.surface,
+                self.data_lock,
+                self.data,
+                self.font
+            ),
             ViewMode.SETTINGS: SettingsView(
                 self.surface, 
                 self.data_lock, 
@@ -246,14 +249,31 @@ class PlotUnit:
                 self.settings
             ),
         }
-          # Create button controller first
-        self.button_controller = ButtonController(self)
+          # --- PlotContainer integration ---
+        self.plot_container = PlotContainer(
+            pygame.Rect(0, 0, self.width, self.height),
+            self.sidebar_width,
+            margin=PLOT_PADDING
+        )
         
-        # Create event handler with button controller
+        # Initialize PlotContainer with the view for current mode
+        # We'll update the plots list dynamically in the _render method
+        if self.current_mode == ViewMode.RAW:
+            self.plot_container.add_plot(self.views[ViewMode.RAW])
+        elif self.current_mode == ViewMode.PROCESSED:
+            self.plot_container.add_plot(self.views[ViewMode.PROCESSED])
+        elif self.current_mode == ViewMode.TWIN:
+            self.plot_container.add_plot(self.views[ViewMode.TWIN])
+            self.plot_container.set_twin_view(True)
+        elif self.current_mode == ViewMode.STACKED:
+            self.plot_container.add_plot(self.views[ViewMode.STACKED])
+            self.plot_container.set_twin_view(False)
+        
+        # Create event handler
         self.event_handler = EventHandler(
             self.sidebar,
             self.views[ViewMode.SETTINGS],
-            self.button_controller
+            None  # Previously used for button_controller, now always None
         )
         
         # Create extensions
@@ -311,6 +331,44 @@ class PlotUnit:
             # Track when this signal was last updated
             self.latency_monitor.update_signal_time(data_type)
     
+    def _set_mode(self, mode):
+        """
+        Set the current visualization mode.
+        
+        Args:
+            mode (ViewMode): The visualization mode to set
+        """
+        if not isinstance(mode, ViewMode):
+            logger.error(f"Invalid mode: {mode}")
+            return
+            
+        self.current_mode = mode
+        if hasattr(self, 'sidebar') and self.sidebar:
+            self.sidebar.current_mode = mode
+            
+        # Update the event handler if available
+        if hasattr(self, 'event_handler') and self.event_handler:
+            self.event_handler.current_mode = mode
+        
+        # Update the plot container layout for the new mode
+        if hasattr(self, 'plot_container') and self.plot_container:
+            if mode == ViewMode.RAW:
+                self.plot_container.set_twin_view(False)
+                self.plot_container.plots = [self.views[ViewMode.RAW]]
+            elif mode == ViewMode.PROCESSED:
+                self.plot_container.set_twin_view(False)
+                self.plot_container.plots = [self.views[ViewMode.PROCESSED]]
+            elif mode == ViewMode.TWIN:
+                self.plot_container.set_twin_view(True)
+                self.plot_container.plots = [self.views[ViewMode.TWIN]]
+            elif mode == ViewMode.STACKED:
+                self.plot_container.set_twin_view(False)
+                self.plot_container.plots = [self.views[ViewMode.STACKED]]
+            
+            self.plot_container.update_layout()
+        
+        logger.info(f"Mode set to {mode.name}")
+    
     def _render(self):
         """
         Render the visualization interface.
@@ -324,18 +382,59 @@ class PlotUnit:
         # Draw the sidebar
         self.sidebar.draw()
         
-        # Draw the appropriate view based on mode
-        if self.current_mode in self.views:
-            self.views[self.current_mode].draw()
-        
-        # Draw buttons
-        if self.button_controller:
-            self.button_controller.draw(self.surface)
-            
-        # Draw additional performance metrics from extensions
-        if self.extensions and self.settings.get('show_extended_metrics', True):
-            y_pos = 40  # Below the buttons
-            y_pos = self.extensions.draw_performance_metrics(self.surface, self.font, 10, y_pos)
+        # Handle different view modes
+        if self.current_mode == ViewMode.RAW:
+            # For raw view, only show the raw view
+            # Update PlotContainer settings and window dimensions
+            self.plot_container.set_twin_view(False)
+            self.plot_container.set_window_rect(
+                pygame.Rect(0, 0, self.width, self.height),
+                self.sidebar_width
+            )
+            # Reset the plots list and add only the raw view
+            self.plot_container.plots = [self.views[ViewMode.RAW]]
+            self.plot_container.update_layout()
+            self.plot_container.draw()
+        elif self.current_mode == ViewMode.PROCESSED:
+            # For processed view, only show the processed view
+            # Update PlotContainer settings and window dimensions
+            self.plot_container.set_twin_view(False)
+            self.plot_container.set_window_rect(
+                pygame.Rect(0, 0, self.width, self.height),
+                self.sidebar_width
+            )
+            # Reset the plots list and add only the processed view
+            self.plot_container.plots = [self.views[ViewMode.PROCESSED]]
+            self.plot_container.update_layout()
+            self.plot_container.draw()
+        elif self.current_mode == ViewMode.TWIN:
+            # For twin view mode, use the PlotContainer with twin view enabled
+            self.plot_container.set_twin_view(True)
+            self.plot_container.set_window_rect(
+                pygame.Rect(0, 0, self.width, self.height),
+                self.sidebar_width
+            )
+            # Reset the plots list and add both raw and processed views for side-by-side comparison
+            self.plot_container.plots = [self.views[ViewMode.TWIN]]
+            self.plot_container.update_layout()
+            self.plot_container.draw()
+        elif self.current_mode == ViewMode.STACKED:
+            # For stacked view mode, use the PlotContainer with stacked view enabled
+            self.plot_container.set_twin_view(False)
+            self.plot_container.set_window_rect(
+                pygame.Rect(0, 0, self.width, self.height),
+                self.sidebar_width
+            )
+            # Reset the plots list and add the stacked view
+            self.plot_container.plots = [self.views[ViewMode.STACKED]]
+            self.plot_container.update_layout()
+            self.plot_container.draw()
+        elif self.current_mode == ViewMode.SETTINGS:
+            # For settings view, draw directly
+            self.views[ViewMode.SETTINGS].draw()
+        else:
+            # Unknown mode - fall back to raw view
+            self.views[ViewMode.RAW].draw()
         
         # Draw status bar with performance metrics
         self.status_bar.draw(
@@ -395,3 +494,131 @@ class PlotUnit:
             bool: True if the visualization is running, False otherwise
         """
         return self.running and self.initialized
+    
+    def load_test_signals(self, clear_existing=True):
+        """
+        Load test signals for demonstration.
+        
+        This method populates the data dictionary with test signals
+        for demonstration and development purposes.
+        
+        Args:
+            clear_existing (bool): Whether to clear existing signals before loading test signals
+        """
+        # Generate test signals
+        test_signals = generate_test_signals()
+        
+        with self.data_lock:
+            # Clear existing data if requested
+            if clear_existing:
+                self.data.clear()
+                self.latency_monitor.clear()
+            
+            # Add raw signals
+            self.data["raw_sine"] = test_signals["raw_sine"]
+            self.data["raw_square"] = test_signals["raw_square"]
+            
+            # Add processed signals with "_processed" suffix for proper categorization
+            self.data["inverted_square_processed"] = test_signals["inverted_square"]
+            self.data["sawtooth_processed"] = test_signals["sawtooth"]
+            self.data["triangle_processed"] = test_signals["triangle"]
+            
+        logger.info("Test signals loaded successfully")
+        
+        # If not already running, start the visualization
+        if not self.running:
+            self.start()
+    
+    def update_test_signals(self):
+        """
+        Update the test signals with new dynamic data.
+        
+        This method is useful for demos to show changing signals.
+        """
+        with self.data_lock:
+            if not self.data:
+                # If no data exists, load initial test signals
+                self.load_test_signals()
+                return
+            
+            # Update existing test signals
+            update_test_signals(self.data)
+            
+            # Update latency timestamps
+            for signal_id in self.data:
+                self.latency_monitor.update_signal_time(signal_id)
+    
+    def configure_layout(self, grid_enabled=True, stack_mode='aligned', normalize_stacks=True):
+        """
+        Configure layout settings for plot visualization.
+        
+        This method configures how plots are displayed, particularly for stacked views.
+        
+        Args:
+            grid_enabled (bool): Whether to enable grid lines on plots
+            stack_mode (str): Mode for stacking ('aligned' or 'free')
+            normalize_stacks (bool): Whether to normalize signal scales across stacked plots
+        """
+        if not isinstance(self.views.get(ViewMode.STACKED), StackedView):
+            logger.warning("StackedView not initialized, cannot configure layout")
+            return
+            
+        stacked_view = self.views[ViewMode.STACKED]
+        stacked_view.set_grid_enabled(grid_enabled)
+        stacked_view.set_stack_mode(stack_mode)
+        stacked_view.set_normalize_stacks(normalize_stacks)
+        
+        logger.info(f"Layout configured: grid={grid_enabled}, mode={stack_mode}, normalize={normalize_stacks}")
+    
+    def set_signal_params(self, signal_id, color=None, label=None, stack_group=None):
+        """
+        Set visualization parameters for a specific signal.
+        
+        Args:
+            signal_id (str): ID of the signal to configure
+            color (tuple): RGB color tuple for the signal
+            label (str): Label to display for the signal
+            stack_group (str): Group for aligning signals in stacks
+        """
+        if not isinstance(self.views.get(ViewMode.STACKED), StackedView):
+            logger.warning("StackedView not initialized, cannot set signal parameters")
+            return
+            
+        stacked_view = self.views[ViewMode.STACKED]
+        stacked_view.set_signal_params(signal_id, color, label, stack_group)
+        
+        logger.info(f"Signal parameters set for {signal_id}")
+    
+    def enable_differential_view(self, base_signal_id, compare_signal_id, label=None, stack_position=None):
+        """
+        Enable a differential view between two signals.
+        
+        Args:
+            base_signal_id (str): ID of the base signal
+            compare_signal_id (str): ID of the signal to compare against
+            label (str): Label for the differential view
+            stack_position (int): Position in the stack (0-based)
+        """
+        if not isinstance(self.views.get(ViewMode.STACKED), StackedView):
+            logger.warning("StackedView not initialized, cannot enable differential view")
+            return
+            
+        stacked_view = self.views[ViewMode.STACKED]
+        stacked_view.enable_differential_view(
+            base_signal_id, compare_signal_id, label, stack_position
+        )
+        
+        logger.info(f"Differential view enabled: {base_signal_id} vs {compare_signal_id}")
+    
+    def synchronize_grid_scales(self):
+        """
+        Force synchronization of grid scales across stacked plots.
+        """
+        if not isinstance(self.views.get(ViewMode.STACKED), StackedView):
+            logger.warning("StackedView not initialized, cannot synchronize grid scales")
+            return
+            
+        stacked_view = self.views[ViewMode.STACKED]
+        stacked_view.synchronize_grid_scales()
+        
+        logger.info("Grid scales synchronized")

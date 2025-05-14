@@ -6,6 +6,8 @@ handling user input and system events.
 """
 
 import pygame
+import os
+import sys
 from .constants import *
 from .view_mode import ViewMode
 
@@ -20,7 +22,6 @@ class EventHandler:
         sidebar (Sidebar): The sidebar component for navigation
         current_mode (ViewMode): The currently active view mode
         settings_view (SettingsView): The settings view for handling settings clicks
-        button_controller (ButtonController): The button controller for handling button events
     """
     def __init__(self, sidebar, settings_view=None, button_controller=None):
         """
@@ -29,11 +30,11 @@ class EventHandler:
         Args:
             sidebar (Sidebar): The sidebar component for navigation
             settings_view (SettingsView, optional): The settings view for handling settings clicks
-            button_controller (ButtonController, optional): The button controller for handling button events
+            button_controller: Kept for backward compatibility but no longer used
         """
         self.sidebar = sidebar
         self.settings_view = settings_view
-        self.button_controller = button_controller
+        # Button controller has been removed and is no longer used
         self.current_mode = sidebar.current_mode
         
     def process_events(self):
@@ -47,11 +48,7 @@ class EventHandler:
             if event.type == pygame.QUIT:
                 return False
                 
-            # Give button controller first chance to handle events
-            if self.button_controller and self.button_controller.handle_events(event):
-                continue
-                
-            elif event.type == pygame.MOUSEBUTTONDOWN:
+            if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left click
                     x, y = event.pos
                     self._handle_click(x, y)
@@ -65,7 +62,7 @@ class EventHandler:
         Args:
             x (int): X coordinate of the click
             y (int): Y coordinate of the click
-        """
+        """    
         if x < self.sidebar.width:
             # Click in sidebar area
             mode_index = self.sidebar.handle_click(y)
@@ -93,7 +90,7 @@ class EventHandler:
         if mode_index in mode_mapping:
             self.current_mode = mode_mapping[mode_index]
             self.sidebar.current_mode = self.current_mode
-    
+            
     def _handle_settings_click(self, x, y):
         """
         Handle clicks in the settings view.
@@ -103,14 +100,23 @@ class EventHandler:
             y (int): Y coordinate of the click
         """
         if not self.settings_view:
+            print("[EVENT] Settings view not available")
             return
-            
+        
+        print(f"[EVENT] Settings view click at coordinates: ({x}, {y})")
+        
         # Check if a settings button was clicked
+        found_button = False
         for button_rect, setting_key in self.settings_view.settings_buttons:
             if button_rect.collidepoint(x, y):
+                print(f"[EVENT] Button clicked: {setting_key}")
                 self._toggle_setting(setting_key)
+                found_button = True
                 break
-    
+        if not found_button:
+            print(f"[EVENT] No button found at click position ({x}, {y})")
+            print(f"[EVENT] Available buttons: {len(self.settings_view.settings_buttons)}")
+            
     def _toggle_setting(self, setting_key):
         """
         Toggle a setting or trigger an action.
@@ -121,13 +127,59 @@ class EventHandler:
         Returns:
             bool: True if an action was triggered, False otherwise
         """
+        # Try to import PlotUnit without relative imports
+        try:
+            from src.plot.plot_unit import PlotUnit
+        except ImportError:
+            try:
+                # Alternative import path
+                import sys
+                sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+                from plot.plot_unit import PlotUnit
+            except:
+                print("[EVENT] Could not import PlotUnit")
+        
         # Special handling for action buttons
-        if setting_key == 'reset_plots' or setting_key == 'reset_registry':
+        if setting_key == 'reset_plots':
+            # Get the PlotUnit instance and call clear_plots
+            plot_unit = PlotUnit.get_instance()
+            if hasattr(plot_unit, 'clear_plots'):
+                plot_unit.clear_plots()
+                print("[EVENT] Reset plots action triggered")
+            return True
+            
+        elif setting_key == 'reset_registry':
+            # Get the PlotUnit instance to clear registry
+            try:                # Try various import paths to find SignalRegistry
+                try:
+                    # First attempt: direct import
+                    from src.registry.signal_registry import SignalRegistry
+                except ImportError:
+                    try:
+                        # Second attempt: relative to project root
+                        root_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                        if root_path not in sys.path:
+                            sys.path.insert(0, root_path)
+                        from registry.signal_registry import SignalRegistry
+                    except ImportError:
+                        # Final attempt: check if PlotUnit has a reference
+                        plot_unit = PlotUnit.get_instance()
+                        if hasattr(plot_unit, 'registry'):
+                            SignalRegistry = plot_unit.registry.__class__
+                        else:
+                            raise ImportError("Could not import SignalRegistry")
+                SignalRegistry.get_instance().reset()
+                print("[EVENT] Reset registry action triggered")
+            except ImportError:
+                print("[EVENT] Could not import SignalRegistry")
+            except Exception as e:
+                print(f"[EVENT] Failed to reset registry: {str(e)}")
             return True
         
         # Toggle regular settings
         if setting_key in self.settings_view.settings:
             self.settings_view.settings[setting_key] = not self.settings_view.settings[setting_key]
+            print(f"[EVENT] Setting '{setting_key}' toggled to {self.settings_view.settings[setting_key]}")
         
         return False
     
