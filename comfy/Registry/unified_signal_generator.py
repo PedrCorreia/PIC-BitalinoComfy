@@ -227,15 +227,15 @@ class UnifiedSignalGenerator:
             'amplitude': amplitude,
             'noise_level': noise_level
         }
-        
-        # Register with the registry
+          # Register with the registry
         self.registry.register_signal(
             signal_id=signal_id,
             signal_data=signal,
             metadata={
                 'color': color,
                 'source_node': self.node_id,
-                'signal_type': signal_type, 
+                'signal_type': signal_type,  # Original signal type (ECG, EDA, etc)
+                'type': 'R',  # This is a raw signal (R type)
                 'x_values': t,
                 'sampling_rate': sampling_rate,
                 'generator_mode': 'physiological'
@@ -303,15 +303,15 @@ class UnifiedSignalGenerator:
             'amplitude': amplitude,
             'noise_level': noise_level
         }
-        
-        # Register with the registry
+          # Register with the registry
         self.registry.register_signal(
             signal_id=signal_id,
             signal_data=signal,
             metadata={
                 'color': color,
                 'source_node': self.node_id,
-                'signal_type': waveform_type,
+                'signal_type': waveform_type,  # Original waveform type
+                'type': 'R',  # This is a raw signal (R type)
                 'x_values': t,
                 'sampling_rate': sampling_rate,
                 'frequency': frequency,
@@ -382,9 +382,12 @@ class UnifiedSignalGenerator:
                             x_values = x_values[-max_samples:]
                     else:
                         x_values = new_x
-                        
-                    # Update metadata
+                          # Update metadata
                     metadata['x_values'] = x_values
+                    
+                    # Ensure type is set to 'R' for the visualization system
+                    if 'type' not in metadata:
+                        metadata['type'] = 'R'  # Raw signal type
                     
                     # Update registry
                     self.registry.register_signal(signal_id, updated_signal, metadata)

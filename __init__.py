@@ -131,20 +131,34 @@ except ImportError as e:
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Arousal nodes: {type(e).__name__} - {e}")
 
-# Plot Unit Node - Updated to non-legacy version
+# Plot Unit Node - Latest version using standalone visualization hub
 try:
-    from .comfy.Registry.plot_unit_node import PlotUnitNode
+    # Import the standalone visualization hub for better reliability
+    from .comfy.Registry.standalone_visualization_hub import PlotUnitNode
     
     # Register Plot Unit node with consistent category
-    NODE_CLASS_MAPPINGS["PlotUnitNode"] = PlotUnitNode
-    NODE_DISPLAY_NAME_MAPPINGS["PlotUnitNode"] = "📊 Signal Visualization Hub"
-    NODE_CATEGORY_MAPPINGS["PlotUnitNode"] = "Pedro_PIC/🌊 Signal Registry"
+    NODE_CLASS_MAPPINGS["StandaloneVisualizationHub"] = PlotUnitNode
+    NODE_DISPLAY_NAME_MAPPINGS["StandaloneVisualizationHub"] = "📊 Signal Visualization Hub (Live)"
+    NODE_CATEGORY_MAPPINGS["StandaloneVisualizationHub"] = "Pedro_PIC/🌊 Signal Registry"
     
-    print("Plot Unit Visualization Hub loaded successfully")
+    print("Standalone Visualization Hub (Live) loaded successfully")
 except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Plot Unit Node: ImportError - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} Standalone Visualization Hub: ImportError - {e}")
+    
+    # Fallback to the regular plot unit node if standalone fails
+    try:
+        from .comfy.Registry.plot_unit_node import PlotUnitNode
+        
+        # Register Plot Unit node with consistent category
+        NODE_CLASS_MAPPINGS["PlotUnitNode"] = PlotUnitNode
+        NODE_DISPLAY_NAME_MAPPINGS["PlotUnitNode"] = "📊 Signal Visualization Hub"
+        NODE_CATEGORY_MAPPINGS["PlotUnitNode"] = "Pedro_PIC/🌊 Signal Registry"
+        
+        print("Plot Unit Visualization Hub loaded successfully (fallback)")
+    except Exception as fallback_error:
+        print(f"{IMPORT_ERROR_MESSAGE} Plot Unit Node (fallback): {type(fallback_error).__name__} - {fallback_error}")
 except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Plot Unit Node: {type(e).__name__} - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} Standalone Visualization Hub: {type(e).__name__} - {e}")
 
 # Mock Signal Node was moved to Signal Registry Nodes section
 
