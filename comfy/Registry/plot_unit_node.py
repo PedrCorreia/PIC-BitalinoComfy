@@ -1,5 +1,5 @@
 import numpy as np
-import torch
+from collections import deque
 import uuid
 import time
 from ...src.plot.plot_unit import PlotUnit
@@ -55,7 +55,14 @@ class PlotUnitNode:
             self.plot_unit.update = self._update_fallback
         if not hasattr(self.plot_unit, 'clear_plots'):
             self.plot_unit.clear_plots = self._clear_plots_fallback
-        
+        self.start_time = time.time()
+        self.last_update_time = self.start_time
+        self.last_frame_time = self.start_time
+        self.frame_times = deque(maxlen=60)  # For FPS calculation
+        self.signal_times = {}  # Track signal timestamps
+        self.latency = 0.0  # Current latency value
+        self.last_latency = 0.0  # Previous latency value
+        self.status_bar_height = 30  # Height of the status bar
         print(f"[Plot Unit] Node {self.node_id} initialized")
         
     def __del__(self):
@@ -95,7 +102,8 @@ class PlotUnitNode:
         else:
             # Fallback to node connections attribute
             return len(getattr(self.integration, '_node_connections', {}))
-            
+    
+       
     def run_visualization_hub(self, reset=False, clear_all_signals=False, auto_reset=False, 
                              performance_mode=False, signal_id=""):
         """

@@ -113,33 +113,6 @@ class PlotRegistry:
                 return True
             return False
     
-    def disconnect_node_from_signal(self, node_id, signal_id):
-        """
-        Disconnect a node from a specific signal.
-        
-        Args:
-            node_id (str): Identifier of the node to disconnect
-            signal_id (str): Identifier of the signal to disconnect from
-        
-        Returns:
-            bool: True if the node was connected to the signal and disconnected, False otherwise
-        """
-        with self.registry_lock:
-            if node_id in self.connections and signal_id in self.connections[node_id]:
-                self.connections[node_id].remove(signal_id)
-                
-                # If node has no more signals, remove it
-                if not self.connections[node_id]:
-                    del self.connections[node_id]
-                    self.connected_nodes -= 1
-                
-                # Update visualized signals
-                self._update_visualized_signals()
-                
-                logger.debug(f"Node {node_id} disconnected from signal {signal_id}")
-                return True
-            return False
-    
     def get_signal(self, signal_id):
         """Get a signal by its ID"""
         with self.registry_lock:
