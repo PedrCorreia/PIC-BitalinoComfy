@@ -126,11 +126,14 @@ class PlotRegistry:
             if signal_id in self.metadata:
                 return self.metadata[signal_id]
             return None
-    
     def get_all_signals(self):
         """Get all signal IDs in the registry"""
         with self.registry_lock:
             return list(self.signals.keys())
+            
+    def get_all_signal_ids(self):
+        """Get all signal IDs in the registry (alias for get_all_signals)"""
+        return self.get_all_signals()
     
     def get_visualized_signals(self):
         """Get IDs of signals that are actively visualized"""
