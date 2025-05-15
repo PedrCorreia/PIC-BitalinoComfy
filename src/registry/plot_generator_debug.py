@@ -49,7 +49,8 @@ class RegistrySignalGenerator:
     """
     Generator for synthetic signals to be registered with the SignalRegistry.
     Uses the proper registry architecture for handling signals.
-    """    def __init__(self):
+    """    
+    def __init__(self):
         # Get instances of registry components
         self.signal_registry = SignalRegistry.get_instance()
         self.plot_registry = PlotRegistry.get_instance()
@@ -428,7 +429,8 @@ class PlotUnitRegistryAdapter:
                 time.sleep(1.0)
 
 
-def run_demo(duration=3000):    """
+def run_demo(duration=3000):
+    """
     Run a demonstration of the registry integration with the PlotUnit visualization.
     
     Args:

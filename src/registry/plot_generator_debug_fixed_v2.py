@@ -512,7 +512,8 @@ class PlotUnitRegistryAdapter:
         self.running = False
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=1.0)
-        print("PlotUnitRegistryAdapter stopped")    def set_view_mode(self, view_mode):
+        print("PlotUnitRegistryAdapter stopped")    
+    def set_view_mode(self, view_mode):
         """
         Set the current view mode to filter signals appropriately.
         

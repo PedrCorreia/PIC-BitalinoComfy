@@ -3,16 +3,18 @@ REM Fix RAW view glitching in PIC-2025 visualization
 title PIC-2025 RAW View Glitch Fix
 
 echo ===================================================
-echo      PIC-2025 RAW View Glitch Fix v2
+echo      PIC-2025 RAW View Glitch Fix v3
 echo ===================================================
 echo.
 echo This script will fix the window glitching issue when
-echo switching to the RAW view in the PIC-2025 visualization.
+echo switching between view modes in the PIC-2025 visualization.
 echo.
-echo New in v2:
+echo New in v3:
+echo - Registry demo with realistic signals (ECG, EDA, RESP)
+echo - Proper handling for all view modes (RAW, PROCESSED, TWIN)
+echo - Fixed signal filtering for each view mode
+echo - Better mode-specific optimizations
 echo - Will automatically start visualization if needed
-echo - Improved compatibility with all module versions
-echo - Enhanced robustness against initialization issues
 echo.
 
 REM Check if visualization is already running

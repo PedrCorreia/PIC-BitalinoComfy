@@ -53,7 +53,8 @@ class RegistrySignalGenerator:
     Uses the proper registry architecture for handling signals.
     
     Enforces limits of max 3 raw signals and 3 processed signals.
-    """    def __init__(self):
+    """  
+    def __init__(self):
         # Get instances of registry components
         self.signal_registry = SignalRegistry.get_instance()
         self.plot_registry = PlotRegistry.get_instance()
