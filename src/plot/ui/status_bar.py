@@ -24,21 +24,29 @@ class StatusBar:
         start_time (float): Timestamp when the visualization started
     """
     
-    def __init__(self, surface, width, height, font, start_time):
+    def __init__(self, surface, height, font, start_time=None):
         """
         Initialize the status bar.
         
         Args:
             surface (pygame.Surface): The surface to draw on
-            width (int): Width of the status bar
             height (int): Height of the status bar
             font (pygame.font.Font): Font for text rendering
             start_time (float): Timestamp when the visualization started
         """
         self.surface = surface
-        self.width = width
+        self.width = self.surface.get_width()
         self.height = height
         self.font = font
+        self.start_time = start_time
+
+    def set_start_time(self, start_time):
+        """
+        Dynamically set or update the start_time attribute.
+
+        Args:
+            start_time (float): The timestamp to set as the start time.
+        """
         self.start_time = start_time
 
     def draw(self, fps, latency, signal_times=None):
@@ -51,12 +59,15 @@ class StatusBar:
         x = left
 
         # Draw status bar background
-        status_bar_rect = pygame.Rect(SIDEBAR_WIDTH, 0, self.width - SIDEBAR_WIDTH, self.height)
+        status_bar_rect = pygame.Rect(0, 0, self.width, self.height)
         pygame.draw.rect(self.surface, SIDEBAR_COLOR, status_bar_rect)
 
         # Runtime (left-aligned)
-        runtime = time.time() - self.start_time
-        runtime_text = f"Runtime: {int(runtime // 60):02d}:{int(runtime % 60):02d}"
+        if self.start_time is not None:
+            runtime = time.time() - self.start_time
+            runtime_text = f"Runtime: {int(runtime // 60):02d}:{int(runtime % 60):02d}"
+        else:
+            runtime_text = "Runtime: N/A"
         runtime_surface = self.font.render(runtime_text, True, TEXT_COLOR)
         self.surface.blit(runtime_surface, (x, y_center - runtime_surface.get_height() // 2))
         x += runtime_surface.get_width() + SECTION_MARGIN

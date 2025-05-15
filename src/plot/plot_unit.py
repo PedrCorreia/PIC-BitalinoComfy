@@ -29,6 +29,11 @@ from .utils.signal_generator import generate_test_signals, update_test_signals
 # Import ViewMode enum
 from .view_mode import ViewMode
 
+# Import constants
+from .constants import (WINDOW_WIDTH, WINDOW_HEIGHT, SIDEBAR_WIDTH, STATUS_BAR_HEIGHT, 
+                          DEFAULT_SETTINGS, PLOT_PADDING, DEFAULT_FONT, DEFAULT_FONT_SIZE, 
+                          ICON_FONT_SIZE, TARGET_FPS, BACKGROUND_COLOR)
+
 # Configure logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger('PlotUnit')

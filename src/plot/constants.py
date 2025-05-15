@@ -5,9 +5,15 @@ This module centralizes all constants, default settings, and configuration value
 used throughout the plot visualization system to ensure consistency and easy updates.
 """
 
+import pygame  # Required for defining the FONT constant
+
+# Font settings
+DEFAULT_FONT = "Arial"
+DEFAULT_FONT_SIZE = 14
+
 # Window dimensions and layout
-WINDOW_WIDTH = 512  # Slightly narrower window
-WINDOW_HEIGHT = 750  # Taller window for better content separation
+WINDOW_WIDTH = 530  # Adjusted for better fit with controls
+WINDOW_HEIGHT = 780  # Adjusted for better content display
 SIDEBAR_WIDTH = 50   # Wider sidebar for better button spacing
 STATUS_BAR_HEIGHT = 30
 
@@ -16,6 +22,9 @@ PLOT_PADDING = 15    # Padding around plots (increased for better separation)
 TAB_HEIGHT = 30      # Height of tab buttons
 CONTROL_PANEL_HEIGHT = 40  # Height of control panel
 TWIN_VIEW_SEPARATOR = 10   # Space between twin views (increased for better separation)
+
+# Position for status bar - TOP instead of bottom
+STATUS_BAR_TOP = True
 
 # Additional UI spacing parameters
 BUTTON_MARGIN = 8         # Margin between buttons
@@ -29,6 +38,8 @@ ELEMENT_PADDING = 8       # General padding for UI elements
 # Core UI colors
 BACKGROUND_COLOR = (14, 14, 14)    # Dark background
 SIDEBAR_COLOR = (24, 24, 24)       # Slightly lighter sidebar
+BUTTON_COLOR = (24, 24, 24)        # Button background
+BUTTON_COLOR_SETTINGS = (250, 24, 24)  # Red color for settings action buttons
 ACCENT_COLOR = (0, 120, 215)       # Blue accent
 TEXT_COLOR = (220, 220, 220)       # Light text
 GRID_COLOR = (40, 40, 40)          # Dark grid
@@ -75,8 +86,6 @@ VIEW_MODE_PROCESSED = "PROCESSED"
 VIEW_MODE_TWIN = "TWIN"
 VIEW_MODE_SETTINGS = "SETTINGS"
 
-# Font settings
-DEFAULT_FONT = "Arial"
-DEFAULT_FONT_SIZE = 14
 ICON_FONT_SIZE = 24
+TAB_ICON_FONT_SIZE = 28  # Larger font size for tab icons
 

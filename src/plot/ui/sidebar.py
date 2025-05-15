@@ -23,8 +23,9 @@ class Sidebar:
         font (pygame.font.Font): Font for text rendering
         icon_font (pygame.font.Font): Font for icon rendering
         current_mode (ViewMode): The currently active view mode
+        settings (dict): Settings dictionary for additional configurations
     """
-    def __init__(self, surface, width, height, font, icon_font, current_mode):
+    def __init__(self, surface, width, height, font, icon_font, current_mode, settings):
         """
         Initialize the sidebar.
         
@@ -35,6 +36,7 @@ class Sidebar:
             font (pygame.font.Font): Font for text rendering
             icon_font (pygame.font.Font): Font for icon rendering
             current_mode (ViewMode): The currently active view mode
+            settings (dict): Settings dictionary for additional configurations
         """       
         self.surface = surface
         self.width = width
@@ -42,7 +44,7 @@ class Sidebar:
         self.font = font
         self.icon_font = icon_font
         self.current_mode = current_mode
-        
+        self.settings = settings  # Add settings reference
         # Button settings
         self.button_height = TAB_HEIGHT + 10  # Use TAB_HEIGHT constant plus padding
         self.button_spacing = 15  # Space between buttons
@@ -51,8 +53,9 @@ class Sidebar:
         """
         Draw the sidebar with navigation buttons.
         """
-        # Draw sidebar background
-        sidebar_rect = pygame.Rect(0, 0, self.width, self.height)
+        # Draw sidebar background, accounting for status bar at top
+        status_bar_offset = STATUS_BAR_HEIGHT if STATUS_BAR_TOP else 0
+        sidebar_rect = pygame.Rect(0, status_bar_offset, self.width, self.height - status_bar_offset)
         pygame.draw.rect(self.surface, SIDEBAR_COLOR, sidebar_rect)
         
         # Draw mode buttons with proper spacing
@@ -60,7 +63,9 @@ class Sidebar:
         self._draw_mode_button(1, "P", "Processed", 1)
         self._draw_mode_button(2, "T", "Twin View", 2)
         self._draw_mode_button(3, "S", "Settings", 3)
-        
+        # Draw status indicator dot below the S button
+        self._draw_status_dot_below_settings()
+
     def _draw_mode_button(self, position, icon, tooltip, mode_value):
         """
         Draw a mode selection button.
@@ -71,8 +76,9 @@ class Sidebar:
             tooltip (str): Tooltip text for the button
             mode_value (int): The ViewMode enum value for this button
         """
-        # Calculate position with proper spacing between buttons
-        y = self.button_spacing + position * (self.button_height + self.button_spacing)
+        # Calculate position with proper spacing between buttons, accounting for status bar
+        status_bar_offset = STATUS_BAR_HEIGHT if STATUS_BAR_TOP else 0
+        y = status_bar_offset + self.button_spacing + position * (self.button_height + self.button_spacing)
         
         # Check if this is the current mode
         is_active = self.current_mode.value == mode_value
@@ -82,11 +88,47 @@ class Sidebar:
             button_rect = pygame.Rect(0, y, self.width, self.button_height)
             pygame.draw.rect(self.surface, ACCENT_COLOR, button_rect)
             
-        # Draw button icon
-        icon_surface = self.icon_font.render(icon, True, TEXT_COLOR)
+        # Draw button icon with larger font size for better visibility
+        larger_icon_font = pygame.font.SysFont(None, TAB_ICON_FONT_SIZE)  # Use larger font size constant
+        icon_surface = larger_icon_font.render(icon, True, TEXT_COLOR)
         icon_rect = icon_surface.get_rect(center=(self.width // 2, y + self.button_height // 2))
         self.surface.blit(icon_surface, icon_rect)
-    
+
+    def _draw_status_dot_below_settings(self):
+        """
+        Draw status indicator dots below the Settings button:
+        - Yellow for performance mode on
+        - Green for caps on
+        - Gray (placeholder) for registry connection (future: blinking)
+        """
+        status_bar_offset = STATUS_BAR_HEIGHT if STATUS_BAR_TOP else 0
+        s_button_top = status_bar_offset + self.button_spacing + 3 * (self.button_height + self.button_spacing)
+        s_button_bottom = s_button_top + self.button_height
+        dot_radius = 7
+        dot_x = self.width // 2
+
+        # Vertical stacking of dots
+        dot_y_start = s_button_bottom + 18
+        dot_spacing = 22  # px between dots
+
+        dot_index = 0
+
+        # Performance mode dot (yellow)
+        if self.settings.get('performance_mode', False):
+            pygame.draw.circle(self.surface, (220, 220, 0), (dot_x, dot_y_start + dot_index * dot_spacing), dot_radius)
+            dot_index += 1
+
+        # Caps enabled dot (green)
+        if self.settings.get('caps_enabled', False):
+            pygame.draw.circle(self.surface, (0, 220, 0), (dot_x, dot_y_start + dot_index * dot_spacing), dot_radius)
+            dot_index += 1
+
+        # Registry connection dot (gray, placeholder for blinking)
+        # In the future, replace this with blinking logic if connected
+        # Example: if self.settings.get('connected_to_registry', False):
+        pygame.draw.circle(self.surface, (120, 120, 120), (dot_x, dot_y_start + dot_index * dot_spacing), dot_radius)
+        # To implement blinking, toggle visibility based on time or state
+
     def handle_click(self, y):
         """
         Handle a click on the sidebar.
@@ -97,9 +139,12 @@ class Sidebar:
         Returns:
             int: The ViewMode enum value for the clicked button, or None if no button was clicked
         """
-        # Update click handling to account for button spacing
+        # Account for status bar position when processing clicks
+        status_bar_offset = STATUS_BAR_HEIGHT if STATUS_BAR_TOP else 0
+        
+        # Update click handling to account for button spacing and status bar
         for i in range(4):  # We have 4 buttons (0-3)
-            button_top = self.button_spacing + i * (self.button_height + self.button_spacing)
+            button_top = status_bar_offset + self.button_spacing + i * (self.button_height + self.button_spacing)
             button_bottom = button_top + self.button_height
             
             if button_top <= y <= button_bottom:

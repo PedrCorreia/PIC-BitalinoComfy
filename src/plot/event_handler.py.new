@@ -1,0 +1,198 @@
+"""
+EventHandler module for the PlotUnit visualization system.
+
+This module manages event processing for the PlotUnit system,
+handling user input and system events.
+"""
+
+import pygame
+import os
+import sys
+from .constants import *
+from .view_mode import ViewMode
+
+class EventHandler:
+    """
+    Event handler for the PlotUnit visualization system.
+    
+    This class manages event processing, including mouse and keyboard events,
+    and updates the application state accordingly.
+    
+    Attributes:
+        sidebar (Sidebar): The sidebar component for navigation
+        current_mode (ViewMode): The currently active view mode
+        settings_view (SettingsView): The settings view for handling settings clicks
+    """
+    def __init__(self, sidebar, settings_view=None, button_controller=None):
+        """
+        Initialize the event handler.
+        
+        Args:
+            sidebar (Sidebar): The sidebar component for navigation
+            settings_view (SettingsView, optional): The settings view for handling settings clicks
+            button_controller: Kept for backward compatibility but no longer used
+        """
+        self.sidebar = sidebar
+        self.settings_view = settings_view
+        # Button controller has been removed and is no longer used
+        self.current_mode = sidebar.current_mode
+        print(f"[EventHandler] Initialized with current_mode: {self.current_mode.name}")
+        
+    def process_events(self):
+        """
+        Process pygame events and update application state.
+        
+        Returns:
+            bool: True if the application should continue running, False if it should exit
+        """
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False
+                
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:  # Left click
+                    x, y = event.pos
+                    self._handle_click(x, y)
+        
+        return True
+    
+    def _handle_click(self, x, y):
+        """
+        Handle mouse click events.
+        
+        Args:
+            x (int): X coordinate of the click
+            y (int): Y coordinate of the click
+        """    
+        print(f"[EventHandler] Click detected at ({x}, {y})")
+        
+        if x < self.sidebar.width:
+            # Click in sidebar area
+            mode_index = self.sidebar.handle_click(y)
+            if mode_index is not None:
+                self._update_mode(mode_index)
+        elif self.current_mode.value == 3 and self.settings_view:  # Settings mode
+            # Pass click to settings view
+            self._handle_settings_click(x, y)
+            
+    def _update_mode(self, mode_index):
+        """
+        Update the current view mode.
+        
+        Args:
+            mode_index (int): New mode index
+        """
+        # Map index to ViewMode
+        mode_mapping = {
+            0: ViewMode.RAW,
+            1: ViewMode.PROCESSED,
+            2: ViewMode.TWIN,
+            3: ViewMode.SETTINGS
+        }
+        
+        if mode_index in mode_mapping:
+            self.current_mode = mode_mapping[mode_index]
+            self.sidebar.current_mode = self.current_mode
+            print(f"[EventHandler] Mode updated to: {self.current_mode.name}")
+            
+    def _handle_settings_click(self, x, y):
+        """
+        Handle clicks in the settings view.
+        
+        Args:
+            x (int): X coordinate of the click
+            y (int): Y coordinate of the click
+        """
+        if not self.settings_view:
+            print("[EventHandler] Settings view not available")
+            return
+        
+        print(f"[EventHandler] Settings view click at coordinates: ({x}, {y})")
+        
+        # Check if a settings button was clicked
+        found_button = False
+        for button_rect, setting_key in self.settings_view.settings_buttons:
+            if button_rect.collidepoint(x, y):
+                print(f"[EventHandler] Button clicked: {setting_key}")
+                self._toggle_setting(setting_key)
+                found_button = True
+                break
+        if not found_button:
+            print(f"[EventHandler] No button found at click position ({x}, {y})")
+            print(f"[EventHandler] Available buttons: {len(self.settings_view.settings_buttons)}")
+            
+    def _toggle_setting(self, setting_key):
+        """
+        Toggle a setting or trigger an action.
+        
+        Args:
+            setting_key (str): The key of the setting to toggle
+        
+        Returns:
+            bool: True if an action was triggered, False otherwise
+        """
+        # Try to import PlotUnit without relative imports
+        try:
+            from src.plot.plot_unit import PlotUnit
+        except ImportError:
+            try:
+                # Alternative import path
+                import sys
+                sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+                from plot.plot_unit import PlotUnit
+            except:
+                print("[EventHandler] Could not import PlotUnit")
+        
+        # Special handling for action buttons
+        if setting_key == 'reset_plots':
+            # Get the PlotUnit instance and call clear_plots
+            plot_unit = PlotUnit.get_instance()
+            if hasattr(plot_unit, 'clear_plots'):
+                plot_unit.clear_plots()
+                print("[EventHandler] Reset plots action triggered")
+            return True
+            
+        elif setting_key == 'reset_registry':
+            # Get the PlotUnit instance to clear registry
+            try:
+                # Try various import paths to find SignalRegistry
+                try:
+                    # First attempt: direct import
+                    from src.registry.signal_registry import SignalRegistry
+                except ImportError:
+                    try:
+                        # Second attempt: relative to project root
+                        root_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                        if root_path not in sys.path:
+                            sys.path.insert(0, root_path)
+                        from registry.signal_registry import SignalRegistry
+                    except ImportError:
+                        # Final attempt: check if PlotUnit has a reference
+                        plot_unit = PlotUnit.get_instance()
+                        if hasattr(plot_unit, 'registry'):
+                            SignalRegistry = plot_unit.registry.__class__
+                        else:
+                            raise ImportError("Could not import SignalRegistry")
+                SignalRegistry.get_instance().reset()
+                print("[EventHandler] Reset registry action triggered")
+            except ImportError:
+                print("[EventHandler] Could not import SignalRegistry")
+            except Exception as e:
+                print(f"[EventHandler] Failed to reset registry: {str(e)}")
+            return True
+        
+        # Toggle regular settings
+        if hasattr(self, 'settings_view') and self.settings_view and setting_key in self.settings_view.settings:
+            self.settings_view.settings[setting_key] = not self.settings_view.settings[setting_key]
+            print(f"[EventHandler] Setting '{setting_key}' toggled to {self.settings_view.settings[setting_key]}")
+        
+        return False
+    
+    def get_current_mode(self):
+        """
+        Get the current view mode.
+        
+        Returns:
+            ViewMode: The current view mode
+        """
+        return self.current_mode

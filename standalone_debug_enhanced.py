@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 """
-PlotUnit Standalone Debug App
+PlotUnit Standalone Debug App with Enhanced Import System
 
-This application imports modules from the project's structure
-using the proper module architecture from src/plot.
+This version of the standalone debug app properly imports constants, view mode,
+and other components from the project's module structure while maintaining
+fallback options for robustness.
 """
 
 import os
@@ -14,6 +15,8 @@ import threading
 import numpy as np
 from enum import Enum
 from collections import deque
+
+print("\n=== PlotUnit Debug with Enhanced Import System ===\n")
 
 # Configure import paths
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -27,43 +30,36 @@ src_dir = os.path.join(base_dir, 'src')
 sys.path.insert(0, src_dir)
 print(f"Added to path: {src_dir}")
 
-# Import modules from the project structure
+# Import constants from the project
+constants_imported = False
 try:
-    # Import constants
-    print("Importing constants...")
+    # First attempt: from src.plot.constants
+    print("Attempting to import from src.plot.constants...")
     from src.plot.constants import *
-    print("SUCCESS: Imported constants")
-    
-    # Import ViewMode enum
-    print("Importing ViewMode...")
-    from src.plot.view_mode import ViewMode
-    print("SUCCESS: Imported ViewMode")
-    
-    # Import UI components
-    print("Importing UI components...")
-    from src.plot.view.base_view import BaseView
-    from src.plot.view.settings_view import SettingsView
-    from src.plot.view.raw_view import RawView
-    from src.plot.view.processed_view import ProcessedView
-    from src.plot.view.twin_view import TwinView
-    from src.plot.ui.sidebar import Sidebar
-    from src.plot.ui.status_bar import StatusBar
-    
-    # Import other necessary components if available
-    try:
-        from src.plot.event_handler import EventHandler
-        print("SUCCESS: Imported EventHandler")
-    except ImportError:
-        print("NOTE: Will use local EventHandler implementation")
-    
-    modules_imported = True
-    print("SUCCESS: Imported project modules")
+    print("SUCCESS: Imported constants from src.plot.constants")
+    constants_imported = True
     
 except ImportError as e:
-    print(f"ERROR: Could not import required modules: {e}")
-    print("WARNING: Using fallback implementations")
-    modules_imported = False
-    # Fallback constants if modules import fails
+    print(f"FAILED: Could not import from src.plot.constants: {e}")
+    try:
+        # Second attempt: from plot.constants
+        print("Attempting to import from plot.constants...")
+        from plot.constants import *
+        print("SUCCESS: Imported constants from plot.constants")
+        constants_imported = True
+        
+    except ImportError as e:
+        print(f"FAILED: Could not import from plot.constants: {e}")
+        print("WARNING: Using fallback constants")
+        
+        # Note: Fallback constants are defined below based on what's missing
+
+# Initialize pygame
+pygame.init()
+
+# Define fallback constants if needed
+if not constants_imported or 'WINDOW_WIDTH' not in locals():
+    print("\nDefining fallback layout constants...")
     WINDOW_WIDTH = 530
     WINDOW_HEIGHT = 780
     SIDEBAR_WIDTH = 50
@@ -78,16 +74,11 @@ except ImportError as e:
     TITLE_PADDING = 12
     TEXT_MARGIN = 5
     CONTROL_MARGIN = 10
-    ELEMENT_PADDING = 8  # Note: Additional fallback constants are defined below
-
-# Initialize pygame
-pygame.init()
-
-# Define font locally
-font = pygame.font.SysFont("Arial", 14)
+    ELEMENT_PADDING = 8
 
 # Add fallback colors if they weren't imported
-if 'BACKGROUND_COLOR' not in locals():
+if not constants_imported or 'BACKGROUND_COLOR' not in locals():
+    print("Defining fallback color constants...")
     # Colors - these will be used if the import failed
     BACKGROUND_COLOR = (14, 14, 14)
     BUTTON_COLOR = (24, 24, 24)
@@ -107,11 +98,10 @@ if 'BACKGROUND_COLOR' not in locals():
     OK_COLOR = (0, 220, 0)
     WARNING_COLOR = (220, 220, 0)
     ERROR_COLOR = (220, 0, 0)
-    
-    print("Using fallback color constants")
 
 # Add default settings if not imported
-if 'DEFAULT_SETTINGS' not in locals():
+if not constants_imported or 'DEFAULT_SETTINGS' not in locals():
+    print("Defining fallback default settings...")
     # Default settings - these will be used if the import failed
     DEFAULT_SETTINGS = {
         'caps_enabled': True,
@@ -121,66 +111,81 @@ if 'DEFAULT_SETTINGS' not in locals():
         'reset_plots': False,
         'reset_registry': False,
     }
-    print("Using fallback default settings")
 
-# Check if VIEW_MODE constants were imported
-if all(constant in globals() for constant in ['VIEW_MODE_RAW', 'VIEW_MODE_PROCESSED', 'VIEW_MODE_TWIN', 'VIEW_MODE_SETTINGS']):
-    print("Using imported view mode constants:")
+# Add font settings if not imported
+if not constants_imported or 'TAB_ICON_FONT_SIZE' not in locals():
+    print("Defining fallback font settings...")
+    ICON_FONT_SIZE = 24
+    TAB_ICON_FONT_SIZE = 28
+
+# Try to import ViewMode class from project
+try:
+    from src.plot.view_mode import ViewMode
+    print("\nSUCCESS: Imported ViewMode enum from src.plot.view_mode")
+except ImportError:
+    try:
+        from plot.view_mode import ViewMode
+        print("\nSUCCESS: Imported ViewMode enum from plot.view_mode")
+    except ImportError:
+        print("\nCould not import ViewMode enum, creating local version")
+        # === ViewMode Enum ===
+        class ViewMode(Enum):
+            RAW = 0
+            PROCESSED = 1
+            TWIN = 2
+            SETTINGS = 3
+
+# Check if VIEW_MODE constants are imported
+if 'VIEW_MODE_RAW' in locals():
+    print("\nUsing imported view mode constants:")
     print(f"  - Raw mode: {VIEW_MODE_RAW}")
     print(f"  - Processed mode: {VIEW_MODE_PROCESSED}")
     print(f"  - Twin mode: {VIEW_MODE_TWIN}")
     print(f"  - Settings mode: {VIEW_MODE_SETTINGS}")
 else:
-    print("View mode constants not imported, using enum values only")
+    print("\nView mode constants not imported, using enum values only")
 
-# Create local reference to BaseView if we're not using the imported one
-if not modules_imported or 'BaseView' not in globals():
-    print("Using local BaseView implementation...")
-    
-    # === Base View Class ===
-    class BaseView:
-        """Base class for all views."""
-        
-        def __init__(self, surface, data_lock, data, font):
-            self.surface = surface
-            self.data_lock = data_lock
-            self.data = data
-            self.font = font
-            
-            # Adjust plot rect based on status bar position (top/bottom)
-            status_bar_offset = STATUS_BAR_HEIGHT if STATUS_BAR_TOP else 0
-            self.plot_rect = pygame.Rect(
-                SIDEBAR_WIDTH + PLOT_PADDING,
-                PLOT_PADDING + status_bar_offset,
-                WINDOW_WIDTH - SIDEBAR_WIDTH - PLOT_PADDING * 2,
-                WINDOW_HEIGHT - STATUS_BAR_HEIGHT - PLOT_PADDING * 2
-            )
-        
-        def draw(self):
-            # Placeholder: fill with background
-            pygame.draw.rect(self.surface, (30, 30, 30), self.plot_rect)
-            mode_name = getattr(self, 'mode_name', 'Base')
-            label = self.font.render(f"{mode_name} View", True, (180, 180, 180))
-            self.surface.blit(label, (self.plot_rect.x + 40, self.plot_rect.y + 40))
-else:
-    print("Using imported BaseView class")
+# Print summary of imports
+print("\nImport Summary:")
+print(f"  - Constants imported: {constants_imported}")
+print(f"  - ViewMode imported: {ViewMode.__module__ != '__main__'}")
+print(f"  - Window size: {WINDOW_WIDTH}x{WINDOW_HEIGHT}")
+print(f"  - Tab icon font size: {TAB_ICON_FONT_SIZE}")
+print("")
 
-# Create local reference to SettingsView if we're not using the imported one
-if not modules_imported or 'SettingsView' not in globals():
-    print("Using local SettingsView implementation...")
+# === Base View Class ===
+class BaseView:
+    """Base class for all views."""
     
-    # === Settings View ===
-    class SettingsView(BaseView):
-        """View for displaying and managing settings."""
+    def __init__(self, surface, data_lock, data, font):
+        self.surface = surface
+        self.data_lock = data_lock
+        self.data = data
+        self.font = font
         
-        def __init__(self, surface, data_lock, data, font, settings):
-            super().__init__(surface, data_lock, data, font)
-            self.settings = settings
-            self.settings_buttons = []  # Will store (rect, setting_key) pairs
-            self.plot_unit = None  # Reference to PlotUnit for action handlers
-            print("SettingsView initialized")
-else:
-    print("Using imported SettingsView class")
+        # Adjust plot rect based on status bar position (top/bottom)
+        status_bar_offset = STATUS_BAR_HEIGHT if STATUS_BAR_TOP else 0
+        self.plot_rect = pygame.Rect(
+            SIDEBAR_WIDTH + PLOT_PADDING,
+            PLOT_PADDING + status_bar_offset,
+            WINDOW_WIDTH - SIDEBAR_WIDTH - PLOT_PADDING * 2,
+            WINDOW_HEIGHT - STATUS_BAR_HEIGHT - PLOT_PADDING * 2
+        )
+    
+    def draw(self):
+        """Draw method to be implemented by subclasses."""
+        pass
+
+# === Settings View ===
+class SettingsView(BaseView):
+    """View for displaying and managing settings."""
+    
+    def __init__(self, surface, data_lock, data, font, settings):
+        super().__init__(surface, data_lock, data, font)
+        self.settings = settings
+        self.settings_buttons = []  # Will store (rect, setting_key) pairs
+        self.plot_unit = None  # Reference to PlotUnit for action handlers
+        print("SettingsView initialized")
     
     def draw(self):
         # Clear the settings buttons list
@@ -257,8 +262,7 @@ else:
             x, y + 80,
             "Reset Registry",
             "reset_registry",
-            ACCENT_COLOR
-        )
+            ACCENT_COLOR        )
     
     def _draw_toggle(self, x, y, label, setting_key, value):
         # Draw label
@@ -289,8 +293,7 @@ else:
         self.settings_buttons.append((switch_bg_rect, setting_key))
         
         # Debug output
-        print(f"Added toggle: {setting_key}, rect: {switch_bg_rect}, value: {value}")
-    
+        print(f"Added toggle: {setting_key}, rect: {switch_bg_rect}, value: {value}") 
     def _draw_button(self, x, y, label, action_key, color):
         # Draw button - rectangle with no border
         button_width = 150
@@ -312,30 +315,22 @@ else:
         # Debug output
         print(f"Added action button: {action_key}, rect: {button_rect}")
 
-# Check if we're using the imported Sidebar or need the local implementation
-if not modules_imported or 'Sidebar' not in globals():
-    print("Using local Sidebar implementation...")
+# === Sidebar Class ===
+class Sidebar:
+    """Sidebar for navigation between different view modes."""
     
-    # === Sidebar Class ===
-    class Sidebar:
-        """Sidebar for navigation between different view modes."""
-        
-        def __init__(self, surface, font):
-            self.surface = surface
-            self.font = font
-            self.width = SIDEBAR_WIDTH
-            self.current_mode = ViewMode.RAW
-            self.tab_names = {
-                ViewMode.RAW: "R",
-                ViewMode.PROCESSED: "P",
-                ViewMode.TWIN: "T",
-                ViewMode.SETTINGS: "S"
-            }
-else:
-    print("Using imported Sidebar class")
-
-if not modules_imported or 'Sidebar' not in globals():
-    # Define methods for the local Sidebar implementation
+    def __init__(self, surface, font):
+        self.surface = surface
+        self.font = font
+        self.width = SIDEBAR_WIDTH
+        self.current_mode = ViewMode.RAW
+        self.tab_names = {
+            ViewMode.RAW: "R",
+            ViewMode.PROCESSED: "P",
+            ViewMode.TWIN: "T",
+            ViewMode.SETTINGS: "S"
+        }
+    
     def draw(self):
         # Draw sidebar background
         status_bar_offset = STATUS_BAR_HEIGHT if STATUS_BAR_TOP else 0
@@ -345,7 +340,6 @@ if not modules_imported or 'Sidebar' not in globals():
         # Draw tab buttons
         for i, mode in enumerate([ViewMode.RAW, ViewMode.PROCESSED, ViewMode.TWIN, ViewMode.SETTINGS]):
             self._draw_tab_button(i, mode == self.current_mode, self.tab_names[mode])
-            
     def _draw_tab_button(self, index, active, label):
         # Adjust position based on status bar position
         status_bar_offset = STATUS_BAR_HEIGHT if STATUS_BAR_TOP else 0
@@ -357,20 +351,13 @@ if not modules_imported or 'Sidebar' not in globals():
         pygame.draw.rect(self.surface, button_color, button_rect, border_radius=5)
         
         # Create a larger font for the tab labels
-        # Check if TAB_ICON_FONT_SIZE constant is imported, otherwise use ICON_FONT_SIZE or a fallback
-        if 'TAB_ICON_FONT_SIZE' in globals():
-            icon_font_size = TAB_ICON_FONT_SIZE
-        elif 'ICON_FONT_SIZE' in globals():
-            icon_font_size = ICON_FONT_SIZE
-        else:
-            icon_font_size = 28
-        icon_font = pygame.font.SysFont(None, icon_font_size)
+        # Use TAB_ICON_FONT_SIZE if available
+        icon_font = pygame.font.SysFont(None, TAB_ICON_FONT_SIZE)
         
         # Draw label with larger font
         label_surface = icon_font.render(label, True, TEXT_COLOR)
         label_rect = label_surface.get_rect(center=button_rect.center)
         self.surface.blit(label_surface, label_rect)
-        
     def handle_click(self, y):
         # Calculate which tab was clicked - adjusting for status bar position
         status_bar_offset = STATUS_BAR_HEIGHT if STATUS_BAR_TOP else 0
@@ -380,57 +367,45 @@ if not modules_imported or 'Sidebar' not in globals():
                 print(f"Tab clicked: {i}")
                 return i
         return None
-    
-    # Add the methods to the Sidebar class
-    if 'Sidebar' in locals():
-        Sidebar.draw = draw
-        Sidebar._draw_tab_button = _draw_tab_button
-        Sidebar.handle_click = handle_click
 
-# Check if we're using the imported StatusBar or need the local implementation
-if not modules_imported or 'StatusBar' not in globals():
-    print("Using local StatusBar implementation...")
+# === Status Bar Class ===
+class StatusBar:
+    """Status bar for displaying system information."""
     
-    # === Status Bar Class ===
-    class StatusBar:
-        """Status bar for displaying system information."""
+    def __init__(self, surface, font):
+        self.surface = surface
+        self.font = font
+        self.height = STATUS_BAR_HEIGHT
+    
+    def draw(self, fps=0, nodes=0, runtime="00:04", latency="0.0 ms", signals=3, last_update="Just now"):
+        # Draw status bar at top instead of bottom
+        bar_rect = pygame.Rect(0, 0 if STATUS_BAR_TOP else WINDOW_HEIGHT - self.height, WINDOW_WIDTH, self.height)
+        pygame.draw.rect(self.surface, SIDEBAR_COLOR, bar_rect)
         
-        def __init__(self, surface, font):
-            self.surface = surface
-            self.font = font
-            self.height = STATUS_BAR_HEIGHT
+        # Draw runtime info
+        runtime_text = f"Runtime: {runtime}"
+        runtime_surface = self.font.render(runtime_text, True, TEXT_COLOR)
+        self.surface.blit(runtime_surface, (PLOT_PADDING, 5 if STATUS_BAR_TOP else WINDOW_HEIGHT - self.height + 5))
         
-        def draw(self, fps=0, nodes=0, runtime="00:04", latency="0.0 ms", signals=3, last_update="Just now"):
-            # Draw status bar at top instead of bottom
-            bar_rect = pygame.Rect(0, 0 if STATUS_BAR_TOP else WINDOW_HEIGHT - self.height, WINDOW_WIDTH, self.height)
-            pygame.draw.rect(self.surface, SIDEBAR_COLOR, bar_rect)
-            
-            # Draw runtime info
-            runtime_text = f"Runtime: {runtime}"
-            runtime_surface = self.font.render(runtime_text, True, TEXT_COLOR)
-            self.surface.blit(runtime_surface, (PLOT_PADDING, 5 if STATUS_BAR_TOP else WINDOW_HEIGHT - self.height + 5))
-            
-            # Draw latency info with green color
-            latency_text = f"Latency: {latency}"
-            latency_surface = self.font.render(latency_text, True, OK_COLOR)
-            self.surface.blit(latency_surface, (PLOT_PADDING + 120, 5 if STATUS_BAR_TOP else WINDOW_HEIGHT - self.height + 5))
-            
-            # Draw signals count
-            signals_text = f"Signals: {signals}"
-            signals_surface = self.font.render(signals_text, True, TEXT_COLOR)
-            self.surface.blit(signals_surface, (PLOT_PADDING + 240, 5 if STATUS_BAR_TOP else WINDOW_HEIGHT - self.height + 5))
-            
-            # Draw last update time
-            update_text = f"Last update: {last_update}"
-            update_surface = self.font.render(update_text, True, TEXT_COLOR)
-            self.surface.blit(update_surface, (PLOT_PADDING + 320, 5 if STATUS_BAR_TOP else WINDOW_HEIGHT - self.height + 5))
-            
-            # Draw FPS counter on right side
-            fps_text = f"FPS: {int(fps)}"
-            fps_surface = self.font.render(fps_text, True, TEXT_COLOR)
-            self.surface.blit(fps_surface, (WINDOW_WIDTH - 80, 5 if STATUS_BAR_TOP else WINDOW_HEIGHT - self.height + 5))
-else:
-    print("Using imported StatusBar class")
+        # Draw latency info with green color
+        latency_text = f"Latency: {latency}"
+        latency_surface = self.font.render(latency_text, True, OK_COLOR)
+        self.surface.blit(latency_surface, (PLOT_PADDING + 120, 5 if STATUS_BAR_TOP else WINDOW_HEIGHT - self.height + 5))
+        
+        # Draw signals count
+        signals_text = f"Signals: {signals}"
+        signals_surface = self.font.render(signals_text, True, TEXT_COLOR)
+        self.surface.blit(signals_surface, (PLOT_PADDING + 240, 5 if STATUS_BAR_TOP else WINDOW_HEIGHT - self.height + 5))
+        
+        # Draw last update time
+        update_text = f"Last update: {last_update}"
+        update_surface = self.font.render(update_text, True, TEXT_COLOR)
+        self.surface.blit(update_surface, (PLOT_PADDING + 320, 5 if STATUS_BAR_TOP else WINDOW_HEIGHT - self.height + 5))
+        
+        # Draw FPS counter on right side
+        fps_text = f"FPS: {int(fps)}"
+        fps_surface = self.font.render(fps_text, True, TEXT_COLOR)
+        self.surface.blit(fps_surface, (WINDOW_WIDTH - 80, 5 if STATUS_BAR_TOP else WINDOW_HEIGHT - self.height + 5))
 
 # === Event Handler Class ===
 class EventHandler:
@@ -440,56 +415,30 @@ class EventHandler:
         self.sidebar = sidebar
         self.settings_view = settings_view
         self.current_mode = sidebar.current_mode
-        self._external_needs_redraw = False
         print(f"EventHandler initialized with current_mode: {self.current_mode.name}")
     
     def process_events(self):
-        redraw = False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
+            
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1:  # Left click
                     x, y = event.pos
-                    # If a tab or button is clicked, trigger redraw
-                    if x < self.sidebar.width:
-                        mode_index = self.sidebar.handle_click(y)
-                        if mode_index is not None:
-                            self._update_mode(mode_index)
-                            redraw = True
-                    elif self.current_mode == ViewMode.SETTINGS and self.settings_view:
-                        if self._handle_settings_click(x, y):
-                            redraw = True
-        self._external_needs_redraw = redraw  # Used by PlotUnit to force redraw
+                    self._handle_click(x, y)
+        
         return True
-
-    def _handle_settings_click(self, x, y):
-        if not self.settings_view:
-            print("Settings view not available")
-            return False
-        print(f"Settings view click at: ({x}, {y})")
-        for button_rect, setting_key in self.settings_view.settings_buttons:
-            if button_rect.collidepoint(x, y):
-                print(f"Button clicked: {setting_key}")
-                changed = self._toggle_setting(setting_key)
-                return changed  # Only redraw if something changed
-        print(f"No button found at position: ({x}, {y})")
-        print(f"Available buttons: {len(self.settings_view.settings_buttons)}")
-        return False
-
-    def _toggle_setting(self, setting_key):
-        print(f"Toggling setting: {setting_key}")
-        if setting_key == 'reset_plots':
-            print("Reset plots action triggered")
-            return True
-        elif setting_key == 'reset_registry':
-            print("Reset registry action triggered")
-            return True
-        if setting_key in self.settings_view.settings:
-            self.settings_view.settings[setting_key] = not self.settings_view.settings[setting_key]
-            print(f"Setting '{setting_key}' toggled to: {self.settings_view.settings[setting_key]}")
-            return True
-        return False
+    
+    def _handle_click(self, x, y):
+        print(f"Click detected at ({x}, {y})")
+        if x < self.sidebar.width:
+            # Click in sidebar area
+            mode_index = self.sidebar.handle_click(y)
+            if mode_index is not None:
+                self._update_mode(mode_index)
+        elif self.current_mode == ViewMode.SETTINGS and self.settings_view:
+            # Pass click to settings view
+            self._handle_settings_click(x, y)
     
     def _update_mode(self, mode_index):
         # Map index to ViewMode
@@ -504,6 +453,51 @@ class EventHandler:
             self.current_mode = mode_mapping[mode_index]
             self.sidebar.current_mode = self.current_mode
             print(f"Mode updated to: {self.current_mode.name}")
+    
+    def _handle_settings_click(self, x, y):
+        if not self.settings_view:
+            print("Settings view not available")
+            return
+        
+        print(f"Settings view click at: ({x}, {y})")
+        
+        # Check if a settings button was clicked
+        found_button = False
+        for button_rect, setting_key in self.settings_view.settings_buttons:
+            if button_rect.collidepoint(x, y):
+                print(f"Button clicked: {setting_key}")
+                self._toggle_setting(setting_key)
+                found_button = True
+                break
+        
+        if not found_button:
+            print(f"No button found at position: ({x}, {y})")
+            print(f"Available buttons: {len(self.settings_view.settings_buttons)}")
+    def _toggle_setting(self, setting_key):
+        print(f"Toggling setting: {setting_key}")
+        
+        # Special handling for action buttons
+        if setting_key == 'reset_plots':
+            print("Reset plots action triggered")
+            # Flash the button by temporarily changing its color
+            if hasattr(self, 'settings_view') and self.settings_view:
+                for rect, key in self.settings_view.settings_buttons:
+                    if key == 'reset_plots':
+                        # We'll just trigger the action without visual feedback in this demo
+                        break
+            return True
+        
+        elif setting_key == 'reset_registry':
+            print("Reset registry action triggered")
+            # Same visual feedback approach
+            return True
+        
+        # Toggle regular settings
+        if setting_key in self.settings_view.settings:
+            self.settings_view.settings[setting_key] = not self.settings_view.settings[setting_key]
+            print(f"Setting '{setting_key}' toggled to: {self.settings_view.settings[setting_key]}")
+        
+        return False
     
     def get_current_mode(self):
         return self.current_mode
@@ -556,86 +550,68 @@ class PlotUnit:
     
     def _run(self):
         """Main visualization loop."""
-        try:
-            self.start_time = time.time()
+        try:            # Initialize pygame
             self.surface = pygame.display.set_mode((self.width, self.height))
             pygame.display.set_caption("ComfyUI - PlotUnit")
-            self.font = font
-            self.icon_font = pygame.font.SysFont(None, 28)
-            self.sidebar = Sidebar(
-                self.surface,
-                SIDEBAR_WIDTH,
-                self.height,
-                self.font,
-                self.icon_font,
-                ViewMode.RAW,
-                self.settings  # <-- Pass settings here
-            )
-            self.status_bar = StatusBar(
-                self.surface,
-                STATUS_BAR_HEIGHT,
-                self.font,
-                self.start_time
-            )
+            
+            # Create font for rendering text
+            self.font = pygame.font.SysFont("Arial", 14)
+            
+            # Initialize UI components
+            self.sidebar = Sidebar(self.surface, self.font)
+            self.status_bar = StatusBar(self.surface, self.font)
+            
+            # Create views
             self.views = {
-                ViewMode.RAW: RawView(self.surface, self.data_lock, self.data, self.font),
-                ViewMode.PROCESSED: ProcessedView(self.surface, self.data_lock, self.data, self.font),
-                ViewMode.TWIN: TwinView(self.surface, self.data_lock, self.data, self.font),
+                ViewMode.RAW: BaseView(self.surface, self.data_lock, self.data, self.font),
+                ViewMode.PROCESSED: BaseView(self.surface, self.data_lock, self.data, self.font),
+                ViewMode.TWIN: BaseView(self.surface, self.data_lock, self.data, self.font),
                 ViewMode.SETTINGS: SettingsView(self.surface, self.data_lock, self.data, self.font, self.settings)
             }
+            
+            # Create event handler
             self.event_handler = EventHandler(self.sidebar, self.views[ViewMode.SETTINGS])
+            
+            # Set as initialized
             self.initialized = True
             print("PlotUnit initialized successfully")
-
-            # --- UI redraw logic ---
-            needs_redraw = True
-            last_mode = self.event_handler.get_current_mode()
-            last_settings = self.settings.copy()
-
+            
+            # Main loop
             while self.running:
-                # Process events, and check if a redraw is needed
+                # Process events
                 self.running = self.event_handler.process_events()
+                
+                # Clear the screen
+                self.surface.fill(BACKGROUND_COLOR)
+                
+                # Get current mode
                 current_mode = self.event_handler.get_current_mode()
-
-                # Redraw if mode changed
-                if current_mode != last_mode:
-                    needs_redraw = True
-                    last_mode = current_mode
-
-                # Redraw if any settings changed (for toggles)
-                if current_mode == ViewMode.SETTINGS:
-                    for k, v in self.settings.items():
-                        if last_settings.get(k) != v:
-                            needs_redraw = True
-                            last_settings = self.settings.copy()
-                            break
-
-                # Redraw if event handler requested it (button/tab click)
-                if getattr(self.event_handler, '_external_needs_redraw', False):
-                    needs_redraw = True
-                    self.event_handler._external_needs_redraw = False
-
-                if needs_redraw:
-                    self.surface.fill(BACKGROUND_COLOR)
-                    self.views[current_mode].draw()
-                    self.sidebar.draw()
-                    needs_redraw = False
-
-                # Always update status bar (dynamic info)
+                
+                # Draw current view
+                self.views[current_mode].draw()
+                  # Draw sidebar and status bar
+                self.sidebar.draw()
                 self.status_bar.draw(
-                    self.fps,
-                    0.01,  # latency in seconds (10ms)
-                    {}     # empty signal_times dictionary
+                    self.fps, 
+                    self.settings['connected_nodes'],
+                    runtime="00:04", 
+                    latency="0.0 ms", 
+                    signals=3, 
+                    last_update="Just now"
                 )
+                
+                # Update the display
                 pygame.display.flip()
-
+                
                 # Calculate FPS
                 current_time = time.time()
                 delta_time = current_time - self.last_frame_time
                 self.fps = 1.0 / delta_time if delta_time > 0 else 0
                 self.last_frame_time = current_time
+                
+                # Cap FPS to reduce CPU usage
                 time.sleep(0.03)  # ~30 FPS
-
+        
         except Exception as e:
             print(f"Error in visualization thread: {str(e)}")
             import traceback

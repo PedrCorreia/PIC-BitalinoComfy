@@ -42,6 +42,7 @@ class SettingsView(BaseView):
         except ImportError:
             print("[SettingsView] Warning: Could not import PlotUnit")
             self.plot_unit = None
+
     def draw(self):
         """
         Draw the settings interface.
@@ -152,22 +153,21 @@ class SettingsView(BaseView):
         self._draw_button(
             x, y + 40,
             "Reset Plots",
-            "reset_plots",
-            (180, 60, 60)  # Red button
+            "reset_plots"
         )
         
         # Draw reset registry button
         self._draw_button(
             x, y + 90, 
             "Reset Registry",
-            "reset_registry",
-            (180, 60, 60)  # Red button
+            "reset_registry"
         )
         
         # Connected nodes info
         nodes_text = f"Connected nodes: {self.settings['connected_nodes']}"
         text_surface = self.font.render(nodes_text, True, TEXT_COLOR)
-        self.surface.blit(text_surface, (x, y + 150))   
+        self.surface.blit(text_surface, (x, y + 150))
+    
     def _draw_toggle(self, x, y, label, setting_key, value):
         """
         Draw a toggle switch for a boolean setting.
@@ -209,9 +209,9 @@ class SettingsView(BaseView):
         self.settings_buttons.append((switch_bg_rect, setting_key))
         
         # Debug output for button positioning
-        print(f"[SettingsView] Added toggle: {setting_key}, rect: {switch_bg_rect}, value: {value}")    
+        print(f"[SettingsView] Added toggle: {setting_key}, rect: {switch_bg_rect}, value: {value}")
     
-    def _draw_button(self, x, y, label, setting_key, color):
+    def _draw_button(self, x, y, label, action_key):
         """
         Draw an action button.
         
@@ -219,8 +219,7 @@ class SettingsView(BaseView):
             x (int): X coordinate for the button
             y (int): Y coordinate for the button
             label (str): Label for the button
-            setting_key (str): Key in the settings dictionary for this action
-            color (tuple): RGB color tuple for the button
+            action_key (str): Key in the settings dictionary for this action
         """
         # Draw button
         button_width = 150
@@ -235,8 +234,8 @@ class SettingsView(BaseView):
         label_rect = label_surface.get_rect(center=button_rect.center)
         self.surface.blit(label_surface, label_rect)
         
-        # Store button rect and settings key for click handling
-        self.settings_buttons.append((button_rect, setting_key))
+        # Store button rect and action key for click handling
+        self.settings_buttons.append((button_rect, action_key))
         
         # Debug output for button positioning
-        print(f"[SettingsView] Added action button: {setting_key}, rect: {button_rect}")
+        print(f"[SettingsView] Added action button: {action_key}, rect: {button_rect}")
