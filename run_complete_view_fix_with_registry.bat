@@ -19,7 +19,7 @@ echo.
 echo ================================================================
 
 REM Run the Python script
-echo Starting robust view switcher with enhanced TWIN-to-RAW handling...
+echo Starting robust view switcher with full registry integration...
 echo.
 python "%~dp0robust_view_switcher.py"
 

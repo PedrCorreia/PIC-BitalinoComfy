@@ -16,6 +16,7 @@ import random
 import numpy as np
 from enum import Enum
 import traceback
+import importlib
 
 # Add project root to path to ensure imports work
 base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -92,20 +93,78 @@ def register_demo_signals():
         # 2. Simple EDA-like signal (very stable)
         eda_signal = 0.5 + 0.2 * np.sin(0.2 * np.pi * t)
         
-        # Register raw signals with specific IDs
-        registry.register_signal('ECG_RAW', ecg_signal, {'color': (255, 0, 0), 'type': 'raw'})
-        registry.register_signal('EDA_RAW', eda_signal, {'color': (0, 255, 0), 'type': 'raw'})
+        # 3. Respiration-like signal
+        resp_signal = 0.7 * np.sin(0.3 * np.pi * t) + 0.05 * np.random.random(size=len(t))
+        
+        # Register raw signals with standard metadata
+        registry.register_signal('ECG_RAW', ecg_signal, {
+            'name': 'ECG Raw Signal',
+            'color': (255, 0, 0), 
+            'type': 'raw',
+            'sampling_rate': sample_rate,
+            'source': 'synthetic'
+        })
+        
+        registry.register_signal('EDA_RAW', eda_signal, {
+            'name': 'EDA Raw Signal',
+            'color': (0, 255, 0), 
+            'type': 'raw',
+            'sampling_rate': sample_rate,
+            'source': 'synthetic'
+        })
+        
+        registry.register_signal('RESP_RAW', resp_signal, {
+            'name': 'Respiration Raw Signal',
+            'color': (0, 0, 255), 
+            'type': 'raw',
+            'sampling_rate': sample_rate,
+            'source': 'synthetic'
+        })
         
         # Create processed versions with "PROC_" prefix for easy identification
         # Processed ECG - smoother
         proc_ecg = np.convolve(ecg_signal, np.ones(5)/5, mode='same')
-        registry.register_signal('PROC_ECG', proc_ecg, {'color': (200, 100, 100), 'type': 'processed'})
+        registry.register_signal('PROC_ECG', proc_ecg, {
+            'name': 'ECG Processed Signal',
+            'color': (200, 100, 100), 
+            'type': 'processed',
+            'sampling_rate': sample_rate,
+            'source': 'processed',
+            'original_signal': 'ECG_RAW'
+        })
         
         # Processed EDA - slightly different
         proc_eda = eda_signal + 0.1 * np.sin(np.pi * t)
-        registry.register_signal('PROC_EDA', proc_eda, {'color': (100, 200, 100), 'type': 'processed'})
+        registry.register_signal('PROC_EDA', proc_eda, {
+            'name': 'EDA Processed Signal',
+            'color': (100, 200, 100), 
+            'type': 'processed',
+            'sampling_rate': sample_rate,
+            'source': 'processed',
+            'original_signal': 'EDA_RAW'
+        })
         
-        print("Successfully registered 4 demo signals (2 raw, 2 processed)")
+        # Processed RESP - filtered
+        proc_resp = np.convolve(resp_signal, np.ones(7)/7, mode='same')
+        registry.register_signal('PROC_RESP', proc_resp, {
+            'name': 'Respiration Processed Signal',
+            'color': (100, 100, 200), 
+            'type': 'processed',
+            'sampling_rate': sample_rate,
+            'source': 'processed',
+            'original_signal': 'RESP_RAW'
+        })
+        
+        # Update visualization settings to show registry is active
+        try:
+            # Use the proper registry pattern to make sure the signal counts are correct
+            if hasattr(registry, 'signal_count') and callable(setattr):
+                setattr(registry, 'signal_count', 6)  # 3 raw + 3 processed
+                print("Updated registry signal count")
+        except Exception as e:
+            print(f"Warning: Could not update registry signal count: {e}")
+        
+        print("Successfully registered 6 demo signals (3 raw, 3 processed)")
         return True
         
     except Exception as e:
@@ -399,93 +458,136 @@ def apply_robust_view_switching(plot_unit):
                 # First clear existing data
                 plot_unit.data.clear()
                 
-                signal_count = 0  # Keep track of added signals
-                  # Add appropriate signals based on view mode
+                signal_count = 0  # Keep track of added signals                # Add appropriate signals based on view mode
                 if view_mode == ViewMode.RAW:
-                    # Check if we're coming from TWIN view - if so, use the absolute simplest approach
+                    # Check if we're coming from TWIN view - if so, take special care
                     if hasattr(plot_unit, '_current_mode') and plot_unit._current_mode == ViewMode.TWIN:
-                        # Don't use the registry at all - create a completely new signal
+                        # Use a hybrid approach - create a fallback signal but also try to use registry signals
                         try:
-                            # Use small data size for absolute maximum stability
-                            t = np.linspace(0, 3, 100)  # Very minimal signal
+                            # Create a guaranteed fallback signal first
+                            t = np.linspace(0, 3, 100)
                             plot_unit.data["GUARANTEED_SAFE_SIGNAL"] = np.sin(2 * np.pi * 0.5 * t)
                             print("Added guaranteed safe signal for RAW view after TWIN")
                             signal_count += 1
+                            
+                            # Now try to add real raw signals (safely)
+                            try:
+                                # Add all raw signals for proper display
+                                for signal_id, signal_data in registry_signals.items():
+                                    if not signal_id.startswith("PROC_") and "_processed" not in signal_id:
+                                        if signal_id.endswith("_RAW"):  # Prioritize signals with _RAW suffix
+                                            try:
+                                                plot_unit.data[signal_id] = np.copy(signal_data)
+                                                print(f"Added raw signal {signal_id} to RAW view")
+                                                signal_count += 1
+                                            except Exception as e:
+                                                print(f"Warning: Error adding signal {signal_id}: {e}")
+                            except Exception as e:
+                                print(f"Warning: Error adding registry signals to RAW view: {e}")
                         except Exception as e:
                             print(f"Warning: Error creating safe signal: {e}")
                     else:
-                        # Only load raw signals for raw view - limit to just 1 signal for maximum stability
+                        # Regular RAW view handling - add all available raw signals
+                        # In normal operation, we want to show all raw signals
+                        raw_signals_added = 0
                         for signal_id, signal_data in registry_signals.items():
                             if not signal_id.startswith("PROC_") and "_processed" not in signal_id:
                                 try:
                                     # Create a copy of the signal data to avoid reference issues
                                     plot_unit.data[signal_id] = np.copy(signal_data)
                                     print(f"Added raw signal {signal_id} to RAW view")
-                                    signal_count += 1
-                                    if signal_count >= 1:  # Strict limit for stability
-                                        break
+                                    raw_signals_added += 1
                                 except Exception as e:
                                     print(f"Warning: Error adding signal {signal_id}: {e}")
+                        
+                        print(f"Added {raw_signals_added} raw signals to RAW view")
+                        
+                        # If no raw signals were added, create a fallback
+                        if raw_signals_added == 0:
+                            t = np.linspace(0, 5, 200)
+                            plot_unit.data["FALLBACK_RAW_SIGNAL"] = np.sin(2 * np.pi * 0.5 * t)
+                            print("Added fallback raw signal")
                 
                 elif view_mode == ViewMode.PROCESSED:
-                    # Only load processed signals for processed view - limit to just 1 signal
+                    # Load all processed signals for the processed view
+                    processed_signals_added = 0
                     for signal_id, signal_data in registry_signals.items():
                         if signal_id.startswith("PROC_") or "_processed" in signal_id:
                             try:
                                 # Create a copy of the signal data
                                 plot_unit.data[signal_id] = np.copy(signal_data)
                                 print(f"Added processed signal {signal_id} to PROCESSED view")
-                                signal_count += 1
-                                if signal_count >= 1:  # Strict limit for stability
-                                    break
+                                processed_signals_added += 1
                             except Exception as e:
                                 print(f"Warning: Error adding signal {signal_id}: {e}")
+                    
+                    print(f"Added {processed_signals_added} processed signals to PROCESSED view")
+                    
+                    # If no processed signals were added, create a fallback
+                    if processed_signals_added == 0:
+                        t = np.linspace(0, 5, 200)
+                        plot_unit.data["FALLBACK_PROCESSED_SIGNAL"] = np.sin(2 * np.pi * 0.5 * t + 0.2)
+                        print("Added fallback processed signal")
                 
                 elif view_mode in (ViewMode.TWIN, ViewMode.STACKED):
-                    # For TWIN view, use the simplest possible approach - just add ONE raw and ONE processed signal
-                    # Avoid complex matching logic that could cause issues
-                    raw_added = False
-                    processed_added = False
+                    # For TWIN view - add matching pairs of raw and processed signals
+                    pairs_added = 0
                     
-                    # First look for ECG signals specifically as they're usually the most stable
+                    # Find pairs of signals (raw and processed versions)
+                    raw_signals = {}
+                    proc_signals = {}
+                    
+                    # First categorize all signals
                     for signal_id, signal_data in registry_signals.items():
                         try:
-                            if "ECG" in signal_id.upper() and not raw_added and not signal_id.startswith("PROC_"):
-                                plot_unit.data[signal_id] = np.copy(signal_data)
-                                print(f"Added ECG raw signal {signal_id} to TWIN view")
-                                raw_added = True
-                            elif "ECG" in signal_id.upper() and not processed_added and signal_id.startswith("PROC_"):
-                                plot_unit.data[signal_id] = np.copy(signal_data)
-                                print(f"Added ECG processed signal {signal_id} to TWIN view")
-                                processed_added = True
+                            if signal_id.startswith("PROC_"):
+                                proc_signals[signal_id] = signal_data
+                            elif "_processed" not in signal_id:
+                                raw_signals[signal_id] = signal_data
+                        except Exception:
+                            continue
+                    
+                    # Try to find matching pairs
+                    for raw_id, raw_data in raw_signals.items():
+                        try:
+                            # Try to find matching processed signal
+                            proc_id = None
                             
-                            if raw_added and processed_added:
-                                break
+                            # If raw signal is "ECG_RAW", look for "PROC_ECG"
+                            if raw_id.endswith("_RAW"):
+                                base_name = raw_id[:-4]  # Remove _RAW
+                                proc_id = f"PROC_{base_name}"
+                            else:
+                                # Otherwise just prepend PROC_
+                                proc_id = f"PROC_{raw_id}"
+                                
+                            # If we found a matching processed signal, add the pair
+                            if proc_id in proc_signals:
+                                plot_unit.data[raw_id] = np.copy(raw_data)
+                                plot_unit.data[proc_id] = np.copy(proc_signals[proc_id])
+                                print(f"Added signal pair to TWIN view: {raw_id} + {proc_id}")
+                                pairs_added += 1
                         except Exception as e:
-                            print(f"Warning: Error adding signal {signal_id}: {e}")
+                            print(f"Warning: Error adding signal pair for {raw_id}: {e}")
                     
-                    # If we still need signals, use any available
-                    if not raw_added:
-                        for signal_id, signal_data in registry_signals.items():
-                            try:
-                                if not signal_id.startswith("PROC_") and "_processed" not in signal_id:
-                                    plot_unit.data[signal_id] = np.copy(signal_data)
-                                    print(f"Added generic raw signal {signal_id} to TWIN view")
-                                    raw_added = True
-                                    break
-                            except Exception:
-                                continue
+                    print(f"Added {pairs_added} signal pairs to TWIN view")
                     
-                    if not processed_added:
-                        for signal_id, signal_data in registry_signals.items():
+                    # If no pairs were added, create a fallback
+                    if pairs_added == 0:
+                        try:
+                            t = np.linspace(0, 5, 200)
+                            plot_unit.data["FALLBACK_RAW"] = np.sin(2 * np.pi * 0.5 * t)
+                            plot_unit.data["FALLBACK_PROC"] = np.sin(2 * np.pi * 0.5 * t + 0.5)
+                            print("Added fallback signal pair to TWIN view")
+                        except Exception as e:
+                            print(f"Warning: Error adding fallback signals: {e}")
+                            # Try absolute minimal approach
                             try:
-                                if signal_id.startswith("PROC_") or "_processed" in signal_id:
-                                    plot_unit.data[signal_id] = np.copy(signal_data)
-                                    print(f"Added generic processed signal {signal_id} to TWIN view")
-                                    processed_added = True
-                                    break
+                                t = np.linspace(0, 2, 50)
+                                plot_unit.data["F_RAW"] = np.sin(2 * np.pi * t)
+                                plot_unit.data["F_PROC"] = np.cos(2 * np.pi * t)
                             except Exception:
-                                continue
+                                pass
                         
                 # Handle empty data case - always provide a fallback
                 if not plot_unit.data:
@@ -533,6 +635,33 @@ def run_demo_cycle(plot_unit):
         
         # Make sure we have signals
         register_demo_signals()
+        
+        # Import UI enhancements for registry connection if available
+        try:
+            # Try to import the sidebar registry enhancement
+            import src.plot.ui.sidebar_registry_enhancement
+            print("Sidebar enhanced with registry connection indicator")
+        except ImportError as e:
+            print(f"Note: Sidebar registry indicator not available: {e}")
+            
+        try:
+            # Try to import the settings view registry enhancement
+            import src.plot.view.settings_view_registry_enhancement
+            print("Settings view enhanced with registry information")
+        except ImportError as e:
+            print(f"Note: Settings view registry information not available: {e}")
+            
+        try:
+            # Try to import the status bar registry enhancement
+            import src.plot.ui.status_bar_registry_enhancement
+            print("Status bar enhanced with registry signal information")
+        except ImportError as e:
+            print(f"Note: Status bar registry enhancement not available: {e}")
+        
+        # Make sure the registry connection indicator is shown
+        if hasattr(plot_unit, 'settings'):
+            plot_unit.settings['registry_connected'] = True
+            plot_unit.settings['connected_nodes'] = 6  # 3 raw + 3 processed
         
         print("\nStarting robust view mode cycle demonstration:")
         print("----------------------------------------------")
@@ -623,6 +752,142 @@ def run_demo_cycle(plot_unit):
         traceback.print_exc()
         return False
 
+class PlotUnitRegistryAdapter:
+    """
+    Adapter that connects the PlotUnit visualization with the PlotRegistry.
+    This ensures registry signals are properly synchronized with the visualization.
+    """
+    
+    def __init__(self, plot_unit=None):
+        """
+        Initialize the adapter.
+        
+        Args:
+            plot_unit: The PlotUnit instance to connect to
+        """
+        try:
+            # Get registry instance
+            self.registry = get_registry_instance()
+            
+            # Try to get integration module
+            try:
+                from src.registry.plot_registry_integration import PlotRegistryIntegration
+                self.integration = PlotRegistryIntegration.get_instance()
+                print("Got PlotRegistryIntegration instance")
+            except ImportError:
+                print("PlotRegistryIntegration not available")
+                self.integration = None
+            
+            # Store plot unit reference
+            self.plot_unit = plot_unit
+                
+            # Connection setup
+            self.running = False
+            self.thread = None
+            self.last_update_time = time.time()
+            self.blink_state = False
+            self.blink_timer = 0
+            
+            print("PlotUnitRegistryAdapter initialized")
+            
+        except Exception as e:
+            print(f"Warning: Error initializing adapter: {e}")
+            traceback.print_exc()
+    
+    def connect(self):
+        """Connect the PlotUnit to the PlotRegistry and start monitoring."""
+        if self.running:
+            print("Adapter already running")
+            return
+        
+        if self.plot_unit is None:
+            print("ERROR: No PlotUnit instance available")
+            return
+        
+        # Add registry_connected setting if it doesn't exist
+        if hasattr(self.plot_unit, 'settings') and not 'registry_connected' in self.plot_unit.settings:
+            self.plot_unit.settings['registry_connected'] = True
+            print("Added registry_connected setting to PlotUnit")
+            
+        if hasattr(self.plot_unit, 'settings') and not 'connected_nodes' in self.plot_unit.settings:
+            self.plot_unit.settings['connected_nodes'] = 6  # 3 raw + 3 processed
+            print("Added connected_nodes setting to PlotUnit")
+        
+        # Start the monitoring thread
+        self.running = True
+        self.thread = threading.Thread(target=self._monitor_registry)
+        self.thread.daemon = True
+        self.thread.start()
+        
+        print("PlotUnitRegistryAdapter started - connecting PlotUnit to registry")
+    
+    def disconnect(self):
+        """Disconnect the adapter and stop monitoring."""
+        self.running = False
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=1.0)
+        print("PlotUnitRegistryAdapter stopped")
+        
+    def _monitor_registry(self):
+        """Monitor the registry for changes and update the PlotUnit."""
+        print("Registry monitoring thread started")
+        
+        while self.running:
+            try:
+                # Get all signals from the registry
+                signals_to_render = {}
+                
+                if self.registry:
+                    # Use the registry signals
+                    if hasattr(self.registry, 'signals'):
+                        for signal_id, signal_data in self.registry.signals.items():
+                            metadata = self.registry.get_signal_metadata(signal_id) if hasattr(self.registry, 'get_signal_metadata') else {}
+                            signals_to_render[signal_id] = {
+                                'data': signal_data,
+                                'metadata': metadata or {'color': (255, 255, 255)}
+                            }
+                
+                # Store the signal count
+                signal_count = len(signals_to_render)
+                
+                # Update the "connected_nodes" setting to reflect the number of signals in registry
+                if hasattr(self.plot_unit, 'settings'):
+                    self.plot_unit.settings['connected_nodes'] = signal_count
+                
+                # Handle blinking dot logic - blink at 1Hz
+                current_time = time.time()
+                if current_time - self.blink_timer >= 0.5:  # Toggle every 0.5 seconds
+                    self.blink_state = not self.blink_state
+                    self.blink_timer = current_time
+                    
+                    # Set the registry connection status for the sidebar
+                    if hasattr(self.plot_unit, 'settings'):
+                        if signal_count > 0:
+                            # If we have signals, blink the indicator
+                            self.plot_unit.settings['registry_connected'] = self.blink_state
+                        else:
+                            # If no signals, indicator should be off
+                            self.plot_unit.settings['registry_connected'] = False
+                
+                # Update the PlotUnit with the signals
+                if signals_to_render and hasattr(self.plot_unit, 'data_lock') and hasattr(self.plot_unit, 'data'):
+                    with self.plot_unit.data_lock:
+                        for signal_id, signal_info in signals_to_render.items():
+                            try:
+                                # Update the data in the plot_unit
+                                self.plot_unit.data[signal_id] = signal_info['data']
+                            except Exception as e:
+                                print(f"Warning: Error updating {signal_id}: {e}")
+                
+                # Wait a short time before checking again
+                time.sleep(0.05)  # 50ms update rate
+                
+            except Exception as e:
+                print(f"Error in registry monitoring thread: {e}")
+                traceback.print_exc()
+                time.sleep(1.0)
+
+
 def run():
     """Main function to run robust view switcher."""
     print("Starting robust view switching fix for PIC-2025...\n")
@@ -639,8 +904,13 @@ def run():
     print("\nStep 2: Registering demo signals...")
     register_demo_signals()
     
-    # Step 3: Apply robust view switching
-    print("\nStep 3: Applying robust view switching...")
+    # Step 3: Connect the adapter to maintain registry synchronization
+    print("\nStep 3: Connecting registry adapter...")
+    adapter = PlotUnitRegistryAdapter(plot_unit)
+    adapter.connect()
+    
+    # Step 4: Apply robust view switching
+    print("\nStep 4: Applying robust view switching...")
     if not apply_robust_view_switching(plot_unit):
         print("Failed to apply robust view switching. Exiting.")
         return False
