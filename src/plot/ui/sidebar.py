@@ -59,10 +59,10 @@ class Sidebar:
         pygame.draw.rect(self.surface, SIDEBAR_COLOR, sidebar_rect)
         
         # Draw mode buttons with proper spacing
-        self._draw_mode_button(0, "R", "Raw", 0)
-        self._draw_mode_button(1, "P", "Processed", 1)
-        self._draw_mode_button(2, "T", "Twin View", 2)
-        self._draw_mode_button(3, "S", "Settings", 3)
+        self._draw_mode_button(0, "R", "Raw", ViewMode.RAW)
+        self._draw_mode_button(1, "P", "Processed", ViewMode.PROCESSED)
+        self._draw_mode_button(2, "T", "Twin View", ViewMode.TWIN)
+        self._draw_mode_button(3, "S", "Settings", ViewMode.SETTINGS)
         # Draw status indicator dot below the S button
         self._draw_status_dot_below_settings()
 
@@ -74,14 +74,14 @@ class Sidebar:
             position (int): Position index in the sidebar (0-based)
             icon (str): Single character icon to display
             tooltip (str): Tooltip text for the button
-            mode_value (int): The ViewMode enum value for this button
+            mode_value (ViewMode): The ViewMode enum value for this button
         """
         # Calculate position with proper spacing between buttons, accounting for status bar
         status_bar_offset = STATUS_BAR_HEIGHT if STATUS_BAR_TOP else 0
         y = status_bar_offset + self.button_spacing + position * (self.button_height + self.button_spacing)
         
         # Check if this is the current mode
-        is_active = self.current_mode.value == mode_value
+        is_active = self.current_mode == mode_value
         
         # Draw button background if active
         if is_active:

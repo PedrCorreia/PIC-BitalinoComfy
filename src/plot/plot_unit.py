@@ -209,15 +209,15 @@ class PlotUnit:
             self.height, 
             self.font, 
             self.icon_font,
-            self.current_mode
+            self.current_mode,
+            self.settings
         )
         
         self.status_bar = StatusBar(
             self.surface,
             self.width,
             self.status_bar_height,
-            self.font,
-            self.start_time
+            self.font
         )
         
         # Create views
@@ -226,25 +226,29 @@ class PlotUnit:
                 self.surface, 
                 self.data_lock, 
                 self.data, 
-                self.font
+                self.font,
+                
             ),
             ViewMode.PROCESSED: ProcessedView(
                 self.surface, 
                 self.data_lock, 
                 self.data, 
-                self.font
+                self.font,
+                
             ),
             ViewMode.TWIN: TwinView(
                 self.surface, 
                 self.data_lock, 
                 self.data, 
-                self.font
+                self.font,
+                
             ),
             ViewMode.STACKED: StackedView(
                 self.surface,
                 self.data_lock,
                 self.data,
-                self.font
+                self.font,
+                
             ),
             ViewMode.SETTINGS: SettingsView(
                 self.surface, 
@@ -254,7 +258,8 @@ class PlotUnit:
                 self.settings
             ),
         }
-          # --- PlotContainer integration ---
+    
+        # --- PlotContainer integration ---
         self.plot_container = PlotContainer(
             pygame.Rect(0, 0, self.width, self.height),
             self.sidebar_width,
@@ -262,7 +267,6 @@ class PlotUnit:
         )
         
         # Initialize PlotContainer with the view for current mode
-        # We'll update the plots list dynamically in the _render method
         if self.current_mode == ViewMode.RAW:
             self.plot_container.add_plot(self.views[ViewMode.RAW])
         elif self.current_mode == ViewMode.PROCESSED:
@@ -283,7 +287,26 @@ class PlotUnit:
         
         # Create extensions
         self.extensions = PlotExtensions(self)
-    
+        
+        # Add debug plots for UI testing
+        self._add_debug_plots()
+
+    def _add_debug_plots(self):
+        """
+        Add static debug plots for UI testing.
+        """
+        try:
+            # Import debug plot utilities
+            from .utils.debug_plots import initialize_test_plots
+            
+            # Initialize with test plots
+            initialize_test_plots(self)
+            logger.info("Debug plots initialized for UI testing")
+        except ImportError:
+            logger.warning("Debug plot utilities not available, skipping debug plot initialization")
+        except Exception as e:
+            logger.error(f"Error initializing debug plots: {e}")
+
     def _process_queue(self):
         """
         Process events from the queue.

@@ -25,6 +25,7 @@ TWIN_VIEW_SEPARATOR = 10   # Space between twin views (increased for better sepa
 
 # Position for status bar - TOP instead of bottom
 STATUS_BAR_TOP = True
+STATUS_COLOR=(24, 24, 24)  # Color for the status bar
 
 # Additional UI spacing parameters
 BUTTON_MARGIN = 8         # Margin between buttons
