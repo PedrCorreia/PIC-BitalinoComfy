@@ -17,6 +17,7 @@ import threading
 import numpy as np
 import datetime
 import traceback
+import collections
 from typing import Dict, List, Tuple, Optional
 
 # Make sure we can import from the project structure
@@ -88,6 +89,9 @@ class RegistrySignalGenerator:
         self.thread = None
         self.data_lock = threading.Lock()
         
+        # Signal buffers for deque of (rel_time, value) pairs
+        self.signal_buffers = {}  # Store deques of (rel_time, value) for each signal
+        
         print(f"RegistrySignalGenerator initialized with {self.buffer_seconds}s buffer")
 
     def set_buffer_seconds(self, seconds):
@@ -136,7 +140,7 @@ class RegistrySignalGenerator:
                 # Update each active signal
                 with self.data_lock:
                     current_time = time.time()
-                    elapsed = current_time - start_time
+                    rel_time = current_time - start_time
                     
                     # Generate new data points for each signal
                     for signal_id, metadata in self.signals.items():
@@ -146,26 +150,25 @@ class RegistrySignalGenerator:
                             generate_func = metadata.get('generator_func')
                             if generate_func:
                                 # Generate new data point
-                                new_value = generate_func(elapsed, sample_index)
+                                new_value = generate_func(rel_time, sample_index)
                                 
-                                # Update signal in registry with new value
-                                signal_data = self.signal_registry.get_signal(signal_id)
+                                # --- Use deque of (rel_time, value) ---
+                                if signal_id not in self.signal_buffers:
+                                    self.signal_buffers[signal_id] = collections.deque(maxlen=self.max_buffer_size)
+                                self.signal_buffers[signal_id].append((rel_time, new_value))
                                 
-                                # Ensure signal_data is a numpy array
-                                if not isinstance(signal_data, np.ndarray):
-                                    signal_data = np.array([])
+                                # Register the buffer (as a list for serialization safety)
+                                buffer_list = list(self.signal_buffers[signal_id])
                                 
-                                # Append new data
-                                updated_data = np.append(signal_data, new_value)
-                                
-                                # Trim to keep only the buffer size worth of data
-                                if len(updated_data) > self.max_buffer_size:
-                                    updated_data = updated_data[-self.max_buffer_size:]
-                                    
                                 # Update the signal in registry
                                 self.signal_registry.register_signal(
                                     signal_id=signal_id,
-                                    signal_data=updated_data,
+                                    signal_data=buffer_list,
+                                    metadata=metadata
+                                )
+                                self.plot_registry.register_signal(
+                                    signal_id=signal_id,
+                                    signal_data=buffer_list,
                                     metadata=metadata
                                 )
                 
@@ -178,7 +181,7 @@ class RegistrySignalGenerator:
             except Exception as e:
                 print(f"Error in signal generator thread: {e}")
                 traceback.print_exc()
-                time.sleep(1.0)  # Prevent busy-waiting in case of repeated errors
+                time.sleep(1.0)
 
     def create_ecg_signal(self):
         """Create an ECG signal in the registry (raw signal)."""
@@ -188,7 +191,7 @@ class RegistrySignalGenerator:
             return self.generators['raw']['ECG']['id']
             
         signal_id = "ECG"
-        initial_data = np.array([])
+        initial_data = []  # Start with empty list for deque
         
         # Define metadata
         metadata = {
@@ -206,6 +209,9 @@ class RegistrySignalGenerator:
         # Register for visualization in PlotRegistry
         self.plot_registry.register_signal(signal_id, initial_data, metadata)
         
+        # Initialize the signal buffer as a deque
+        self.signal_buffers[signal_id] = collections.deque(maxlen=self.max_buffer_size)
+        
         # Store in active signals
         self.signals[signal_id] = metadata
         self.generators['raw']['ECG']['created'] = True
@@ -222,7 +228,7 @@ class RegistrySignalGenerator:
             return self.generators['raw']['EDA']['id']
             
         signal_id = "EDA"
-        initial_data = np.array([])
+        initial_data = []
         
         # Define metadata
         metadata = {
@@ -239,6 +245,9 @@ class RegistrySignalGenerator:
         
         # Register for visualization in PlotRegistry
         self.plot_registry.register_signal(signal_id, initial_data, metadata)
+        
+        # Initialize the signal buffer as a deque
+        self.signal_buffers[signal_id] = collections.deque(maxlen=self.max_buffer_size)
         
         # Store in active signals
         self.signals[signal_id] = metadata
@@ -275,7 +284,7 @@ class RegistrySignalGenerator:
         # Create ID with appropriate prefix for signal type
         prefix = "PROC" if processed else "RAW"
         signal_id = f"{prefix}_{name}"
-        initial_data = np.array([])
+        initial_data = []
         
         # Define generator function based on name
         if name in ["WAVE1", "WAVE2", "WAVE3", "RAW_SINE"]:
@@ -318,6 +327,9 @@ class RegistrySignalGenerator:
         
         # Register for visualization in PlotRegistry
         self.plot_registry.register_signal(signal_id, initial_data, metadata)
+        
+        # Initialize the signal buffer as a deque
+        self.signal_buffers[signal_id] = collections.deque(maxlen=self.max_buffer_size)
         
         # Store in active signals
         self.signals[signal_id] = metadata

@@ -50,7 +50,7 @@ class SignalRegistry:
         
         Args:
             signal_id (str): Unique identifier for the signal
-            signal_data (array): The signal data (numpy array, tensor, or list)
+            signal_data (array or tuple): The signal data (numpy array, tensor, list, or (timestamps, values) tuple)
             metadata (dict, optional): Metadata for the signal (type, source, etc.)
         
         Returns:
@@ -61,19 +61,27 @@ class SignalRegistry:
             return None
             
         with self.registry_lock:
+            # If signal_data is a tuple of length 2, store as-is (for (timestamps, values))
+            if isinstance(signal_data, tuple) and len(signal_data) == 2:
+                self.signals[signal_id] = signal_data
+                logger.info(f"Signal '{signal_id}' registered as tuple with lengths {[len(x) for x in signal_data]}")
             # Convert tensors to numpy
-            if isinstance(signal_data, torch.Tensor):
+            elif isinstance(signal_data, torch.Tensor):
                 signal_data = signal_data.detach().cpu().numpy()
+                self.signals[signal_id] = signal_data
+                logger.info(f"Signal '{signal_id}' registered with shape {signal_data.shape}")
             # Convert to numpy array if needed
             elif not isinstance(signal_data, np.ndarray):
                 try:
                     signal_data = np.array(signal_data)
+                    self.signals[signal_id] = signal_data
+                    logger.info(f"Signal '{signal_id}' registered with shape {signal_data.shape}")
                 except Exception as e:
                     logger.error(f"Failed to convert signal data to numpy array: {e}")
                     return None
-                
-            # Store the signal data
-            self.signals[signal_id] = signal_data
+            else:
+                self.signals[signal_id] = signal_data
+                logger.info(f"Signal '{signal_id}' registered with shape {signal_data.shape}")
             
             # Store metadata if provided
             if metadata:
@@ -85,7 +93,6 @@ class SignalRegistry:
                     'source': 'unknown'
                 }
                 
-            logger.info(f"Signal '{signal_id}' registered with shape {signal_data.shape}")
             return signal_id
             
     def get_signal(self, signal_id):

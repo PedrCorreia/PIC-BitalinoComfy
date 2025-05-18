@@ -41,16 +41,22 @@ class PlotRegistry:
         
         Args:
             signal_id (str): Unique identifier for the signal
-            signal_data (array): The signal data (numpy array or list)
+            signal_data (array or tuple): The signal data (numpy array, list, or (timestamps, values) tuple)
             metadata (dict, optional): Metadata for the signal (color, etc)
         """
         with self.registry_lock:
+            # If signal_data is a tuple of length 2, store as-is (for (timestamps, values))
+            if isinstance(signal_data, tuple) and len(signal_data) == 2:
+                self.signals[signal_id] = signal_data
+                logger.debug(f"Signal '{signal_id}' registered as tuple with lengths {[len(x) for x in self.signals[signal_id]]}")
             # Convert to numpy array if needed
-            if not isinstance(signal_data, np.ndarray):
+            elif not isinstance(signal_data, np.ndarray):
                 signal_data = np.array(signal_data)
-                
-            # Store the signal data
-            self.signals[signal_id] = signal_data
+                self.signals[signal_id] = signal_data
+                logger.debug(f"Signal '{signal_id}' registered with shape {self.signals[signal_id].shape}")
+            else:
+                self.signals[signal_id] = signal_data
+                logger.debug(f"Signal '{signal_id}' registered with shape {self.signals[signal_id].shape}")
             
             # Store metadata if provided
             if metadata:
@@ -62,7 +68,6 @@ class PlotRegistry:
                     'created': time.time()
                 }
                 
-            logger.debug(f"Signal '{signal_id}' registered with shape {signal_data.shape}")
     def connect_node_to_signal(self, node_id, signal_id):
         """
         Connect a visualization node to a specific signal.

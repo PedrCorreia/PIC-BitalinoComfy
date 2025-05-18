@@ -9,6 +9,10 @@ import pygame
 from ..constants import *
 from ..view_mode import ViewMode
 
+# Ensure TAB_ICON_FONT_SIZE is always defined
+if 'TAB_ICON_FONT_SIZE' not in globals():
+    TAB_ICON_FONT_SIZE = 28  # Fallback default if not imported
+
 class Sidebar:
     """
     Sidebar navigation component for PlotUnit.
@@ -151,3 +155,14 @@ class Sidebar:
                 return i
                 
         return None
+
+    def update_dynamic_state(self, current_mode, settings):
+        """
+        Update the sidebar's dynamic state (current mode and settings) from the main loop.
+        
+        Args:
+            current_mode (ViewMode): The currently active view mode
+            settings (dict): The latest settings dictionary
+        """
+        self.current_mode = current_mode
+        self.settings = settings.copy() if isinstance(settings, dict) else settings
