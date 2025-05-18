@@ -24,61 +24,6 @@ TAB_ICONS = ['R', 'P', 'T', 'S']
 from src.registry.plot_generator_debug_fixed import RegistrySignalGenerator
 from src.registry.plot_registry import PlotRegistry
 
-# --- Registry-based Signal Fetcher ---
-def get_signals_by_type(plot_registry, window_sec, signal_type, debug=False):
-    """
-    Fetch signals from the registry by type ('raw' or 'processed'), returning a list of dicts:
-    [{ 'id': ..., 't': ..., 'v': ..., 'meta': ... }, ...]
-    """
-    all_signal_ids = plot_registry.get_all_signal_ids()
-    if debug:
-        print(f"[DEBUG] All signal IDs in registry: {all_signal_ids}")
-    if signal_type == 'raw':
-        ids = [sid for sid in all_signal_ids if 'RAW' in sid or 'ECG' in sid or 'EDA' in sid]
-    elif signal_type == 'processed':
-        ids = [sid for sid in all_signal_ids if 'PROC' in sid or 'WAVE' in sid]
-    else:
-        ids = []
-    signals = []
-    for sid in ids:
-        data = plot_registry.get_signal(sid)
-        meta = plot_registry.get_signal_metadata(sid)
-        if debug:
-            print(f"[DEBUG] Fetching signal '{sid}': data type={type(data)}, meta={meta}")
-        if data is None:
-            continue
-        # --- Handle numpy array of shape (N, 2) ---
-        if isinstance(data, np.ndarray) and data.ndim == 2 and data.shape[1] == 2:
-            t, v = data[:, 0], data[:, 1]
-        # If data is a deque/list/tuple of (timestamp, value) tuples, unpack it
-        elif isinstance(data, (list, tuple)) and len(data) > 0 and isinstance(data[0], (list, tuple)) and len(data[0]) == 2:
-            arr = np.array(data)
-            t, v = arr[:, 0], arr[:, 1]
-        # Support (timestamps, values) tuple
-        elif isinstance(data, tuple) and len(data) == 2:
-            t, v = np.array(data[0]), np.array(data[1])
-        else:
-            # If only values, synthesize timestamps based on sampling rate if available
-            v = np.array(data)
-            sr = meta.get('sampling_rate', 100) if meta else 100
-            t = np.arange(len(v)) / sr
-        # Always plot at least the last 2 points if available
-        if len(t) < 2:
-            if len(t) == 1:
-                t = t - t[0]
-                signals.append({'id': sid, 't': t, 'v': v, 'meta': meta})
-            continue
-        t0 = t[-1] - window_sec
-        mask = t >= t0
-        t, v = t[mask], v[mask]
-        if len(t) < 2:
-            t, v = t[-2:], v[-2:]
-        t = t - t[0]
-        signals.append({'id': sid, 't': t, 'v': v, 'meta': meta})
-        if debug:
-            print(f"[DEBUG] Signal '{sid}' windowed to {len(t)} points, t0={t[0] if len(t) else 'NA'}")
-    return signals
-
 # --- Modular Plot Drawing ---
 def draw_signal_plot(screen, font, signal, x, y, w, h):
     t, v, meta = signal['t'], signal['v'], signal['meta']
@@ -111,6 +56,7 @@ def main():
     window_sec = 10
     running = True
     time.sleep(1.0)
+    start_time = time.time()  # <-- Track start time for relative runtime
 
     while running:
         for event in pygame.event.get():
@@ -150,18 +96,18 @@ def main():
             window_label = font.render(f"Rolling Window (s): {window_sec}", True, TEXT_COLOR)
             screen.blit(window_label, (plot_x + 50, plot_y + 30))
         elif selected_tab == 0:  # RAW
-            raw_signals = get_signals_by_type(plot_registry, window_sec, 'raw', debug=True)
+            raw_signals = plot_registry.get_signals_by_type(window_sec, 'raw', debug=True)
             print(f"[DEBUG] Plotting RAW signals: {[s['id'] for s in raw_signals]}")
             for i, sig in enumerate(raw_signals[:3]):
                 draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height)
         elif selected_tab == 1:  # PROCESSED
-            processed_signals = get_signals_by_type(plot_registry, window_sec, 'processed', debug=True)
+            processed_signals = plot_registry.get_signals_by_type(window_sec, 'processed', debug=True)
             print(f"[DEBUG] Plotting PROCESSED signals: {[s['id'] for s in processed_signals]}")
             for i, sig in enumerate(processed_signals[:3]):
                 draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height)
         elif selected_tab == 2:  # TWIN
-            raw_signals = get_signals_by_type(plot_registry, window_sec, 'raw', debug=True)
-            processed_signals = get_signals_by_type(plot_registry, window_sec, 'processed', debug=True)
+            raw_signals = plot_registry.get_signals_by_type(window_sec, 'raw', debug=True)
+            processed_signals = plot_registry.get_signals_by_type(window_sec, 'processed', debug=True)
             print(f"[DEBUG] Plotting TWIN processed: {[s['id'] for s in processed_signals]}, raw: {[s['id'] for s in raw_signals]}")
             left_width = plot_width // 2 - TWIN_VIEW_SEPARATOR
             right_width = plot_width // 2 - TWIN_VIEW_SEPARATOR
@@ -173,7 +119,8 @@ def main():
                 draw_signal_plot(screen, font, sig, center_x + 5, plot_y + i*plot_height, right_width, plot_height)
         # --- Status Bar ---
         all_signal_ids = plot_registry.get_all_signal_ids()
-        status = f"Mode: {TABS[selected_tab]} | FPS: {int(clock.get_fps())} | Runtime: {int(time.time())}s | Signals: {len(all_signal_ids)}"
+        rel_runtime = int(time.time() - start_time)
+        status = f"Mode: {TABS[selected_tab]} | FPS: {int(clock.get_fps())} | Runtime: {rel_runtime}s | Signals: {len(all_signal_ids)}"
         txt = font.render(status, True, TEXT_COLOR)
         screen.blit(txt, (10, 6))
         pygame.display.flip()

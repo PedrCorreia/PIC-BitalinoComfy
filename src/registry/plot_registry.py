@@ -182,3 +182,58 @@ class PlotRegistry:
         # Make colors brighter for better visibility
         color = (min(r + 100, 255), min(g + 100, 255), min(b + 100, 255))
         return color
+    
+    def get_signals_by_type(self, window_sec, signal_type, debug=False):
+        """
+        Fetch signals from the registry by type ('raw' or 'processed'), returning a list of dicts:
+        [{ 'id': ..., 't': ..., 'v': ..., 'meta': ... }, ...]
+        """
+        import numpy as np
+        all_signal_ids = self.get_all_signal_ids()
+        if debug:
+            print(f"[DEBUG] All signal IDs in registry: {all_signal_ids}")
+        if signal_type == 'raw':
+            ids = [sid for sid in all_signal_ids if 'RAW' in sid or 'ECG' in sid or 'EDA' in sid]
+        elif signal_type == 'processed':
+            ids = [sid for sid in all_signal_ids if 'PROC' in sid or 'WAVE' in sid]
+        else:
+            ids = []
+        signals = []
+        for sid in ids:
+            data = self.get_signal(sid)
+            meta = self.get_signal_metadata(sid)
+            if debug:
+                print(f"[DEBUG] Fetching signal '{sid}': data type={type(data)}, meta={meta}")
+            if data is None:
+                continue
+            # --- Handle numpy array of shape (N, 2) ---
+            if isinstance(data, np.ndarray) and data.ndim == 2 and data.shape[1] == 2:
+                t, v = data[:, 0], data[:, 1]
+            # If data is a deque/list/tuple of (timestamp, value) tuples, unpack it
+            elif isinstance(data, (list, tuple)) and len(data) > 0 and isinstance(data[0], (list, tuple)) and len(data[0]) == 2:
+                arr = np.array(data)
+                t, v = arr[:, 0], arr[:, 1]
+            # Support (timestamps, values) tuple
+            elif isinstance(data, tuple) and len(data) == 2:
+                t, v = np.array(data[0]), np.array(data[1])
+            else:
+                # If only values, synthesize timestamps based on sampling rate if available
+                v = np.array(data)
+                sr = meta.get('sampling_rate', 100) if meta else 100
+                t = np.arange(len(v)) / sr
+            # Always plot at least the last 2 points if available
+            if len(t) < 2:
+                if len(t) == 1:
+                    t = t - t[0]
+                    signals.append({'id': sid, 't': t, 'v': v, 'meta': meta})
+                continue
+            t0 = t[-1] - window_sec
+            mask = t >= t0
+            t, v = t[mask], v[mask]
+            if len(t) < 2:
+                t, v = t[-2:], v[-2:]
+            t = t - t[0]
+            signals.append({'id': sid, 't': t, 'v': v, 'meta': meta})
+            if debug:
+                print(f"[DEBUG] Signal '{sid}' windowed to {len(t)} points, t0={t[0] if len(t) else 'NA'}")
+        return signals
