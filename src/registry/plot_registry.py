@@ -45,11 +45,14 @@ class PlotRegistry:
             metadata (dict, optional): Metadata for the signal (color, etc)
         """
         with self.registry_lock:
-            # If signal_data is a tuple of length 2, store as-is (for (timestamps, values))
-            if isinstance(signal_data, tuple) and len(signal_data) == 2:
+            # --- Accept dict with 't' and 'v' as-is (new format) ---
+            if isinstance(signal_data, dict) and 't' in signal_data and 'v' in signal_data:
+                self.signals[signal_id] = signal_data
+                logger.debug(f"Signal '{signal_id}' registered as dict with keys {list(signal_data.keys())}")
+            # --- Existing logic for tuple, array, etc ---
+            elif isinstance(signal_data, tuple) and len(signal_data) == 2:
                 self.signals[signal_id] = signal_data
                 logger.debug(f"Signal '{signal_id}' registered as tuple with lengths {[len(x) for x in self.signals[signal_id]]}")
-            # Convert to numpy array if needed
             elif not isinstance(signal_data, np.ndarray):
                 signal_data = np.array(signal_data)
                 self.signals[signal_id] = signal_data
@@ -206,34 +209,45 @@ class PlotRegistry:
                 print(f"[DEBUG] Fetching signal '{sid}': data type={type(data)}, meta={meta}")
             if data is None:
                 continue
-            # --- Handle numpy array of shape (N, 2) ---
-            if isinstance(data, np.ndarray) and data.ndim == 2 and data.shape[1] == 2:
+            # --- Patch: robustly handle all generator/legacy formats ---
+            t = v = meta = None
+            # Handle new format: dict with 't', 'v', 'meta'
+            if isinstance(data, dict) and 't' in data and 'v' in data:
+                t = np.array(data['t'])
+                v = np.array(data['v'])
+                meta = data.get('meta', meta)
+            # Handle numpy array of shape (N, 2)
+            elif isinstance(data, np.ndarray) and data.ndim == 2 and data.shape[1] == 2:
                 t, v = data[:, 0], data[:, 1]
-            # If data is a deque/list/tuple of (timestamp, value) tuples, unpack it
-            elif isinstance(data, (list, tuple)) and len(data) > 0 and isinstance(data[0], (list, tuple)) and len(data[0]) == 2:
-                arr = np.array(data)
-                t, v = arr[:, 0], arr[:, 1]
-            # Support (timestamps, values) tuple
+            # Handle (timestamps, values) tuple
             elif isinstance(data, tuple) and len(data) == 2:
                 t, v = np.array(data[0]), np.array(data[1])
-            else:
-                # If only values, synthesize timestamps based on sampling rate if available
+            # Handle 1D array or list: treat as values, synthesize t
+            elif isinstance(data, (list, np.ndarray)):
                 v = np.array(data)
                 sr = meta.get('sampling_rate', 100) if meta else 100
                 t = np.arange(len(v)) / sr
-            # Always plot at least the last 2 points if available
-            if len(t) < 2:
-                if len(t) == 1:
-                    t = t - t[0]
-                    signals.append({'id': sid, 't': t, 'v': v, 'meta': meta})
-                continue
-            t0 = t[-1] - window_sec
-            mask = t >= t0
-            t, v = t[mask], v[mask]
-            if len(t) < 2:
-                t, v = t[-2:], v[-2:]
-            t = t - t[0]
-            signals.append({'id': sid, 't': t, 'v': v, 'meta': meta})
-            if debug:
-                print(f"[DEBUG] Signal '{sid}' windowed to {len(t)} points, t0={t[0] if len(t) else 'NA'}")
+            else:
+                continue  # skip unknown format
+            # --- Ensure t and v are the same length before windowing ---
+            min_len = min(len(t), len(v))
+            t = t[:min_len]
+            v = v[:min_len]
+            # --- Only apply windowing if window_sec is not None ---
+            if window_sec is not None and len(t) > 1:
+                t0 = t[-1] - window_sec
+                mask = t >= t0
+                if len(mask) == len(t):
+                    t, v = t[mask], v[mask]
+                if len(t) < 2:
+                    t, v = t[-2:], v[-2:]
+                t = t - t[0]
+                signals.append({'id': sid, 't': t, 'v': v, 'meta': meta})
+                if debug:
+                    print(f"[DEBUG] Signal '{sid}' windowed to {len(t)} points, t0={t[0] if len(t) else 'NA'}")
+            else:
+                # No windowing, just return full t and v
+                signals.append({'id': sid, 't': t, 'v': v, 'meta': meta})
+                if debug:
+                    print(f"[DEBUG] Signal '{sid}' full buffer returned, {len(t)} points")
         return signals

@@ -92,17 +92,17 @@ def generate_test_signals():
     Returns:
         dict: Dictionary containing raw and processed test signals
     """
+    num_points = 1000
+    t = np.linspace(0, 20, num_points)  # 20 seconds buffer
     signals = {
         # Raw signals
-        "raw_sine": generate_sine_wave(amplitude=0.8, frequency=2.0, num_points=1000),
-        "raw_square": generate_square_wave(amplitude=0.9, frequency=1.0, num_points=1000),
-        
+        "raw_sine": {"t": t, "v": generate_sine_wave(amplitude=0.8, frequency=2.0, num_points=num_points)},
+        "raw_square": {"t": t, "v": generate_square_wave(amplitude=0.9, frequency=1.0, num_points=num_points)},
         # Processed signals
-        "inverted_square": generate_inverted_square_wave(amplitude=0.9, frequency=1.0, num_points=1000),
-        "sawtooth": generate_sawtooth_wave(amplitude=0.7, frequency=2.0, num_points=1000),
-        "triangle": generate_triangle_wave(amplitude=0.8, frequency=1.5, num_points=1000)
+        "inverted_square": {"t": t, "v": generate_inverted_square_wave(amplitude=0.9, frequency=1.0, num_points=num_points)},
+        "sawtooth": {"t": t, "v": generate_sawtooth_wave(amplitude=0.7, frequency=2.0, num_points=num_points)},
+        "triangle": {"t": t, "v": generate_triangle_wave(amplitude=0.8, frequency=1.5, num_points=num_points)}
     }
-    
     return signals
 
 def update_test_signals(data, delta_t=0.05):
@@ -116,16 +116,14 @@ def update_test_signals(data, delta_t=0.05):
     Returns:
         dict: Updated signals
     """
-    # Simple phase shift for continuous update
+    num_points = 1000
+    t = np.linspace(0, 20, num_points)  # 20 seconds buffer
     phase_shift = time.time() % (2 * np.pi)
-    
     # Update raw signals
-    data["raw_sine"] = generate_sine_wave(amplitude=0.8, frequency=2.0, phase=phase_shift, num_points=1000)
-    data["raw_square"] = generate_square_wave(amplitude=0.9, frequency=1.0, num_points=1000)
-    
+    data["raw_sine"] = {"t": t, "v": generate_sine_wave(amplitude=0.8, frequency=2.0, phase=phase_shift, num_points=num_points)}
+    data["raw_square"] = {"t": t, "v": generate_square_wave(amplitude=0.9, frequency=1.0, num_points=num_points)}
     # Update processed signals
-    data["inverted_square"] = generate_inverted_square_wave(amplitude=0.9, frequency=1.0, num_points=1000)
-    data["sawtooth"] = generate_sawtooth_wave(amplitude=0.7, frequency=2.0, phase=phase_shift, num_points=1000)
-    data["triangle"] = generate_triangle_wave(amplitude=0.8, frequency=1.5, phase=phase_shift, num_points=1000)
-    
+    data["inverted_square"] = {"t": t, "v": generate_inverted_square_wave(amplitude=0.9, frequency=1.0, num_points=num_points)}
+    data["sawtooth"] = {"t": t, "v": generate_sawtooth_wave(amplitude=0.7, frequency=2.0, num_points=num_points)}
+    data["triangle"] = {"t": t, "v": generate_triangle_wave(amplitude=0.8, frequency=1.5, num_points=num_points)}
     return data

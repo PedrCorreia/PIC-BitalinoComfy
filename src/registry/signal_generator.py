@@ -7,6 +7,7 @@ Signal Generator for PIC-2025 Registry System
 import numpy as np
 import threading
 import time
+import collections
 from src.registry.plot_registry import PlotRegistry
 
 class RegistrySignalGenerator:
@@ -16,7 +17,7 @@ class RegistrySignalGenerator:
     """
     def __init__(self):
         self.plot_registry = PlotRegistry.get_instance()
-        self.sampling_rate = 100  # Hz
+        self.sampling_rate = 10  # Hz (set to 10Hz for debug)
         self.signals = {}
         self.generators = {
             'raw': {
@@ -36,6 +37,7 @@ class RegistrySignalGenerator:
         self.thread = None
         self.data_lock = threading.Lock()
         self.last_generated_values = {}
+        self.start_time = time.time()  # Store generator initialization time
         print(f"RegistrySignalGenerator initialized with {self.buffer_seconds}s buffer")
 
     def set_buffer_seconds(self, seconds):
@@ -64,7 +66,7 @@ class RegistrySignalGenerator:
         if self.generators['raw']['ECG']['created']:
             return self.generators['raw']['ECG']['id']
         signal_id = "ECG"
-        initial_data = np.array([])
+        initial_data = {'t': [], 'v': [], 'meta': {}}
         metadata = {
             'name': 'ECG Signal',
             'color': (255, 0, 0),
@@ -83,7 +85,7 @@ class RegistrySignalGenerator:
         if self.generators['raw']['EDA']['created']:
             return self.generators['raw']['EDA']['id']
         signal_id = "EDA"
-        initial_data = np.array([])
+        initial_data = {'t': [], 'v': [], 'meta': {}}
         metadata = {
             'name': 'EDA Signal',
             'color': (220, 120, 0),
@@ -108,7 +110,7 @@ class RegistrySignalGenerator:
             return self.generators[category][name]['id']
         prefix = "PROC" if processed else "RAW"
         signal_id = f"{prefix}_{name}"
-        initial_data = np.array([])
+        initial_data = {'t': [], 'v': [], 'meta': {}}
         freq_map = {"WAVE1": 0.5, "WAVE2": 0.25, "WAVE3": 0.1, "RAW_SINE": 1.0}
         frequency = freq_map.get(name, 0.5)
         def custom_generator(elapsed_time, sample_index):
@@ -137,37 +139,46 @@ class RegistrySignalGenerator:
         self.create_ecg_signal()
         self.create_eda_signal()
         self.create_sine_signal(processed=True, name="WAVE1")
-        start_time = time.time()
         sample_index = 0
+        next_sample_time = time.time()
+        # Use deques for each signal's t and v
+        signal_buffers = {}
         while self.running:
             try:
                 with self.data_lock:
-                    current_time = time.time()
-                    elapsed = current_time - start_time
+                    current_time = time.time() - self.start_time  # Use time relative to initialization
                     for signal_id, metadata in self.signals.items():
-                        if self.plot_registry.get_signal(signal_id) is not None:
-                            generate_func = metadata.get('generator_func')
-                            if generate_func:
-                                new_value = generate_func(elapsed, sample_index)
-                                self.last_generated_values[signal_id] = new_value
-                                signal_data = self.plot_registry.get_signal(signal_id)
-                                # --- Fix: Always use numpy array, append, and trim buffer ---
-                                if not isinstance(signal_data, np.ndarray):
-                                    signal_data = np.array([new_value])
-                                else:
-                                    updated_data = np.append(signal_data, new_value)
-                                    if len(updated_data) > self.max_buffer_size:
-                                        updated_data = updated_data[-self.max_buffer_size:]
-                                    signal_data = updated_data
-                                # --- Fix: Register to both registries for UI/adapter sync ---
-                                self.plot_registry.register_signal(
-                                    signal_id=signal_id,
-                                    signal_data=signal_data,
-                                    metadata=metadata
-                                )
+                        generate_func = metadata.get('generator_func')
+                        if generate_func:
+                            new_value = generate_func(current_time, sample_index)
+                            self.last_generated_values[signal_id] = new_value
+                            # Initialize deques if not present
+                            if signal_id not in signal_buffers:
+                                signal_buffers[signal_id] = {
+                                    't': collections.deque(maxlen=self.max_buffer_size),
+                                    'v': collections.deque(maxlen=self.max_buffer_size)
+                                }
+                            buf = signal_buffers[signal_id]
+                            buf['t'].append(current_time)
+                            buf['v'].append(new_value)
+                            plot_data = {
+                                't': np.array(buf['t']),
+                                'v': np.array(buf['v']),
+                                'meta': metadata
+                            }
+                            self.plot_registry.register_signal(
+                                signal_id=signal_id,
+                                signal_data=plot_data,
+                                metadata=metadata
+                            )
                 sample_index += 1
-                # --- Fix: Respect sampling rate, avoid GUI freeze ---
-                time.sleep(1.0 / self.sampling_rate)
+                # Real-time sampling: wait until next sample time
+                next_sample_time += 1.0 / self.sampling_rate
+                sleep_time = next_sample_time - time.time()
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                else:
+                    next_sample_time = time.time()
             except Exception as e:
                 print(f"Error in signal generator thread: {e}")
                 import traceback; traceback.print_exc()
