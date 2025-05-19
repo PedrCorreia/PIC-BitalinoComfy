@@ -47,9 +47,6 @@ def main(start_generators=True):
     plot_registry = PlotRegistry.get_instance()
     latency_monitor = LatencyMonitor()
 
-    print(f"[DEBUG] PlotRegistry singleton id at startup: {id(plot_registry)}")
-    print(f"[DEBUG] Signal IDs at startup: {plot_registry.get_all_signal_ids()}")
-
     connector_node_id = "UI_CONNECTOR_NODE"
     selected_tab = ViewMode.RAW  # Use enum for selected_tab
     # Use a dict for per-plot rolling window
@@ -168,8 +165,6 @@ def main(start_generators=True):
         for sid in plot_registry.get_all_signal_ids():
             plot_registry.connect_node_to_signal(connector_node_id, sid)
         # --- Draw UI ---
-        print(f"[DEBUG] PlotRegistry singleton id in main loop: {id(plot_registry)}")
-        print(f"[DEBUG] Signal IDs before UI draw: {plot_registry.get_all_signal_ids()}")
         screen.fill(BACKGROUND_COLOR)
         pygame.draw.rect(screen, SIDEBAR_COLOR, (0, 0, SIDEBAR_WIDTH, WINDOW_HEIGHT))
         pygame.draw.rect(screen, STATUS_COLOR, (0, 0, WINDOW_WIDTH, STATUS_BAR_HEIGHT))
@@ -182,8 +177,6 @@ def main(start_generators=True):
         sidebar.draw()
         # --- Plotting/View ---
         if selected_tab == ViewMode.SETTINGS:
-            print(f"[DEBUG] PlotRegistry singleton id before settings_panel.draw: {id(plot_registry)}")
-            print(f"[DEBUG] Signal IDs before settings_panel.draw: {plot_registry.get_all_signal_ids()}")
             settings_panel.draw(screen, plot_x, plot_y, plot_width, plot_height, window_sec, selected_tab, plotted_signals, signal_window_sec=signal_window_sec)
         else:
             draw_tab_content(screen, font, plot_registry, selected_tab, plot_x, plot_y, plot_width, plot_height, window_sec, signal_window_sec)

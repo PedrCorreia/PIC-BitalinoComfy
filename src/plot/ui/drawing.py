@@ -37,8 +37,31 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
         t_plot = t
         v_plot = v
     points = [(x + int((t_plot[j] - window_min) / (window_max - window_min) * w), y + h - int((v_plot[j]-vmin)/(vmax-vmin)*h)) for j in range(len(t_plot))] if len(t_plot) > 1 and window_max > window_min else []
+    # Color handling: support string color names as well as RGB tuples
+    color = meta.get('color', (255,255,255))
+    # DEBUG: show what color is being used
+    print(f"[DRAW] meta color: {meta.get('color')}, resolved: {color}")
+    if isinstance(color, str):
+        try:
+            if color.startswith('#') and len(color) == 7:
+                color = tuple(int(color[i:i+2], 16) for i in (1, 3, 5))
+            else:
+                color_map = {
+                    'red': (255, 51, 51),
+                    'orange': (255, 153, 51),
+                    'yellow': (255, 255, 51),
+                    'blue': (51, 153, 255),
+                }
+                color = color_map.get(color.lower(), (255,255,255))
+        except Exception as e:
+            # print(f"[DRAW] Color conversion error: {e}")
+            color = (255, 0, 255)  # fallback magenta for error
+    if not (isinstance(color, tuple) and len(color) == 3 and all(isinstance(c, int) for c in color)):
+        color = (255, 0, 255)  # fallback magenta for error
+    # DEBUG: show final color
+    # print(f"[DRAW] final color: {color}")
     if len(points) >= 2:
-        pygame.draw.lines(screen, meta.get('color', (255,255,255)), False, points, 2)
+        pygame.draw.lines(screen, color, False, points, 2)
     label = meta.get('name', signal.get('id', ''))
     label_surface = font.render(label, True, TEXT_COLOR)
     screen.blit(label_surface, (x + 10, y + 10))

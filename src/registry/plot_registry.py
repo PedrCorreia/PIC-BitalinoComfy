@@ -26,7 +26,6 @@ class PlotRegistry:
     
     def __init__(self):
         """Initialize the registry with empty containers"""
-        print(f"[DEBUG] PlotRegistry __init__ called. Instance id: {id(self)}")
         self.signals = OrderedDict()  # Signal data keyed by ID
         self.metadata = {}           # Signal metadata keyed by ID
         self.connections = {}        # Track which nodes connect to which signals
@@ -152,7 +151,6 @@ class PlotRegistry:
     
     def clear_signals(self):
         """Clear all signals from the registry"""
-        print(f"[DEBUG] PlotRegistry.clear_signals() called! Instance id: {id(self)}")
         with self.registry_lock:
             self.signals.clear()
             self.metadata.clear()
@@ -162,7 +160,6 @@ class PlotRegistry:
     
     def reset(self):
         """Reset the entire registry"""
-        print(f"[DEBUG] PlotRegistry.reset() called! Instance id: {id(self)}")
         with self.registry_lock:
             self.signals.clear()
             self.metadata.clear()
@@ -197,8 +194,6 @@ class PlotRegistry:
         """
         import numpy as np
         all_signal_ids = self.get_all_signal_ids()
-        if debug:
-            print(f"[DEBUG] All signal IDs in registry: {all_signal_ids}")
         # --- Improved type detection: use metadata if available, fallback to ID heuristics ---
         ids = []
         for sid in all_signal_ids:
@@ -216,8 +211,6 @@ class PlotRegistry:
         for sid in ids:
             data = self.get_signal(sid)
             meta = self.get_signal_metadata(sid)
-            if debug:
-                print(f"[DEBUG] Fetching signal '{sid}': data type={type(data)}, meta={meta}")
             if data is None:
                 continue
             # --- Patch: robustly handle all generator/legacy formats ---
@@ -254,11 +247,7 @@ class PlotRegistry:
                     t, v = t[-2:], v[-2:]
                 t = t - t[0]
                 signals.append({'id': sid, 't': t, 'v': v, 'meta': meta})
-                if debug:
-                    print(f"[DEBUG] Signal '{sid}' windowed to {len(t)} points, t0={t[0] if len(t) else 'NA'}")
             else:
                 # No windowing, just return full t and v
                 signals.append({'id': sid, 't': t, 'v': v, 'meta': meta})
-                if debug:
-                    print(f"[DEBUG] Signal '{sid}' full buffer returned, {len(t)} points")
         return signals

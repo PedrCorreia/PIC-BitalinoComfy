@@ -19,12 +19,13 @@ class ComfySignalGeneratorNode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "signal_type": ("STRING", {"default": "sine_waveform", "choices": [
+                "signal_type": ("STRING", {"default": "sine_waveform", "options": [
                     "sine_waveform", "ecg_waveform", "eda_waveform"
                 ]}),
                 "sampling_freq": ("INT", {"default": 100, "min": 1, "max": 1000}),
                 "freq": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 100.0}),
                 "signal_id": ("STRING", {"default": "GEN_0"}),
+                "duration_sec": ("INT", {"default": 10, "min": 1, "max": 3600}),
             }
         }
 
@@ -33,7 +34,7 @@ class ComfySignalGeneratorNode:
     CATEGORY = "Registry/SignalGen"
     OUTPUT_NODE = True
 
-    def _background_generate(self, signal_type, sampling_freq, freq, signal_id, stop_flag):
+    def _background_generate(self, signal_type, sampling_freq, freq, signal_id, duration_sec, stop_flag):
         import collections
         registry = SignalRegistry.get_instance()
         t_window = 10  # seconds
@@ -41,9 +42,12 @@ class ComfySignalGeneratorNode:
         t_deque = collections.deque(maxlen=maxlen)
         v_deque = collections.deque(maxlen=maxlen)
         start_time = time.time()
+        print(f"[ComfySignalGeneratorNode] Initializing signal '{signal_id}' with type '{signal_type}' for {duration_sec} seconds")
         while not stop_flag['stop']:
             now = time.time()
             t_new = now - start_time
+            if t_new > duration_sec:
+                break
             t_deque.append(t_new)
             sample_index = len(t_deque) - 1
             if signal_type == "sine_waveform":
@@ -57,17 +61,19 @@ class ComfySignalGeneratorNode:
             v_deque.append(v_new)
             t_arr = np.array(t_deque)
             v_arr = np.array(v_deque)
-            meta = {"id": signal_id, "sampling_rate": sampling_freq, "freq": freq, "type": "raw"}
+            meta = {"id": signal_id, "sampling_rate": sampling_freq, "freq": freq}
             registry.register_signal(signal_id, {"t": t_arr, "v": v_arr}, meta)
             time.sleep(1/sampling_freq)
+        # After finished, keep last data in registry so UI doesn't crash
+        registry.register_signal(signal_id, {"t": t_arr, "v": v_arr}, meta)
 
-    def generate(self, signal_type, sampling_freq, freq, signal_id):
+    def generate(self, signal_type, sampling_freq, freq, signal_id, duration_sec):
         if signal_id in self._generator_threads:
             # Already running in background, just return the ID
             return (signal_id,)
         stop_flag = {'stop': False}
         self._stop_flags[signal_id] = stop_flag
-        thread = threading.Thread(target=self._background_generate, args=(signal_type, sampling_freq, freq, signal_id, stop_flag), daemon=True)
+        thread = threading.Thread(target=self._background_generate, args=(signal_type, sampling_freq, freq, signal_id, duration_sec, stop_flag), daemon=True)
         self._generator_threads[signal_id] = thread
         thread.start()
         self._registered_signals.add(signal_id)
