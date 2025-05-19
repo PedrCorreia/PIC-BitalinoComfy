@@ -62,11 +62,18 @@ class Sidebar:
         sidebar_rect = pygame.Rect(0, status_bar_offset, self.width, self.height - status_bar_offset)
         pygame.draw.rect(self.surface, SIDEBAR_COLOR, sidebar_rect)
         
-        # Draw mode buttons with proper spacing
-        self._draw_mode_button(0, "R", "Raw", ViewMode.RAW)
-        self._draw_mode_button(1, "P", "Processed", ViewMode.PROCESSED)
-        self._draw_mode_button(2, "T", "Twin View", ViewMode.TWIN)
-        self._draw_mode_button(3, "S", "Settings", ViewMode.SETTINGS)
+        # Draw mode buttons with hover effect
+        mx, my = pygame.mouse.get_pos()
+        for i, (mode, icon) in enumerate(zip([ViewMode.RAW, ViewMode.PROCESSED, ViewMode.TWIN, ViewMode.SETTINGS], ['R', 'P', 'T', 'S'])):
+            y = status_bar_offset + self.button_spacing + i * (self.button_height + self.button_spacing)
+            button_rect = pygame.Rect(0, y, self.width, self.button_height)
+            is_active = self.current_mode == mode
+            is_hovered = button_rect.collidepoint(mx, my)
+            color = ACCENT_COLOR if is_active else ((80, 120, 200) if is_hovered else BUTTON_COLOR)
+            pygame.draw.rect(self.surface, color, button_rect, border_radius=5)
+            icon_surface = self.icon_font.render(icon, True, TEXT_COLOR)
+            icon_rect = icon_surface.get_rect(center=(self.width // 2, y + self.button_height // 2))
+            self.surface.blit(icon_surface, icon_rect)
         # Draw status indicator dot below the S button
         self._draw_status_dot_below_settings()
 
@@ -98,23 +105,24 @@ class Sidebar:
         icon_rect = icon_surface.get_rect(center=(self.width // 2, y + self.button_height // 2))
         self.surface.blit(icon_surface, icon_rect)
 
-    def _draw_status_dot_below_settings(self):
+    def _draw_status_dot_below_settings(self, has_signals=None):
         """
         Draw status indicator dots below the Settings button:
         - Yellow for performance mode on
         - Green for caps on
         - Gray (placeholder) for registry connection (future: blinking)
+        
+        Args:
+            has_signals (bool): Whether signals exist in the registry (for blinking dot)
         """
+        import time
+        dot_x = self.width // 2
         status_bar_offset = STATUS_BAR_HEIGHT if STATUS_BAR_TOP else 0
         s_button_top = status_bar_offset + self.button_spacing + 3 * (self.button_height + self.button_spacing)
         s_button_bottom = s_button_top + self.button_height
         dot_radius = 7
-        dot_x = self.width // 2
-
-        # Vertical stacking of dots
         dot_y_start = s_button_bottom + 18
-        dot_spacing = 22  # px between dots
-
+        dot_spacing = 22
         dot_index = 0
 
         # Performance mode dot (yellow)
@@ -127,11 +135,14 @@ class Sidebar:
             pygame.draw.circle(self.surface, (0, 220, 0), (dot_x, dot_y_start + dot_index * dot_spacing), dot_radius)
             dot_index += 1
 
-        # Registry connection dot (gray, placeholder for blinking)
-        # In the future, replace this with blinking logic if connected
-        # Example: if self.settings.get('connected_to_registry', False):
-        pygame.draw.circle(self.surface, (120, 120, 120), (dot_x, dot_y_start + dot_index * dot_spacing), dot_radius)
-        # To implement blinking, toggle visibility based on time or state
+        # Registry connection dot (blinking green if signals exist, gray if not)
+        if has_signals is None:
+            has_signals = False
+        blink = int(time.time() * 2) % 2 == 0
+        if has_signals and blink:
+            pygame.draw.circle(self.surface, (50, 220, 50), (dot_x, dot_y_start + dot_index * dot_spacing), dot_radius)
+        else:
+            pygame.draw.circle(self.surface, (120, 120, 120), (dot_x, dot_y_start + dot_index * dot_spacing), dot_radius)
 
     def handle_click(self, y):
         """

@@ -43,6 +43,9 @@ def main():
     plot_registry = PlotRegistry.get_instance()
     latency_monitor = LatencyMonitor()
 
+    print(f"[DEBUG] PlotRegistry singleton id at startup: {id(plot_registry)}")
+    print(f"[DEBUG] Signal IDs at startup: {plot_registry.get_all_signal_ids()}")
+
     connector_node_id = "UI_CONNECTOR_NODE"
     selected_tab = ViewMode.RAW  # Use enum for selected_tab
     window_sec = 2
@@ -70,7 +73,7 @@ def main():
     def draw_tab_content(screen, font, plot_registry, selected_tab, plot_x, plot_y, plot_width, plot_height, window_sec):
         from src.plot.ui.drawing import draw_signal_plot
         if selected_tab == ViewMode.SETTINGS:
-            cap_box, plus_rect, minus_rect, row = settings_panel.draw(screen, plot_x, plot_y, plot_width, plot_height)
+            _ = settings_panel.draw(screen, plot_x, plot_y, plot_width, plot_height)
         elif selected_tab == ViewMode.RAW:
             raw_signals = plot_registry.get_signals_by_type(None, 'raw', debug=True)
             for i, sig in enumerate(raw_signals[:3]):
@@ -101,21 +104,24 @@ def main():
         # Determine FPS cap from settings panel
         fps_cap = TARGET_FPS if settings_panel.fps_cap_on else 0
 
+        # Compute plotted_signals for event handling row count only
+        plotted_signals = None
+        if selected_tab == ViewMode.SETTINGS:
+            raw_signals = plot_registry.get_signals_by_type(None, 'raw', debug=False)
+            processed_signals = plot_registry.get_signals_by_type(None, 'processed', debug=False)
+            plotted_signals = processed_signals + raw_signals
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.MOUSEBUTTONDOWN or event.type == pygame.KEYDOWN:
                 if selected_tab == ViewMode.SETTINGS:
-                    # Count rows for event handling
+                    # Use plotted_signals for row counting and event handling
                     table_y = plot_y + 60
                     row_height = 28
-                    types = ["raw", "processed"]
-                    row = 1
-                    for sig_type in types:
-                        signals = plot_registry.get_signals_by_type(None, sig_type, debug=False)
-                        for sig in signals:
-                            row += 1
-                    settings_panel.handle_event(event, plot_x, plot_y, row, row_height, plot_height)
+                    signals_list = plotted_signals if plotted_signals is not None else []
+                    row = 1 + len(signals_list)
+                    settings_panel.handle_event(event, plot_x, plot_y, row, row_height, plot_height, signals_list)
                 # ...existing code for sidebar...
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     mx, my = pygame.mouse.get_pos()
@@ -128,15 +134,26 @@ def main():
         for sid in plot_registry.get_all_signal_ids():
             plot_registry.connect_node_to_signal(connector_node_id, sid)
         # --- Draw UI ---
+        print(f"[DEBUG] PlotRegistry singleton id in main loop: {id(plot_registry)}")
+        print(f"[DEBUG] Signal IDs before UI draw: {plot_registry.get_all_signal_ids()}")
         screen.fill(BACKGROUND_COLOR)
         pygame.draw.rect(screen, SIDEBAR_COLOR, (0, 0, SIDEBAR_WIDTH, WINDOW_HEIGHT))
         pygame.draw.rect(screen, STATUS_COLOR, (0, 0, WINDOW_WIDTH, STATUS_BAR_HEIGHT))
         pygame.draw.rect(screen, (20,20,20), (plot_x, plot_y, plot_width, WINDOW_HEIGHT - STATUS_BAR_HEIGHT - 2 * PLOT_PADDING))
         # --- Sidebar ---
         sidebar.current_mode = selected_tab
+        # Pass has_signals to sidebar for blinking dot
+        has_signals = len(plot_registry.get_all_signal_ids()) > 0
+        sidebar._draw_status_dot_below_settings(has_signals=has_signals)
         sidebar.draw()
         # --- Plotting/View ---
-        draw_tab_content(screen, font, plot_registry, selected_tab, plot_x, plot_y, plot_width, plot_height, settings_panel.window_sec)
+        if selected_tab == ViewMode.SETTINGS:
+            print(f"[DEBUG] PlotRegistry singleton id before settings_panel.draw: {id(plot_registry)}")
+            print(f"[DEBUG] Signal IDs before settings_panel.draw: {plot_registry.get_all_signal_ids()}")
+            # Let the settings panel query the registry for both raw and processed signals for the table
+            settings_panel.draw(screen, plot_x, plot_y, plot_width, plot_height)
+        else:
+            draw_tab_content(screen, font, plot_registry, selected_tab, plot_x, plot_y, plot_width, plot_height, settings_panel.window_sec)
         # --- Status Bar ---
         rel_runtime = int(time.time() - start_time)
         status_bar.draw(clock.get_fps(), latency_monitor.get_current_latency() if hasattr(latency_monitor, 'get_current_latency') else 0.0, None)
