@@ -48,7 +48,12 @@ def main():
 
     connector_node_id = "UI_CONNECTOR_NODE"
     selected_tab = ViewMode.RAW  # Use enum for selected_tab
-    window_sec = 2
+    # Use a dict for per-plot rolling window
+    window_sec = {
+        ViewMode.RAW: 2,
+        ViewMode.PROCESSED: 2,
+        ViewMode.TWIN: 2
+    }
     running = True
     time.sleep(1.0)
     start_time = time.time()  # <-- Track start time for relative runtime
@@ -70,18 +75,40 @@ def main():
     plot_width = WINDOW_WIDTH - SIDEBAR_WIDTH - 2 * PLOT_PADDING
     plot_height = (WINDOW_HEIGHT - STATUS_BAR_HEIGHT - 2 * PLOT_PADDING) // 3
 
-    def draw_tab_content(screen, font, plot_registry, selected_tab, plot_x, plot_y, plot_width, plot_height, window_sec):
+    # --- Per-signal rolling window state ---
+    signal_window_sec = {}  # {signal_id: window_sec}
+    default_window_sec = 2
+
+    def get_window_sec_for_signal(sid):
+        return signal_window_sec.get(sid, default_window_sec)
+
+    def set_window_sec_for_signal(sid, value):
+        signal_window_sec[sid] = max(1, min(60, value))
+
+    def draw_tab_content(screen, font, plot_registry, selected_tab, plot_x, plot_y, plot_width, plot_height, window_sec_dict, signal_window_sec):
         from src.plot.ui.drawing import draw_signal_plot
+        def get_sig_id(sig):
+            if isinstance(sig, dict) and 'id' in sig:
+                return sig['id']
+            if hasattr(sig, 'id'):
+                return getattr(sig, 'id')
+            if hasattr(sig, 'name'):
+                return getattr(sig, 'name')
+            return str(sig)
         if selected_tab == ViewMode.SETTINGS:
-            _ = settings_panel.draw(screen, plot_x, plot_y, plot_width, plot_height)
+            _ = settings_panel.draw(screen, plot_x, plot_y, plot_width, plot_height, window_sec_dict, selected_tab, signal_window_sec=signal_window_sec)
         elif selected_tab == ViewMode.RAW:
             raw_signals = plot_registry.get_signals_by_type(None, 'raw', debug=True)
             for i, sig in enumerate(raw_signals[:3]):
-                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height, show_time_markers=True, window_sec=window_sec)
+                sig_id = get_sig_id(sig)
+                win_sec = signal_window_sec.get(sig_id, window_sec_dict.get(ViewMode.RAW, 2))
+                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height, show_time_markers=True, window_sec=win_sec)
         elif selected_tab == ViewMode.PROCESSED:
             processed_signals = plot_registry.get_signals_by_type(None, 'processed', debug=True)
             for i, sig in enumerate(processed_signals[:3]):
-                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height, show_time_markers=True, window_sec=window_sec)
+                sig_id = get_sig_id(sig)
+                win_sec = signal_window_sec.get(sig_id, window_sec_dict.get(ViewMode.PROCESSED, 2))
+                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height, show_time_markers=True, window_sec=win_sec)
         elif selected_tab == ViewMode.TWIN:
             raw_signals = plot_registry.get_signals_by_type(None, 'raw', debug=True)
             processed_signals = plot_registry.get_signals_by_type(None, 'processed', debug=True)
@@ -90,9 +117,14 @@ def main():
             center_x = plot_x + left_width + TWIN_VIEW_SEPARATOR
             pygame.draw.line(screen, (50, 50, 50), (center_x, plot_y), (center_x, plot_y + 3*plot_height), 3)
             for i, sig in enumerate(processed_signals[:3]):
-                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, left_width, plot_height, show_time_markers=True, window_sec=window_sec)
+                sig_id = get_sig_id(sig)
+                win_sec = signal_window_sec.get(sig_id, window_sec_dict.get(ViewMode.TWIN, 2))
+                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, left_width, plot_height, show_time_markers=True, window_sec=win_sec)
             for i, sig in enumerate(raw_signals[:3]):
-                draw_signal_plot(screen, font, sig, center_x + 5, plot_y + i*plot_height, right_width, plot_height, show_time_markers=True, window_sec=window_sec)
+                sig_id = get_sig_id(sig)
+                win_sec = signal_window_sec.get(sig_id, window_sec_dict.get(ViewMode.TWIN, 2))
+                draw_signal_plot(screen, font, sig, center_x + 5, plot_y + i*plot_height, right_width, plot_height, show_time_markers=True, window_sec=win_sec)
+        # ...existing code...
 
     while running:
         # --- Update plot area variables each frame in case of dynamic resizing (optional) ---
@@ -116,13 +148,11 @@ def main():
                 running = False
             elif event.type == pygame.MOUSEBUTTONDOWN or event.type == pygame.KEYDOWN:
                 if selected_tab == ViewMode.SETTINGS:
-                    # Use plotted_signals for row counting and event handling
                     table_y = plot_y + 60
                     row_height = 28
                     signals_list = plotted_signals if plotted_signals is not None else []
                     row = 1 + len(signals_list)
-                    settings_panel.handle_event(event, plot_x, plot_y, row, row_height, plot_height, signals_list)
-                # ...existing code for sidebar...
+                    settings_panel.handle_event(event, plot_x, plot_y, row, row_height, plot_height, window_sec, selected_tab, signals_list, signal_window_sec=signal_window_sec)
                 if event.type == pygame.MOUSEBUTTONDOWN:
                     mx, my = pygame.mouse.get_pos()
                     if 0 <= mx < SIDEBAR_WIDTH:
@@ -150,10 +180,9 @@ def main():
         if selected_tab == ViewMode.SETTINGS:
             print(f"[DEBUG] PlotRegistry singleton id before settings_panel.draw: {id(plot_registry)}")
             print(f"[DEBUG] Signal IDs before settings_panel.draw: {plot_registry.get_all_signal_ids()}")
-            # Let the settings panel query the registry for both raw and processed signals for the table
-            settings_panel.draw(screen, plot_x, plot_y, plot_width, plot_height)
+            settings_panel.draw(screen, plot_x, plot_y, plot_width, plot_height, window_sec, selected_tab, plotted_signals, signal_window_sec=signal_window_sec)
         else:
-            draw_tab_content(screen, font, plot_registry, selected_tab, plot_x, plot_y, plot_width, plot_height, settings_panel.window_sec)
+            draw_tab_content(screen, font, plot_registry, selected_tab, plot_x, plot_y, plot_width, plot_height, window_sec, signal_window_sec)
         # --- Status Bar ---
         rel_runtime = int(time.time() - start_time)
         status_bar.draw(clock.get_fps(), latency_monitor.get_current_latency() if hasattr(latency_monitor, 'get_current_latency') else 0.0, None)

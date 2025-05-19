@@ -1,43 +1,67 @@
 import pygame
-from src.plot.constants import ACCENT_COLOR, TEXT_COLOR, BUTTON_COLOR_SETTINGS, TARGET_FPS, STATUS_BAR_HEIGHT, SIDEBAR_WIDTH, WINDOW_WIDTH, WINDOW_HEIGHT
+from src.plot.constants import ACCENT_COLOR, TEXT_COLOR, BUTTON_COLOR_SETTINGS, TARGET_FPS, STATUS_BAR_HEIGHT, SIDEBAR_WIDTH, WINDOW_WIDTH, WINDOW_HEIGHT, SECTION_MARGIN, CONTROL_MARGIN, TITLE_PADDING, ELEMENT_PADDING
+from src.plot.view_mode import ViewMode
 
 class SettingsPanel:
     def __init__(self, font, plot_registry):
         self.font = font
         self.plot_registry = plot_registry
         self.fps_cap_on = True
-        self.window_sec = 2
 
-    def draw(self, screen, plot_x, plot_y, plot_width, plot_height, plotted_signals=None):
-        # Calculate available area
-        available_width = WINDOW_WIDTH - SIDEBAR_WIDTH - 2 * plot_x
-        available_height = WINDOW_HEIGHT - STATUS_BAR_HEIGHT - plot_y - 20
-        # FPS Cap Toggle
+    def draw(self, screen, plot_x, plot_y, plot_width, plot_height, window_sec_dict, current_viewmode, plotted_signals=None, signal_window_sec=None):
+        mx, my = pygame.mouse.get_pos()
+        y_cursor = plot_y + SECTION_MARGIN
+        section_header_font = pygame.font.SysFont("consolas", 16, bold=True)
+        # --- Performance Section ---
+        perf_header = section_header_font.render("Performance", True, ACCENT_COLOR)
+        screen.blit(perf_header, (plot_x + SECTION_MARGIN, y_cursor))
+        y_cursor += perf_header.get_height() + CONTROL_MARGIN
+        # FPS Cap Toggle (large, clear button)
         cap_label = self.font.render(f"FPS Cap ({TARGET_FPS} FPS):", True, TEXT_COLOR)
-        cap_box = pygame.Rect(plot_x + 20, plot_y + 20, 20, 20)
-        pygame.draw.rect(screen, (200, 200, 200), cap_box, border_radius=4)
+        cap_box = pygame.Rect(plot_x + SECTION_MARGIN, y_cursor, 28, 28)
+        pygame.draw.rect(screen, (200, 200, 200), cap_box, border_radius=6)
         if self.fps_cap_on:
-            pygame.draw.circle(screen, (0, 220, 0), cap_box.center, 8)
-        screen.blit(cap_label, (cap_box.right + 10, cap_box.y))
-        # Table layout
-        table_x = plot_x + 20
-        table_y = cap_box.bottom + 20
-        # Compact columns: Type, Signal ID, Rate, Len
-        col_widths = [70, 210, 80, 60]  # More compact
-        row_height = max(22, int(plot_height * 0.045))
+            pygame.draw.circle(screen, (0, 220, 0), cap_box.center, 12)
+        screen.blit(cap_label, (cap_box.right + CONTROL_MARGIN, cap_box.y + 4))
+        y_cursor += cap_box.height + CONTROL_MARGIN
+        # Draw horizontal line
+        pygame.draw.line(screen, ACCENT_COLOR, (plot_x + SECTION_MARGIN, y_cursor), (plot_x + plot_width - SECTION_MARGIN, y_cursor), 2)
+        y_cursor += CONTROL_MARGIN
+        # --- Registry Section ---
+        reg_header = section_header_font.render("Registry", True, ACCENT_COLOR)
+        screen.blit(reg_header, (plot_x + SECTION_MARGIN, y_cursor))
+        y_cursor += reg_header.get_height() + CONTROL_MARGIN
+        # Refresh button
+        refresh_btn_width = 120
+        refresh_btn_height = 36
+        refresh_btn_x = plot_x + SECTION_MARGIN
+        refresh_btn_y = y_cursor
+        refresh_rect = pygame.Rect(refresh_btn_x, refresh_btn_y, refresh_btn_width, refresh_btn_height)
+        mouse_over_refresh = refresh_rect.collidepoint(mx, my)
+        refresh_color = (120, 200, 255) if mouse_over_refresh else ACCENT_COLOR
+        pygame.draw.rect(screen, refresh_color, refresh_rect, border_radius=8)
+        refresh_label = self.font.render("Refresh", True, (0,0,0))
+        screen.blit(refresh_label, (refresh_rect.x + 24, refresh_rect.y + 8))
+        y_cursor += refresh_btn_height + CONTROL_MARGIN
+        # --- Signal Table Section ---
+        table_header = section_header_font.render("Signal Registry Table", True, ACCENT_COLOR)
+        screen.blit(table_header, (plot_x + SECTION_MARGIN, y_cursor))
+        y_cursor += table_header.get_height() + CONTROL_MARGIN
+        # Draw table headers
+        table_x = plot_x + SECTION_MARGIN
+        table_y = y_cursor
+        col_widths = [70, 210, 80, 60]
+        row_height = 24
         header = ["Type", "Signal ID", "Rate", "Len"]
         for i, h in enumerate(header):
             h_label = self.font.render(h, True, ACCENT_COLOR)
             screen.blit(h_label, (table_x + sum(col_widths[:i]), table_y))
         row = 1
         signals_drawn = 0
-        # Calculate max_rows, always allow at least 3
-        max_rows = max(3, int((plot_height - 180) // row_height) - 2)
+        max_rows = 6
         all_ids = self.plot_registry.get_all_signal_ids()
-        print(f"[DEBUG][SettingsPanel] all_ids: {all_ids}, max_rows: {max_rows}")
         for sid in all_ids:
             meta = self.plot_registry.get_signal_metadata(sid) or {}
-            print(f"[DEBUG][SettingsPanel] sid: {sid}, meta: {meta}, row: {row}, max_rows: {max_rows}")
             meta_type = meta.get('type')
             if meta_type == 'processed':
                 sig_type = 'processed'
@@ -45,7 +69,6 @@ class SettingsPanel:
                 sig_type = 'raw'
             sig_id = str(sid)
             rate = meta.get('sampling_rate', '-')
-            # Get signal length robustly
             data = self.plot_registry.get_signal(sid)
             sig_len = 0
             if isinstance(data, dict) and 'v' in data:
@@ -59,7 +82,6 @@ class SettingsPanel:
             len_label = self.font.render(str(sig_len), True, (200,200,255))
             y = table_y + row * row_height
             if row > max_rows:
-                print(f"[DEBUG][SettingsPanel] row {row} > max_rows {max_rows}, breaking loop")
                 break
             screen.blit(t_label, (table_x, y))
             screen.blit(id_label, (table_x + col_widths[0], y))
@@ -67,77 +89,70 @@ class SettingsPanel:
             screen.blit(len_label, (table_x + col_widths[0] + col_widths[1] + col_widths[2], y))
             row += 1
             signals_drawn += 1
-        # If no signals, show a message
         if signals_drawn == 0:
             empty_label = self.font.render("No signals in registry", True, (180,80,80))
             screen.blit(empty_label, (table_x, table_y + row_height))
-        # Place rolling window controls below the table, always visible and not overlapping
-        controls_y = table_y + (max(row, 2) + 1) * row_height + 20
-        if controls_y + 40 > plot_y + plot_height:
-            controls_y = plot_y + plot_height - 50
-        window_label = self.font.render(f"Rolling Window: {self.window_sec} s", True, TEXT_COLOR)
-        screen.blit(window_label, (plot_x + 50, controls_y))
-        # Button layout: ensure they fit and are visually robust
-        btn_size = min(30, max(20, int(row_height * 1.1)))
-        minus_rect = pygame.Rect(plot_x + 50, controls_y + 28, btn_size, btn_size)
-        plus_rect = pygame.Rect(plot_x + 120, controls_y + 28, btn_size, btn_size)
-        # Get mouse position for visual feedback
-        mx, my = pygame.mouse.get_pos()
-        # Visual feedback for buttons
-        mouse_over_plus = plus_rect.collidepoint(mx, my)
-        mouse_over_minus = minus_rect.collidepoint(mx, my)
-        plus_color = (0, 255, 120) if mouse_over_plus else ACCENT_COLOR
-        minus_color = (255, 120, 0) if mouse_over_minus else ACCENT_COLOR
-        pygame.draw.rect(screen, plus_color, plus_rect, border_radius=6)
-        pygame.draw.rect(screen, minus_color, minus_rect, border_radius=6)
-        plus_label = self.font.render("+", True, (0,0,0))
-        minus_label = self.font.render("-", True, (0,0,0))
-        screen.blit(plus_label, (plus_rect.x + btn_size//3, plus_rect.y + btn_size//6))
-        screen.blit(minus_label, (minus_rect.x + btn_size//3, minus_rect.y + btn_size//6))
-        # Add a Refresh button further below
-        refresh_btn_width = 100
-        refresh_btn_height = 32
-        refresh_btn_x = plot_x + 50
-        refresh_btn_y = controls_y + btn_size + 40  # More space below controls
-        refresh_rect = pygame.Rect(refresh_btn_x, refresh_btn_y, refresh_btn_width, refresh_btn_height)
-        mouse_over_refresh = refresh_rect.collidepoint(mx, my)
-        refresh_color = (120, 200, 255) if mouse_over_refresh else ACCENT_COLOR
-        pygame.draw.rect(screen, refresh_color, refresh_rect, border_radius=8)
-        refresh_label = self.font.render("Refresh", True, (0,0,0))
-        screen.blit(refresh_label, (refresh_rect.x + 16, refresh_rect.y + 6))
-        # Return refresh_rect for event handling
-        return cap_box, plus_rect, minus_rect, row, refresh_rect
+        y_cursor = table_y + (max(row, 2) + 1) * row_height + CONTROL_MARGIN
+        # Draw horizontal line
+        pygame.draw.line(screen, ACCENT_COLOR, (plot_x + SECTION_MARGIN, y_cursor), (plot_x + plot_width - SECTION_MARGIN, y_cursor), 2)
+        y_cursor += CONTROL_MARGIN
+        # --- Per-Signal Window Controls Section ---
+        sig_header = section_header_font.render("Per-Signal Window Controls", True, ACCENT_COLOR)
+        screen.blit(sig_header, (plot_x + SECTION_MARGIN, y_cursor))
+        y_cursor += sig_header.get_height() + CONTROL_MARGIN
+        # Place per-signal controls on the right, below the section header
+        sig_ctrl_x = plot_x + plot_width - 260
+        sig_ctrl_y = y_cursor
+        btn_size = 24
+        self._sig_window_btn_rects = []  # (minus_rect, plus_rect, sig_id)
+        for i, sid in enumerate(all_ids):
+            y = sig_ctrl_y + i * (btn_size + ELEMENT_PADDING)
+            display_id = str(sid) if len(str(sid)) < 18 else str(sid)[:15] + '...'
+            label = self.font.render(f"{display_id}", True, (200,220,255))
+            screen.blit(label, (sig_ctrl_x, y))
+            win_sec = 2
+            if signal_window_sec is not None:
+                win_sec = signal_window_sec.get(sid, 2)
+            win_label = self.font.render(f"{win_sec} s", True, TEXT_COLOR)
+            screen.blit(win_label, (sig_ctrl_x + 110, y))
+            minus_rect = pygame.Rect(sig_ctrl_x + 160, y, btn_size, btn_size)
+            plus_rect = pygame.Rect(sig_ctrl_x + 200, y, btn_size, btn_size)
+            mouse_over_plus = plus_rect.collidepoint(mx, my)
+            mouse_over_minus = minus_rect.collidepoint(mx, my)
+            plus_color = (0, 255, 120) if mouse_over_plus else ACCENT_COLOR
+            minus_color = (255, 120, 0) if mouse_over_minus else ACCENT_COLOR
+            pygame.draw.rect(screen, plus_color, plus_rect, border_radius=6)
+            pygame.draw.rect(screen, minus_color, minus_rect, border_radius=6)
+            plus_label = self.font.render("+", True, (0,0,0))
+            minus_label = self.font.render("-", True, (0,0,0))
+            screen.blit(plus_label, (plus_rect.x + 6, plus_rect.y + 2))
+            screen.blit(minus_label, (minus_rect.x + 6, minus_rect.y + 2))
+            self._sig_window_btn_rects.append((minus_rect, plus_rect, sid))
+        # Return rects for event handling
+        return None  # Not used
 
-    def handle_event(self, event, plot_x, plot_y, row, row_height, plot_height, plotted_signals=None):
+    def handle_event(self, event, plot_x, plot_y, row, row_height, plot_height, window_sec_dict, current_viewmode, plotted_signals=None, signal_window_sec=None):
         if event.type == pygame.MOUSEBUTTONDOWN:
             mx, my = pygame.mouse.get_pos()
-            cap_box = pygame.Rect(plot_x + 20, plot_y + 20, 20, 20)
-            available_width = WINDOW_WIDTH - SIDEBAR_WIDTH - 2 * plot_x
-            available_height = WINDOW_HEIGHT - STATUS_BAR_HEIGHT - plot_y - 20
-            col_widths = [max(120, int(available_width * 0.25)), max(180, int(available_width * 0.55)), max(60, int(available_width * 0.15))]
-            table_y = cap_box.bottom + 20
-            label_y = table_y + (row + 1) * row_height
-            if label_y + row_height > plot_y + plot_height - 20:
-                label_y = plot_y + plot_height - 50
-            plus_rect = pygame.Rect(plot_x + 120, label_y - 5, 30, 30)
-            minus_rect = pygame.Rect(plot_x + 50, label_y - 5, 30, 30)
-            # Add refresh_rect for event handling
-            refresh_btn_width = 100
-            refresh_btn_height = 32
-            refresh_btn_x = plot_x + 50
-            refresh_btn_y = label_y + 30
-            refresh_rect = pygame.Rect(refresh_btn_x, refresh_btn_y, refresh_btn_width, refresh_btn_height)
+            # FPS cap toggle
+            cap_box = pygame.Rect(plot_x + SECTION_MARGIN, plot_y + SECTION_MARGIN, 28, 28)
             if cap_box.collidepoint(mx, my):
                 self.fps_cap_on = not self.fps_cap_on
-            if plus_rect.collidepoint(mx, my):
-                self.window_sec = min(self.window_sec + 1, 60)
-            if minus_rect.collidepoint(mx, my):
-                self.window_sec = max(self.window_sec - 1, 1)
+                return
+            # Only check per-signal window +/- buttons
+            if hasattr(self, '_sig_window_btn_rects') and signal_window_sec is not None:
+                for minus_rect, plus_rect, sid in self._sig_window_btn_rects:
+                    if minus_rect.collidepoint(mx, my):
+                        signal_window_sec[sid] = max(signal_window_sec.get(sid, 2) - 1, 1)
+                        return
+                    if plus_rect.collidepoint(mx, my):
+                        signal_window_sec[sid] = min(signal_window_sec.get(sid, 2) + 1, 60)
+                        return
+            # Check refresh button
+            refresh_btn_x = plot_x + 50
+            refresh_btn_y = plot_y + row_height * 8  # Approximate, not critical
+            refresh_rect = pygame.Rect(refresh_btn_x, refresh_btn_y, 100, 32)
             if refresh_rect.collidepoint(mx, my):
-                # No-op: table will refresh on next draw automatically
-                pass
+                pass  # No-op
         elif event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_LEFT:
-                self.window_sec = max(self.window_sec - 1, 1)
-            elif event.key == pygame.K_RIGHT:
-                self.window_sec = min(self.window_sec + 1, 60)
+            pass  # (Optional: add keyboard shortcuts for per-signal adjustment)
