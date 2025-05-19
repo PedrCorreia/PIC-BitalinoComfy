@@ -15,7 +15,7 @@ from src.plot.constants import (
     ACCENT_COLOR, TEXT_COLOR, VIEW_MODE_RAW, VIEW_MODE_PROCESSED, VIEW_MODE_TWIN, VIEW_MODE_SETTINGS,
     PLOT_PADDING, TAB_HEIGHT, CONTROL_PANEL_HEIGHT, TWIN_VIEW_SEPARATOR,
     BUTTON_MARGIN, SECTION_MARGIN, TITLE_PADDING, TEXT_MARGIN, CONTROL_MARGIN, ELEMENT_PADDING,
-    RAW_SIGNAL_COLOR, PROCESSED_SIGNAL_COLOR
+    RAW_SIGNAL_COLOR, PROCESSED_SIGNAL_COLOR, TARGET_FPS
 )
 from src.plot.view_mode import ViewMode
 # Use ViewMode enums for TABS
@@ -53,11 +53,13 @@ def main():
     from src.plot.ui.sidebar import Sidebar
     from src.plot.ui.status_bar import StatusBar
     from src.plot.view.signal_view import SignalView
+    from src.plot.ui.settings import SettingsPanel
 
     # Instantiate UI components
     sidebar = Sidebar(screen, SIDEBAR_WIDTH, WINDOW_HEIGHT, font, icon_font, selected_tab, {})
     status_bar = StatusBar(screen, STATUS_BAR_HEIGHT, font, start_time)
     signal_view = SignalView(screen, None, {}, font)  # Data and lock will be set per draw
+    settings_panel = SettingsPanel(font, plot_registry)
 
     # --- Precompute plot area variables (will be updated each frame) ---
     plot_x = SIDEBAR_WIDTH + PLOT_PADDING
@@ -65,66 +67,10 @@ def main():
     plot_width = WINDOW_WIDTH - SIDEBAR_WIDTH - 2 * PLOT_PADDING
     plot_height = (WINDOW_HEIGHT - STATUS_BAR_HEIGHT - 2 * PLOT_PADDING) // 3
 
-    while running:
-        # --- Update plot area variables each frame in case of dynamic resizing (optional) ---
-        plot_x = SIDEBAR_WIDTH + PLOT_PADDING
-        plot_y = STATUS_BAR_HEIGHT + PLOT_PADDING
-        plot_width = WINDOW_WIDTH - SIDEBAR_WIDTH - 2 * PLOT_PADDING
-        plot_height = (WINDOW_HEIGHT - STATUS_BAR_HEIGHT - 2 * PLOT_PADDING) // 3
-
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.MOUSEBUTTONDOWN:
-                mx, my = pygame.mouse.get_pos()
-                # Use sidebar's handle_click to determine tab
-                if 0 <= mx < SIDEBAR_WIDTH:
-                    clicked_mode = sidebar.handle_click(my)
-                    if clicked_mode is not None:
-                        sidebar.current_mode = clicked_mode
-                        selected_tab = clicked_mode
-                # SETTINGS: +/- buttons for window_sec
-                if selected_tab == ViewMode.SETTINGS:
-                    plus_rect = pygame.Rect(plot_x + 220, plot_y + 25, 30, 30)
-                    minus_rect = pygame.Rect(plot_x + 50, plot_y + 25, 30, 30)
-                    if plus_rect.collidepoint(mx, my):
-                        window_sec = min(window_sec + 1, 60)
-                    elif minus_rect.collidepoint(mx, my):
-                        window_sec = max(window_sec - 1, 1)
-            elif event.type == pygame.KEYDOWN:
-                # SETTINGS: left/right arrow keys for window_sec
-                if selected_tab == ViewMode.SETTINGS:
-                    if event.key == pygame.K_LEFT:
-                        window_sec = max(window_sec - 1, 1)
-                    elif event.key == pygame.K_RIGHT:
-                        window_sec = min(window_sec + 1, 60)
-        # --- Connect all signals to the connector node (emulated) ---
-        for sid in plot_registry.get_all_signal_ids():
-            plot_registry.connect_node_to_signal(connector_node_id, sid)
-        # --- Draw UI ---
-        screen.fill(BACKGROUND_COLOR)
-        pygame.draw.rect(screen, SIDEBAR_COLOR, (0, 0, SIDEBAR_WIDTH, WINDOW_HEIGHT))
-        pygame.draw.rect(screen, STATUS_COLOR, (0, 0, WINDOW_WIDTH, STATUS_BAR_HEIGHT))
-        # plot_x, plot_y, plot_width, plot_height already set above
-        pygame.draw.rect(screen, (20,20,20), (plot_x, plot_y, plot_width, WINDOW_HEIGHT - STATUS_BAR_HEIGHT - 2 * PLOT_PADDING))
-        # --- Sidebar ---
-        sidebar.current_mode = selected_tab
-        sidebar.draw()
-        # --- Plotting/View ---
-        # For now, use the procedural draw_signal_views as a placeholder, but ideally instantiate and use view classes for each tab
-        # signal_view.draw()  # Would need to be adapted for each tab/view type
+    def draw_tab_content(screen, font, plot_registry, selected_tab, plot_x, plot_y, plot_width, plot_height, window_sec):
         from src.plot.ui.drawing import draw_signal_plot
         if selected_tab == ViewMode.SETTINGS:
-            window_label = font.render(f"Rolling Window (s): {window_sec}", True, TEXT_COLOR)
-            screen.blit(window_label, (plot_x + 50, plot_y + 30))
-            plus_rect = pygame.Rect(plot_x + 220, plot_y + 25, 30, 30)
-            minus_rect = pygame.Rect(plot_x + 50, plot_y + 25, 30, 30)
-            pygame.draw.rect(screen, BUTTON_COLOR_SETTINGS, plus_rect)
-            pygame.draw.rect(screen, BUTTON_COLOR_SETTINGS, minus_rect)
-            plus_label = font.render("+", True, (0,0,0))
-            minus_label = font.render("-", True, (0,0,0))
-            screen.blit(plus_label, (plus_rect.x + 8, plus_rect.y + 2))
-            screen.blit(minus_label, (minus_rect.x + 8, minus_rect.y + 2))
+            cap_box, plus_rect, minus_rect, row = settings_panel.draw(screen, plot_x, plot_y, plot_width, plot_height)
         elif selected_tab == ViewMode.RAW:
             raw_signals = plot_registry.get_signals_by_type(None, 'raw', debug=True)
             for i, sig in enumerate(raw_signals[:3]):
@@ -144,11 +90,61 @@ def main():
                 draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, left_width, plot_height, show_time_markers=True, window_sec=window_sec)
             for i, sig in enumerate(raw_signals[:3]):
                 draw_signal_plot(screen, font, sig, center_x + 5, plot_y + i*plot_height, right_width, plot_height, show_time_markers=True, window_sec=window_sec)
+
+    while running:
+        # --- Update plot area variables each frame in case of dynamic resizing (optional) ---
+        plot_x = SIDEBAR_WIDTH + PLOT_PADDING
+        plot_y = STATUS_BAR_HEIGHT + PLOT_PADDING
+        plot_width = WINDOW_WIDTH - SIDEBAR_WIDTH - 2 * PLOT_PADDING
+        plot_height = (WINDOW_HEIGHT - STATUS_BAR_HEIGHT - 2 * PLOT_PADDING) // 3
+
+        # Determine FPS cap from settings panel
+        fps_cap = TARGET_FPS if settings_panel.fps_cap_on else 0
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.MOUSEBUTTONDOWN or event.type == pygame.KEYDOWN:
+                if selected_tab == ViewMode.SETTINGS:
+                    # Count rows for event handling
+                    table_y = plot_y + 60
+                    row_height = 28
+                    types = ["raw", "processed"]
+                    row = 1
+                    for sig_type in types:
+                        signals = plot_registry.get_signals_by_type(None, sig_type, debug=False)
+                        for sig in signals:
+                            row += 1
+                    settings_panel.handle_event(event, plot_x, plot_y, row, row_height, plot_height)
+                # ...existing code for sidebar...
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    mx, my = pygame.mouse.get_pos()
+                    if 0 <= mx < SIDEBAR_WIDTH:
+                        clicked_mode = sidebar.handle_click(my)
+                        if clicked_mode is not None:
+                            sidebar.current_mode = clicked_mode
+                            selected_tab = clicked_mode
+        # --- Connect all signals to the connector node (emulated) ---
+        for sid in plot_registry.get_all_signal_ids():
+            plot_registry.connect_node_to_signal(connector_node_id, sid)
+        # --- Draw UI ---
+        screen.fill(BACKGROUND_COLOR)
+        pygame.draw.rect(screen, SIDEBAR_COLOR, (0, 0, SIDEBAR_WIDTH, WINDOW_HEIGHT))
+        pygame.draw.rect(screen, STATUS_COLOR, (0, 0, WINDOW_WIDTH, STATUS_BAR_HEIGHT))
+        pygame.draw.rect(screen, (20,20,20), (plot_x, plot_y, plot_width, WINDOW_HEIGHT - STATUS_BAR_HEIGHT - 2 * PLOT_PADDING))
+        # --- Sidebar ---
+        sidebar.current_mode = selected_tab
+        sidebar.draw()
+        # --- Plotting/View ---
+        draw_tab_content(screen, font, plot_registry, selected_tab, plot_x, plot_y, plot_width, plot_height, settings_panel.window_sec)
         # --- Status Bar ---
         rel_runtime = int(time.time() - start_time)
         status_bar.draw(clock.get_fps(), latency_monitor.get_current_latency() if hasattr(latency_monitor, 'get_current_latency') else 0.0, None)
         pygame.display.flip()
-        clock.tick(60)
+        if fps_cap > 0:
+            clock.tick(fps_cap)
+        else:
+            clock.tick()
     generator.stop()
 
 if __name__ == "__main__":

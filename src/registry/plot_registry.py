@@ -195,12 +195,19 @@ class PlotRegistry:
         all_signal_ids = self.get_all_signal_ids()
         if debug:
             print(f"[DEBUG] All signal IDs in registry: {all_signal_ids}")
-        if signal_type == 'raw':
-            ids = [sid for sid in all_signal_ids if 'RAW' in sid or 'ECG' in sid or 'EDA' in sid]
-        elif signal_type == 'processed':
-            ids = [sid for sid in all_signal_ids if 'PROC' in sid or 'WAVE' in sid]
-        else:
-            ids = []
+        # --- Improved type detection: use metadata if available, fallback to ID heuristics ---
+        ids = []
+        for sid in all_signal_ids:
+            meta = self.get_signal_metadata(sid)
+            meta_type = meta.get('type') if meta else None
+            if signal_type == 'raw':
+                if (meta_type == 'raw' or
+                    (meta_type is None and ('RAW' in sid or 'ECG' in sid or 'EDA' in sid))):
+                    ids.append(sid)
+            elif signal_type == 'processed':
+                if (meta_type == 'processed' or
+                    (meta_type is None and ('PROC' in sid or 'PROCESSED' in sid or 'WAVE' in sid))):
+                    ids.append(sid)
         signals = []
         for sid in ids:
             data = self.get_signal(sid)

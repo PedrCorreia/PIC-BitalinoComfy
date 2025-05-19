@@ -14,7 +14,7 @@ DEFAULT_FONT_SIZE = 14
 # Window dimensions and layout
 WINDOW_WIDTH = 580  # Adjusted for better fit with controls
 WINDOW_HEIGHT = 770  # Adjusted for better content display
-SIDEBAR_WIDTH = 50   # Wider sidebar for better button spacing
+SIDEBAR_WIDTH = 30   # Wider sidebar for better button spacing
 STATUS_BAR_HEIGHT = 30
 
 # UI Layout settings
@@ -87,6 +87,6 @@ VIEW_MODE_PROCESSED = "PROCESSED"
 VIEW_MODE_TWIN = "TWIN"
 VIEW_MODE_SETTINGS = "SETTINGS"
 
-ICON_FONT_SIZE = 24
-TAB_ICON_FONT_SIZE = 28  # Larger font size for tab icons
+ICON_FONT_SIZE = 20
+TAB_ICON_FONT_SIZE = 24 # Larger font size for tab icons
 
