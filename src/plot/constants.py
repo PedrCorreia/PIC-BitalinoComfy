@@ -12,8 +12,8 @@ DEFAULT_FONT = "Arial"
 DEFAULT_FONT_SIZE = 14
 
 # Window dimensions and layout
-WINDOW_WIDTH = 540  # Adjusted for better fit with controls
-WINDOW_HEIGHT = 780  # Adjusted for better content display
+WINDOW_WIDTH = 580  # Adjusted for better fit with controls
+WINDOW_HEIGHT = 770  # Adjusted for better content display
 SIDEBAR_WIDTH = 50   # Wider sidebar for better button spacing
 STATUS_BAR_HEIGHT = 30
 

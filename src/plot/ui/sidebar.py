@@ -141,19 +141,14 @@ class Sidebar:
             y (int): Y coordinate of the click
             
         Returns:
-            int: The ViewMode enum value for the clicked button, or None if no button was clicked
+            ViewMode: The ViewMode enum value for the clicked button, or None if no button was clicked
         """
-        # Account for status bar position when processing clicks
         status_bar_offset = STATUS_BAR_HEIGHT if STATUS_BAR_TOP else 0
-        
-        # Update click handling to account for button spacing and status bar
-        for i in range(4):  # We have 4 buttons (0-3)
+        for i, mode in enumerate([ViewMode.RAW, ViewMode.PROCESSED, ViewMode.TWIN, ViewMode.SETTINGS]):
             button_top = status_bar_offset + self.button_spacing + i * (self.button_height + self.button_spacing)
             button_bottom = button_top + self.button_height
-            
             if button_top <= y <= button_bottom:
-                return i
-                
+                return mode
         return None
 
     def update_dynamic_state(self, current_mode, settings):
