@@ -1,37 +1,37 @@
 # PIC-2025 Registry System
 
-This directory contains the core registry components for the PIC-2025 signal system.
+This folder contains the modular registry system for the PIC-2025 visualization and signal processing architecture. It is designed for robust, real-time, and extensible signal management, supporting both synthetic and real signals for UI visualization and processing.
 
-## Components
+## Key Modules
 
-- **SignalRegistry**: Central repository for all signals in the system
-- **PlotRegistry**: Manages visualization connections and signal display
-- **PlotRegistryIntegration**: Bridge between the registry and visualization systems
+- **signal_registry.py**: Core singleton registry for all signals. Used by generators and the plot registry.
+- **plot_registry.py**: Main registry for signals and their metadata, providing robust, thread-safe access for visualization and adapters.
+- **signal_generator.py**: Contains only signal generation and registration logic. Handles background thread generation, buffer management, and robust updates to the registry.
+- **plot_registry_adapter.py**: Adapter for connecting the registry to the UI/PlotUnit. Handles view mode, node registration, and robust signal access for visualization. No signal generation logic.
 
-## Architecture
+## Design Principles
 
-The PIC-2025 system uses a two-registry architecture with a clear separation of concerns:
-
-1. **SignalRegistry** acts as the central repository for all signal data
-2. **PlotRegistry** handles visualization-specific concerns
-3. **PlotRegistryIntegration** connects the registry to visualization components
+- **Separation of Concerns**: Signal generation, registry management, and UI/adapter logic are strictly separated for maintainability and extensibility.
+- **Thread Safety**: All registry operations are thread-safe for real-time updates.
+- **Robustness**: Signal fetching, registration, and plotting are resilient to malformed or missing data.
+- **Extensibility**: New signal types, adapters, or UI integrations can be added without modifying core logic.
 
 ## Usage
 
-All components use the singleton pattern for global access:
+- Use `RegistrySignalGenerator` to create and update synthetic signals in the background.
+- Use `PlotRegistry` to access signals and metadata for visualization.
+- Use `PlotUnitRegistryAdapter` to connect the registry to a UI or visualization component, handling node registration and view mode filtering.
 
-```python
-from src.registry.signal_registry import SignalRegistry
-from src.registry.plot_registry import PlotRegistry
+## Migration Notes
 
-# Get registry instances
-signal_registry = SignalRegistry.get_instance()
-plot_registry = PlotRegistry.get_instance()
+- Legacy files (e.g., `plot_generator_debug_fixed.py`, `plot_generator_debug_fixed_v2.py`) are deprecated. All new code should use the modular files above.
+- If you need integration with legacy or custom UIs, use the adapter as the only interface to the registry.
 
-# Register a signal
-signal_registry.register_signal("my_signal", signal_data, {"source": "generator"})
-```
+## See Also
+- [../docs/plot_unit_integration_guide.md](../docs/plot_unit_integration_guide.md)
+- [../docs/signal_architecture.md](../docs/signal_architecture.md)
+- [../docs/registry_troubleshooting.md](../docs/registry_troubleshooting.md)
 
-## Reorganization (May 2025)
+---
 
-These registry files were previously located in `src/plot` and have been moved to this dedicated directory to better organize the codebase and clarify the architecture.
+_Last updated: May 2025_

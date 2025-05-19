@@ -21,11 +21,11 @@ TABS = [VIEW_MODE_RAW, VIEW_MODE_PROCESSED, VIEW_MODE_TWIN, VIEW_MODE_SETTINGS]
 TAB_ICONS = ['R', 'P', 'T', 'S']
 
 # --- Registry imports ---
-from src.registry.plot_generator_debug_fixed import RegistrySignalGenerator
+from src.registry.signal_generator import RegistrySignalGenerator
 from src.registry.plot_registry import PlotRegistry
 
 # --- Modular Plot Drawing ---
-def draw_signal_plot(screen, font, signal, x, y, w, h):
+def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False):
     t, v, meta = signal['t'], signal['v'], signal['meta']
     vmin, vmax = np.min(v), np.max(v)
     if vmax == vmin:
@@ -36,6 +36,17 @@ def draw_signal_plot(screen, font, signal, x, y, w, h):
     label = meta.get('name', signal['id'])
     label_surface = font.render(label, True, TEXT_COLOR)
     screen.blit(label_surface, (x + 10, y + 10))
+    # --- Draw min/max time markers if requested ---
+    if show_time_markers and len(t) > 1:
+        min_time, max_time = t[0], t[-1]
+        # Draw vertical lines at min/max
+        pygame.draw.line(screen, (200, 200, 80), (x, y), (x, y + h), 2)
+        pygame.draw.line(screen, (200, 80, 80), (x + w - 1, y), (x + w - 1, y + h), 2)
+        # Draw time labels
+        min_label = font.render(f"{min_time:.1f}s", True, (200, 200, 80))
+        max_label = font.render(f"{max_time:.1f}s", True, (200, 80, 80))
+        screen.blit(min_label, (x + 2, y + h - 22))
+        screen.blit(max_label, (x + w - max_label.get_width() - 2, y + h - 22))
 
 # --- Main App ---
 def main():
@@ -68,6 +79,21 @@ def main():
                     tab_y = 50 + i * (TAB_HEIGHT + BUTTON_MARGIN)
                     if 0 <= mx < SIDEBAR_WIDTH and tab_y <= my < tab_y + TAB_HEIGHT:
                         selected_tab = i
+                # SETTINGS: +/- buttons for window_sec
+                if selected_tab == 3:
+                    plus_rect = pygame.Rect(plot_x + 220, plot_y + 25, 30, 30)
+                    minus_rect = pygame.Rect(plot_x + 50, plot_y + 25, 30, 30)
+                    if plus_rect.collidepoint(mx, my):
+                        window_sec = min(window_sec + 1, 60)
+                    elif minus_rect.collidepoint(mx, my):
+                        window_sec = max(window_sec - 1, 1)
+            elif event.type == pygame.KEYDOWN:
+                # SETTINGS: left/right arrow keys for window_sec
+                if selected_tab == 3:
+                    if event.key == pygame.K_LEFT:
+                        window_sec = max(window_sec - 1, 1)
+                    elif event.key == pygame.K_RIGHT:
+                        window_sec = min(window_sec + 1, 60)
         # --- Connect all signals to the connector node (emulated) ---
         for sid in plot_registry.get_all_signal_ids():
             plot_registry.connect_node_to_signal(connector_node_id, sid)
@@ -95,16 +121,25 @@ def main():
         if selected_tab == 3:  # SETTINGS
             window_label = font.render(f"Rolling Window (s): {window_sec}", True, TEXT_COLOR)
             screen.blit(window_label, (plot_x + 50, plot_y + 30))
+            # Draw +/- buttons
+            plus_rect = pygame.Rect(plot_x + 220, plot_y + 25, 30, 30)
+            minus_rect = pygame.Rect(plot_x + 50, plot_y + 25, 30, 30)
+            pygame.draw.rect(screen, BUTTON_COLOR_SETTINGS, plus_rect)
+            pygame.draw.rect(screen, BUTTON_COLOR_SETTINGS, minus_rect)
+            plus_label = font.render("+", True, (0,0,0))
+            minus_label = font.render("-", True, (0,0,0))
+            screen.blit(plus_label, (plus_rect.x + 8, plus_rect.y + 2))
+            screen.blit(minus_label, (minus_rect.x + 8, minus_rect.y + 2))
         elif selected_tab == 0:  # RAW
             raw_signals = plot_registry.get_signals_by_type(window_sec, 'raw', debug=True)
             print(f"[DEBUG] Plotting RAW signals: {[s['id'] for s in raw_signals]}")
             for i, sig in enumerate(raw_signals[:3]):
-                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height)
+                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height, show_time_markers=True)
         elif selected_tab == 1:  # PROCESSED
             processed_signals = plot_registry.get_signals_by_type(window_sec, 'processed', debug=True)
             print(f"[DEBUG] Plotting PROCESSED signals: {[s['id'] for s in processed_signals]}")
             for i, sig in enumerate(processed_signals[:3]):
-                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height)
+                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height, show_time_markers=True)
         elif selected_tab == 2:  # TWIN
             raw_signals = plot_registry.get_signals_by_type(window_sec, 'raw', debug=True)
             processed_signals = plot_registry.get_signals_by_type(window_sec, 'processed', debug=True)
@@ -114,9 +149,9 @@ def main():
             center_x = plot_x + left_width + TWIN_VIEW_SEPARATOR
             pygame.draw.line(screen, (50, 50, 50), (center_x, plot_y), (center_x, WINDOW_HEIGHT - PLOT_PADDING), 3)
             for i, sig in enumerate(processed_signals[:3]):
-                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, left_width, plot_height)
+                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, left_width, plot_height, show_time_markers=True)
             for i, sig in enumerate(raw_signals[:3]):
-                draw_signal_plot(screen, font, sig, center_x + 5, plot_y + i*plot_height, right_width, plot_height)
+                draw_signal_plot(screen, font, sig, center_x + 5, plot_y + i*plot_height, right_width, plot_height, show_time_markers=True)
         # --- Status Bar ---
         all_signal_ids = plot_registry.get_all_signal_ids()
         rel_runtime = int(time.time() - start_time)

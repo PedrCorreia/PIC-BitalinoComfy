@@ -7,23 +7,19 @@ for the visualization system, integrating all components.
 
 import pygame
 import threading
-import numpy as np
-import torch
 import queue
 import time
 import logging
 import os
 import atexit
-from collections import deque
 
 # Import components from restructured modules
 from . import constants
-from .view import RawView, ProcessedView, TwinView, StackedView, SettingsView
+from .view import RawView, ProcessedView, TwinView,  SettingsView
 from .ui import Sidebar, StatusBar
 from .ui.plot_container import PlotContainer
-from .event_handler import EventHandler
-from .performance import LatencyMonitor, FPSCounter, PlotExtensions
-from .utils import convert_to_numpy
+from .utils.event_handler import EventHandler
+from .performance import EnhancedLatencyMonitor, LatencyMonitor, FPSCounter, PlotExtensions
 from .utils.signal_generator import generate_test_signals, update_test_signals
 
 # Import ViewMode enum
@@ -97,10 +93,9 @@ class PlotUnit:
         
         # Settings
         self.settings = DEFAULT_SETTINGS.copy()
-        
-        # Performance monitoring
+          # Performance monitoring
         self.start_time = time.time()
-        self.latency_monitor = LatencyMonitor()
+        self.latency_monitor = EnhancedLatencyMonitor()
         self.fps_counter = FPSCounter()
         
         # Setup thread and window
@@ -132,7 +127,7 @@ class PlotUnit:
                 self.thread = threading.Thread(target=self._run_visualization, daemon=True)
                 self.thread.start()
                 logger.info("PlotUnit visualization started")
-    
+
     def cleanup(self):
         """
         Clean up resources when application exits.
@@ -142,7 +137,7 @@ class PlotUnit:
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=1.0)
         pygame.quit()
-    
+
     def _run_visualization(self):
         """
         Main visualization loop running in separate thread.
@@ -155,41 +150,66 @@ class PlotUnit:
             os.environ['SDL_VIDEODRIVER'] = 'windib'  # For Windows compatibility
             pygame.init()
             pygame.display.set_caption("ComfyUI - PlotUnit")
-            
             self.surface = pygame.display.set_mode((self.width, self.height))
             self.font = pygame.font.SysFont(DEFAULT_FONT, DEFAULT_FONT_SIZE)
             self.icon_font = pygame.font.SysFont(DEFAULT_FONT, ICON_FONT_SIZE)
-            
-            # Initialize UI components
             self._initialize_components()
-            
             self.initialized = True
             logger.info("PlotUnit window initialized successfully")
             clock = pygame.time.Clock()
             
+            # Main visualization loop
             while self.running:
                 # Process events
-                self.running = self.event_handler.process_events()
-                
+                if self.event_handler is not None:
+                    self.running = self.event_handler.process_events()
+                else:
+                    logger.error("Event handler not initialized; terminating visualization loop.")
+                    break
                 # Update current mode from event handler
-                self.current_mode = self.event_handler.get_current_mode()
+                if hasattr(self.event_handler, 'get_current_mode'):
+                    self.current_mode = self.event_handler.get_current_mode()
+                elif hasattr(self.event_handler, 'current_mode'):
+                    self.current_mode = self.event_handler.current_mode
                 
                 # Handle incoming messages
                 self._process_queue()
                 
-                # Render the interface
-                self._render()
+                # Get current latency status
+                latency_status = self.latency_monitor.get_latency_status() if hasattr(self.latency_monitor, 'get_latency_status') else None
+                
+                # Check if we need to throttle rendering due to high latency
+                should_throttle = latency_status and latency_status.get('threshold_exceeded', False)
+                
+                # Render the interface (unless we're throttling due to high latency)
+                if not should_throttle:
+                    self._render()
+                    # Update the display
+                    if self.surface is not None:
+                        pygame.display.flip()
+                else:
+                    # Reduced rendering during high latency - just basic UI
+                    if self.surface is not None:
+                        self.surface.fill(BACKGROUND_COLOR)
+                    if self.sidebar is not None:
+                        self.sidebar.draw()
+                    if self.status_bar is not None:
+                        self.status_bar.draw(
+                            self.fps_counter.get_fps(), 
+                            self.latency_monitor.get_current_latency(),
+                            self.latency_monitor.get_signal_times()
+                        )
+                    if self.surface is not None:
+                        pygame.display.flip()
+                    logger.warning(f"High latency detected: {latency_status.get('value', 0):.3f}s - throttling rendering" if latency_status is not None else "High latency detected: unknown value - throttling rendering")
                 
                 # Update FPS counter
                 self.fps_counter.update()
                 
-                # Update the display
-                pygame.display.flip()
-                
                 # Cap the frame rate if enabled
                 if self.settings['caps_enabled']:
                     clock.tick(TARGET_FPS)
-                
+            
         except Exception as e:
             logger.error(f"Visualization error: {e}", exc_info=True)
         finally:
@@ -243,13 +263,6 @@ class PlotUnit:
                 self.font,
                 
             ),
-            ViewMode.STACKED: StackedView(
-                self.surface,
-                self.data_lock,
-                self.data,
-                self.font,
-                
-            ),
             ViewMode.SETTINGS: SettingsView(
                 self.surface, 
                 self.data_lock, 
@@ -289,23 +302,7 @@ class PlotUnit:
         self.extensions = PlotExtensions(self)
         
         # Add debug plots for UI testing
-        self._add_debug_plots()
-
-    def _add_debug_plots(self):
-        """
-        Add static debug plots for UI testing.
-        """
-        try:
-            # Import debug plot utilities
-            from .utils.debug_plots import initialize_test_plots
-            
-            # Initialize with test plots
-            initialize_test_plots(self)
-            logger.info("Debug plots initialized for UI testing")
-        except ImportError:
-            logger.warning("Debug plot utilities not available, skipping debug plot initialization")
-        except Exception as e:
-            logger.error(f"Error initializing debug plots: {e}")
+        
 
     def _process_queue(self):
         """
@@ -343,21 +340,34 @@ class PlotUnit:
     
     def _update_data(self, data_type, data):
         """
-        Update data for visualization.
+        Update the data dictionary with new data.
         
         Args:
             data_type (str): Type/ID of the data
-            data: The data to update
+            data: The data to visualize
         """
-        # Convert to numpy if needed
-        np_data = convert_to_numpy(data)
+        timestamp = time.time()
         
-        # Update the data
         with self.data_lock:
-            self.data[data_type] = np_data
+            # Initialize the data type if it doesn't exist
+            if data_type not in self.data:
+                self.data[data_type] = {
+                    'values': [],
+                    'timestamps': []
+                }
             
-            # Track when this signal was last updated
-            self.latency_monitor.update_signal_time(data_type)
+            # Add the new data
+            self.data[data_type]['values'].append(data)
+            self.data[data_type]['timestamps'].append(timestamp)
+            
+            # Keep data within limits if needed
+            max_points = self.settings.get('max_data_points', 1000)
+            if len(self.data[data_type]['values']) > max_points:
+                self.data[data_type]['values'] = self.data[data_type]['values'][-max_points:]
+                self.data[data_type]['timestamps'] = self.data[data_type]['timestamps'][-max_points:]
+        
+        # Update latency monitoring
+        self.latency_monitor.record_signal(data_type, timestamp)
     
     def _set_mode(self, mode):
         """
@@ -400,76 +410,65 @@ class PlotUnit:
     def _render(self):
         """
         Render the visualization interface.
-        
         This method clears the screen and renders the appropriate view
-        based on the current mode.
+        based on the current mode. All UI components are checked for initialization.
         """
         # Clear the screen
-        self.surface.fill(BACKGROUND_COLOR)
-        
+        if self.surface is not None:
+            self.surface.fill(BACKGROUND_COLOR)
         # Draw the sidebar
-        self.sidebar.draw()
-        
+        if self.sidebar is not None:
+            self.sidebar.draw()
         # Handle different view modes
-        if self.current_mode == ViewMode.RAW:
-            # For raw view, only show the raw view
-            # Update PlotContainer settings and window dimensions
-            self.plot_container.set_twin_view(False)
-            self.plot_container.set_window_rect(
-                pygame.Rect(0, 0, self.width, self.height),
-                self.sidebar_width
-            )
-            # Reset the plots list and add only the raw view
-            self.plot_container.plots = [self.views[ViewMode.RAW]]
-            self.plot_container.update_layout()
-            self.plot_container.draw()
-        elif self.current_mode == ViewMode.PROCESSED:
-            # For processed view, only show the processed view
-            # Update PlotContainer settings and window dimensions
-            self.plot_container.set_twin_view(False)
-            self.plot_container.set_window_rect(
-                pygame.Rect(0, 0, self.width, self.height),
-                self.sidebar_width
-            )
-            # Reset the plots list and add only the processed view
-            self.plot_container.plots = [self.views[ViewMode.PROCESSED]]
-            self.plot_container.update_layout()
-            self.plot_container.draw()
-        elif self.current_mode == ViewMode.TWIN:
-            # For twin view mode, use the PlotContainer with twin view enabled
-            self.plot_container.set_twin_view(True)
-            self.plot_container.set_window_rect(
-                pygame.Rect(0, 0, self.width, self.height),
-                self.sidebar_width
-            )
-            # Reset the plots list and add both raw and processed views for side-by-side comparison
-            self.plot_container.plots = [self.views[ViewMode.TWIN]]
-            self.plot_container.update_layout()
-            self.plot_container.draw()
-        elif self.current_mode == ViewMode.STACKED:
-            # For stacked view mode, use the PlotContainer with stacked view enabled
-            self.plot_container.set_twin_view(False)
-            self.plot_container.set_window_rect(
-                pygame.Rect(0, 0, self.width, self.height),
-                self.sidebar_width
-            )
-            # Reset the plots list and add the stacked view
-            self.plot_container.plots = [self.views[ViewMode.STACKED]]
-            self.plot_container.update_layout()
-            self.plot_container.draw()
-        elif self.current_mode == ViewMode.SETTINGS:
-            # For settings view, draw directly
-            self.views[ViewMode.SETTINGS].draw()
+        if self.views and self.current_mode in self.views:
+            # Use PlotContainer for all modes except SETTINGS
+            if self.current_mode == ViewMode.SETTINGS:
+                if self.views[ViewMode.SETTINGS] is not None:
+                    self.views[ViewMode.SETTINGS].draw()
+            else:
+                if self.plot_container is not None:
+                    # Update PlotContainer settings and window dimensions
+                    if self.current_mode == ViewMode.RAW:
+                        self.plot_container.set_twin_view(False)
+                        self.plot_container.set_window_rect(
+                            pygame.Rect(0, 0, self.width, self.height),
+                            self.sidebar_width
+                        )
+                        self.plot_container.plots = [self.views[ViewMode.RAW]]
+                    elif self.current_mode == ViewMode.PROCESSED:
+                        self.plot_container.set_twin_view(False)
+                        self.plot_container.set_window_rect(
+                            pygame.Rect(0, 0, self.width, self.height),
+                            self.sidebar_width
+                        )
+                        self.plot_container.plots = [self.views[ViewMode.PROCESSED]]
+                    elif self.current_mode == ViewMode.TWIN:
+                        self.plot_container.set_twin_view(True)
+                        self.plot_container.set_window_rect(
+                            pygame.Rect(0, 0, self.width, self.height),
+                            self.sidebar_width
+                        )
+                        self.plot_container.plots = [self.views[ViewMode.TWIN]]
+                    elif self.current_mode == ViewMode.STACKED:
+                        self.plot_container.set_twin_view(False)
+                        self.plot_container.set_window_rect(
+                            pygame.Rect(0, 0, self.width, self.height),
+                            self.sidebar_width
+                        )
+                        self.plot_container.plots = [self.views[ViewMode.STACKED]]
+                    self.plot_container.update_layout()
+                    self.plot_container.draw()
         else:
-            # Unknown mode - fall back to raw view
-            self.views[ViewMode.RAW].draw()
-        
+            # Unknown mode or missing view - fallback to raw view if available
+            if self.views and ViewMode.RAW in self.views and self.views[ViewMode.RAW] is not None:
+                self.views[ViewMode.RAW].draw()
         # Draw status bar with performance metrics
-        self.status_bar.draw(
-            self.fps_counter.get_fps(),
-            self.latency_monitor.get_current_latency(),
-            self.latency_monitor.get_signal_times()
-        )
+        if self.status_bar is not None:
+            self.status_bar.draw(
+                self.fps_counter.get_fps(),
+                self.latency_monitor.get_current_latency(),
+                self.latency_monitor.get_signal_times()
+            )
     
     def queue_data(self, data_type, data):
         """
@@ -522,131 +521,6 @@ class PlotUnit:
             bool: True if the visualization is running, False otherwise
         """
         return self.running and self.initialized
-    
-    def load_test_signals(self, clear_existing=True):
-        """
-        Load test signals for demonstration.
-        
-        This method populates the data dictionary with test signals
-        for demonstration and development purposes.
-        
-        Args:
-            clear_existing (bool): Whether to clear existing signals before loading test signals
-        """
-        # Generate test signals
-        test_signals = generate_test_signals()
-        
-        with self.data_lock:
-            # Clear existing data if requested
-            if clear_existing:
-                self.data.clear()
-                self.latency_monitor.clear()
-            
-            # Add raw signals
-            self.data["raw_sine"] = test_signals["raw_sine"]
-            self.data["raw_square"] = test_signals["raw_square"]
-            
-            # Add processed signals with "_processed" suffix for proper categorization
-            self.data["inverted_square_processed"] = test_signals["inverted_square"]
-            self.data["sawtooth_processed"] = test_signals["sawtooth"]
-            self.data["triangle_processed"] = test_signals["triangle"]
-            
-        logger.info("Test signals loaded successfully")
-        
-        # If not already running, start the visualization
-        if not self.running:
-            self.start()
-    
-    def update_test_signals(self):
-        """
-        Update the test signals with new dynamic data.
-        
-        This method is useful for demos to show changing signals.
-        """
-        with self.data_lock:
-            if not self.data:
-                # If no data exists, load initial test signals
-                self.load_test_signals()
-                return
-            
-            # Update existing test signals
-            update_test_signals(self.data)
-            
-            # Update latency timestamps
-            for signal_id in self.data:
-                self.latency_monitor.update_signal_time(signal_id)
-    
-    def configure_layout(self, grid_enabled=True, stack_mode='aligned', normalize_stacks=True):
-        """
-        Configure layout settings for plot visualization.
-        
-        This method configures how plots are displayed, particularly for stacked views.
-        
-        Args:
-            grid_enabled (bool): Whether to enable grid lines on plots
-            stack_mode (str): Mode for stacking ('aligned' or 'free')
-            normalize_stacks (bool): Whether to normalize signal scales across stacked plots
-        """
-        if not isinstance(self.views.get(ViewMode.STACKED), StackedView):
-            logger.warning("StackedView not initialized, cannot configure layout")
-            return
-            
-        stacked_view = self.views[ViewMode.STACKED]
-        stacked_view.set_grid_enabled(grid_enabled)
-        stacked_view.set_stack_mode(stack_mode)
-        stacked_view.set_normalize_stacks(normalize_stacks)
-        
-        logger.info(f"Layout configured: grid={grid_enabled}, mode={stack_mode}, normalize={normalize_stacks}")
-    
-    def set_signal_params(self, signal_id, color=None, label=None, stack_group=None):
-        """
-        Set visualization parameters for a specific signal.
-        
-        Args:
-            signal_id (str): ID of the signal to configure
-            color (tuple): RGB color tuple for the signal
-            label (str): Label to display for the signal
-            stack_group (str): Group for aligning signals in stacks
-        """
-        if not isinstance(self.views.get(ViewMode.STACKED), StackedView):
-            logger.warning("StackedView not initialized, cannot set signal parameters")
-            return
-            
-        stacked_view = self.views[ViewMode.STACKED]
-        stacked_view.set_signal_params(signal_id, color, label, stack_group)
-        
-        logger.info(f"Signal parameters set for {signal_id}")
-    
-    def enable_differential_view(self, base_signal_id, compare_signal_id, label=None, stack_position=None):
-        """
-        Enable a differential view between two signals.
-        
-        Args:
-            base_signal_id (str): ID of the base signal
-            compare_signal_id (str): ID of the signal to compare against
-            label (str): Label for the differential view
-            stack_position (int): Position in the stack (0-based)
-        """
-        if not isinstance(self.views.get(ViewMode.STACKED), StackedView):
-            logger.warning("StackedView not initialized, cannot enable differential view")
-            return
-            
-        stacked_view = self.views[ViewMode.STACKED]
-        stacked_view.enable_differential_view(
-            base_signal_id, compare_signal_id, label, stack_position
-        )
-        
-        logger.info(f"Differential view enabled: {base_signal_id} vs {compare_signal_id}")
-    
-    def synchronize_grid_scales(self):
-        """
-        Force synchronization of grid scales across stacked plots.
-        """
-        if not isinstance(self.views.get(ViewMode.STACKED), StackedView):
-            logger.warning("StackedView not initialized, cannot synchronize grid scales")
-            return
-            
-        stacked_view = self.views[ViewMode.STACKED]
-        stacked_view.synchronize_grid_scales()
-        
-        logger.info("Grid scales synchronized")
+
+    # --- Only keep minimal required interface for registry-driven visualization ---
+    # All legacy/test/configuration/demo code has been removed. Only core methods remain.

@@ -8,8 +8,8 @@ handling user input and system events.
 import pygame
 import os
 import sys
-from .constants import *
-from .view_mode import ViewMode
+from ..constants import *
+from ..view_mode import ViewMode
 
 class EventHandler:
     """
@@ -36,6 +36,15 @@ class EventHandler:
         self.settings_view = settings_view
         # Button controller has been removed and is no longer used
         self.current_mode = sidebar.current_mode
+        
+    def get_current_mode(self):
+        """
+        Get the current view mode.
+        
+        Returns:
+            ViewMode: The current view mode
+        """
+        return self.current_mode
         
     def process_events(self):
         """
@@ -90,7 +99,6 @@ class EventHandler:
         if mode_index in mode_mapping:
             self.current_mode = mode_mapping[mode_index]
             self.sidebar.current_mode = self.current_mode
-            
     def _handle_settings_click(self, x, y):
         """
         Handle clicks in the settings view.
@@ -112,7 +120,8 @@ class EventHandler:
                 print(f"[EVENT] Button clicked: {setting_key}")
                 self._toggle_setting(setting_key)
                 found_button = True
-                break
+                # No break, continue checking all buttons
+        
         if not found_button:
             print(f"[EVENT] No button found at click position ({x}, {y})")
             print(f"[EVENT] Available buttons: {len(self.settings_view.settings_buttons)}")
@@ -127,67 +136,39 @@ class EventHandler:
         Returns:
             bool: True if an action was triggered, False otherwise
         """
-        # Try to import PlotUnit without relative imports
+        PlotUnit = None
         try:
             from src.plot.plot_unit import PlotUnit
         except ImportError:
             try:
-                # Alternative import path
-                import sys
                 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
                 from plot.plot_unit import PlotUnit
-            except:
-                print("[EVENT] Could not import PlotUnit")
-        
+            except Exception as e:
+                print(f"[EVENT] Failed to import PlotUnit: {str(e)}")
+                PlotUnit = None
+
         # Special handling for action buttons
         if setting_key == 'reset_plots':
-            # Get the PlotUnit instance and call clear_plots
-            plot_unit = PlotUnit.get_instance()
-            if hasattr(plot_unit, 'clear_plots'):
-                plot_unit.clear_plots()
-                print("[EVENT] Reset plots action triggered")
+            if PlotUnit:
+                plot_unit = PlotUnit.get_instance()
+                if hasattr(plot_unit, 'clear_plots'):
+                    plot_unit.clear_plots()
+                    print("[EVENT] Reset plots action triggered")
+                    return True
+            print("[EVENT] Could not reset plots (PlotUnit unavailable)")
             return True
-            
+
         elif setting_key == 'reset_registry':
-            # Get the PlotUnit instance to clear registry
-            try:                # Try various import paths to find SignalRegistry
-                try:
-                    # First attempt: direct import
-                    from src.registry.signal_registry import SignalRegistry
-                except ImportError:
-                    try:
-                        # Second attempt: relative to project root
-                        root_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-                        if root_path not in sys.path:
-                            sys.path.insert(0, root_path)
-                        from registry.signal_registry import SignalRegistry
-                    except ImportError:
-                        # Final attempt: check if PlotUnit has a reference
-                        plot_unit = PlotUnit.get_instance()
-                        if hasattr(plot_unit, 'registry'):
-                            SignalRegistry = plot_unit.registry.__class__
-                        else:
-                            raise ImportError("Could not import SignalRegistry")
-                SignalRegistry.get_instance().reset()
-                print("[EVENT] Reset registry action triggered")
-            except ImportError:
-                print("[EVENT] Could not import SignalRegistry")
+            try:
+                from src.registry.plot_registry import PlotRegistry
+                PlotRegistry.get_instance().reset()
+                print("[EVENT] Reset registry action triggered (PlotRegistry)")
             except Exception as e:
-                print(f"[EVENT] Failed to reset registry: {str(e)}")
+                print(f"[EVENT] Failed to reset registry using PlotRegistry: {str(e)}")
             return True
-        
+
         # Toggle regular settings
-        if setting_key in self.settings_view.settings:
+        if self.settings_view and setting_key in self.settings_view.settings:
             self.settings_view.settings[setting_key] = not self.settings_view.settings[setting_key]
             print(f"[EVENT] Setting '{setting_key}' toggled to {self.settings_view.settings[setting_key]}")
-        
         return False
-    
-    def get_current_mode(self):
-        """
-        Get the current view mode.
-        
-        Returns:
-            ViewMode: The current view mode
-        """
-        return self.current_mode

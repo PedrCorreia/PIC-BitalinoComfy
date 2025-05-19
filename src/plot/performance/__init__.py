@@ -6,12 +6,14 @@ including latency tracking, FPS counting, and general metrics.
 """
 
 from .latency_monitor import LatencyMonitor
+from .enhanced_latency_monitor import EnhancedLatencyMonitor
 from .fps_counter import FPSCounter
 from .plot_extensions import PlotExtensions
 
 # Define what gets imported with *
 __all__ = [
     'LatencyMonitor',
+    'EnhancedLatencyMonitor',
     'FPSCounter',
     'PlotExtensions',
 ]
