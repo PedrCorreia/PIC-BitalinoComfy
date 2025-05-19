@@ -3,12 +3,14 @@ import numpy as np
 from src.plot.constants import TEXT_COLOR
 
 def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, window_sec=None):
-    t, v, meta = signal['t'], signal['v'], signal['meta']
+    t, v, meta = signal['t'], signal['v'], signal.get('meta', {})
     t = np.array(t)
     v = np.array(v)
+    if meta is None:
+        meta = {}
     if len(t) < 2 or len(v) < 2:
         pygame.draw.rect(screen, (80, 80, 80), (x, y, w, h), 2)
-        label = meta.get('name', signal['id'])
+        label = meta.get('name', signal.get('id', ''))
         label_surface = font.render(label, True, TEXT_COLOR)
         no_data_surface = font.render("No data", True, (180, 80, 80))
         screen.blit(label_surface, (x + 10, y + 10))
@@ -37,7 +39,7 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
     points = [(x + int((t_plot[j] - window_min) / (window_max - window_min) * w), y + h - int((v_plot[j]-vmin)/(vmax-vmin)*h)) for j in range(len(t_plot))] if len(t_plot) > 1 and window_max > window_min else []
     if len(points) >= 2:
         pygame.draw.lines(screen, meta.get('color', (255,255,255)), False, points, 2)
-    label = meta.get('name', signal['id'])
+    label = meta.get('name', signal.get('id', ''))
     label_surface = font.render(label, True, TEXT_COLOR)
     screen.blit(label_surface, (x + 10, y + 10))
     if show_time_markers and len(t_plot) > 1:

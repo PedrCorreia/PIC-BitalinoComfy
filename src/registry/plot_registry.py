@@ -3,6 +3,8 @@ import threading
 import logging
 import time
 from collections import OrderedDict
+import sys
+import builtins
 
 # Configure logger
 logger = logging.getLogger('PlotRegistry')
@@ -17,14 +19,14 @@ class PlotRegistry:
     
     @classmethod
     def get_instance(cls):
-        with cls._lock:
-            if cls._instance is None:
-                cls._instance = cls()
-                logger.info("Created new PlotRegistry singleton instance")
-            return cls._instance
+        # Use builtins to store the singleton globally
+        if not hasattr(builtins, '_PIC25_PLOT_REGISTRY_SINGLETON'):
+            setattr(builtins, '_PIC25_PLOT_REGISTRY_SINGLETON', cls())
+        return getattr(builtins, '_PIC25_PLOT_REGISTRY_SINGLETON')
     
     def __init__(self):
         """Initialize the registry with empty containers"""
+        print(f"[DEBUG] PlotRegistry __init__ called. Instance id: {id(self)}")
         self.signals = OrderedDict()  # Signal data keyed by ID
         self.metadata = {}           # Signal metadata keyed by ID
         self.connections = {}        # Track which nodes connect to which signals
@@ -150,6 +152,7 @@ class PlotRegistry:
     
     def clear_signals(self):
         """Clear all signals from the registry"""
+        print(f"[DEBUG] PlotRegistry.clear_signals() called! Instance id: {id(self)}")
         with self.registry_lock:
             self.signals.clear()
             self.metadata.clear()
@@ -159,6 +162,7 @@ class PlotRegistry:
     
     def reset(self):
         """Reset the entire registry"""
+        print(f"[DEBUG] PlotRegistry.reset() called! Instance id: {id(self)}")
         with self.registry_lock:
             self.signals.clear()
             self.metadata.clear()

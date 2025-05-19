@@ -28,7 +28,7 @@ from src.registry.plot_registry import PlotRegistry
 from src.plot.performance.latency_monitor import LatencyMonitor
 
 # --- Main App ---
-def main():
+def main(start_generators=True):
     pygame.init()
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     pygame.display.set_caption("PIC-2025 Registry Visualization")
@@ -37,9 +37,13 @@ def main():
     clock = pygame.time.Clock()
 
     # --- Start registry-based signal generator ---
-    generator = RegistrySignalGenerator()
-    generator.set_buffer_seconds(120)  # Make generator buffer longer than the view buffer
-    generator.start()
+    generator = None
+    if start_generators:
+        # User must manually add and start generators via RegistrySignalGenerator
+        generator = RegistrySignalGenerator()
+        # Optionally, you could add default generators here if desired
+        # generator.add_generator(...)
+        # generator.start_all()
     plot_registry = PlotRegistry.get_instance()
     latency_monitor = LatencyMonitor()
 
@@ -191,7 +195,8 @@ def main():
             clock.tick(fps_cap)
         else:
             clock.tick()
-    generator.stop()
+    if start_generators and generator is not None:
+        generator.stop_all()
 
 if __name__ == "__main__":
     main()

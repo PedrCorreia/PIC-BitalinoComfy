@@ -199,15 +199,23 @@ except Exception as e:
 
 # Unified Signal Generator (New consolidated generator)
 try:
-    from .comfy.Registry.unified_signal_generator import UnifiedSignalGenerator
-    NODE_CLASS_MAPPINGS["UnifiedSignalGenerator"] = UnifiedSignalGenerator
-    NODE_DISPLAY_NAME_MAPPINGS["UnifiedSignalGenerator"] = "🌊 Signal Generator"
-    NODE_CATEGORY_MAPPINGS["UnifiedSignalGenerator"] = "Pedro_PIC/🌊 Signal Registry"
-    print("Unified Signal Generator loaded successfully")
+    from .comfy.Registry.comfy_signal_generator_node import ComfySignalGeneratorNode
+    from .comfy.Registry.comfy_signal_connector_node import ComfySignalConnectorNode
+    from .comfy.plot.comfy_plot_registry_node import ComfyPlotRegistryNode
+    NODE_CLASS_MAPPINGS["ComfySignalGeneratorNode"] = ComfySignalGeneratorNode
+    NODE_DISPLAY_NAME_MAPPINGS["ComfySignalGeneratorNode"] = "🌊 Signal Generator (Registry)"
+    NODE_CATEGORY_MAPPINGS["ComfySignalGeneratorNode"] = "Pedro_PIC/🌊 Signal Registry"
+    NODE_CLASS_MAPPINGS["ComfySignalConnectorNode"] = ComfySignalConnectorNode
+    NODE_DISPLAY_NAME_MAPPINGS["ComfySignalConnectorNode"] = "🔗 Signal Connector (Registry)"
+    NODE_CATEGORY_MAPPINGS["ComfySignalConnectorNode"] = "Pedro_PIC/🌊 Signal Registry"
+    NODE_CLASS_MAPPINGS["ComfyPlotRegistryNode"] = ComfyPlotRegistryNode
+    NODE_DISPLAY_NAME_MAPPINGS["ComfyPlotRegistryNode"] = "📊 Plot Registry Node"
+    NODE_CATEGORY_MAPPINGS["ComfyPlotRegistryNode"] = "Pedro_PIC/🌊 Signal Registry"
+    print("Comfy Registry-based Signal Nodes loaded successfully")
 except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Unified Signal Generator: ImportError - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} Comfy Registry-based Signal Nodes: ImportError - {e}")
 except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Unified Signal Generator: {type(e).__name__} - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} Comfy Registry-based Signal Nodes: {type(e).__name__} - {e}")
 
 # Add a final message confirming initialization
 print("[DEBUG-INIT] PIC-2025 nodes loaded successfully")

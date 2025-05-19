@@ -1,178 +1,101 @@
 #!/usr/bin/env python
 """
-Signal Generator for PIC-2025 Registry System
-- Contains only signal generation and registration logic.
-- No UI or adapter logic.
+Modular Signal Generator System for PIC-2025
+- Supports synthetic, processed, and hardware (Bitalino) signal generators.
+- Each generator registers signals and metadata in the SignalRegistry.
+- Easily extensible for new generator types.
 """
 import numpy as np
 import threading
 import time
 import collections
 from src.registry.plot_registry import PlotRegistry
+from src.registry.signal_registry import SignalRegistry
+from src.utils.bitalino_receiver import BitalinoReceiver
 
-class RegistrySignalGenerator:
+class BaseSignalGenerator:
     """
-    Generator for synthetic signals to be registered with the SignalRegistry.
-    Handles only signal creation, updating, and registration.
+    Abstract base class for all signal generators.
     """
-    def __init__(self):
-        self.plot_registry = PlotRegistry.get_instance()
-        self.sampling_rate = 10  # Hz (set to 10Hz for debug)
-        self.signals = {}
-        self.generators = {
-            'raw': {
-                'ECG': {'created': False, 'id': None},
-                'EDA': {'created': False, 'id': None},
-                'RAW_SINE': {'created': False, 'id': None}
-            },
-            'processed': {
-                'WAVE1': {'created': False, 'id': None},
-                'WAVE2': {'created': False, 'id': None},
-                'WAVE3': {'created': False, 'id': None}
-            }
-        }
-        self.buffer_seconds = 10
+    def __init__(self, signal_registry=None, plot_registry=None):
+        self.signal_registry = signal_registry or SignalRegistry.get_instance()
+        self.plot_registry = plot_registry or PlotRegistry.get_instance()
+
+    def start(self):
+        raise NotImplementedError
+
+    def stop(self):
+        raise NotImplementedError
+
+    def get_signal_ids(self):
+        raise NotImplementedError
+
+class SyntheticSignalGenerator(BaseSignalGenerator):
+    """
+    Generates synthetic signals (ECG, EDA, Sine, etc.).
+    """
+    def __init__(self, sampling_rate=10, buffer_seconds=10, **kwargs):
+        super().__init__(**kwargs)
+        self.sampling_rate = sampling_rate
+        self.buffer_seconds = buffer_seconds
         self.max_buffer_size = int(self.buffer_seconds * self.sampling_rate)
         self.running = False
         self.thread = None
         self.data_lock = threading.Lock()
+        self.signal_defs = {}
+        self.signal_buffers = {}
         self.last_generated_values = {}
-        self.start_time = time.time()  # Store generator initialization time
-        print(f"RegistrySignalGenerator initialized with {self.buffer_seconds}s buffer")
+        self.start_time = time.time()
 
-    def set_buffer_seconds(self, seconds):
-        self.buffer_seconds = max(1, seconds)
-        self.max_buffer_size = int(self.buffer_seconds * self.sampling_rate)
-        print(f"Buffer size set to {self.buffer_seconds} seconds ({self.max_buffer_size} samples)")
-        return self.buffer_seconds
+    def add_signal(self, signal_id, generator_func, metadata):
+        """
+        Register a new synthetic signal with a generator function and metadata.
+        """
+        self.signal_defs[signal_id] = {
+            'generator_func': generator_func,
+            'metadata': metadata
+        }
+        self.signal_buffers[signal_id] = {
+            't': collections.deque(maxlen=self.max_buffer_size),
+            'v': collections.deque(maxlen=self.max_buffer_size)
+        }
+        self.signal_registry.register_signal(signal_id, {'t': [], 'v': []}, metadata)
+        self.plot_registry.register_signal(signal_id, {'t': [], 'v': []}, metadata)
 
     def start(self):
         if self.running:
-            print("Signal generator already running")
             return
         self.running = True
-        self.thread = threading.Thread(target=self._generate_signals)
+        self.thread = threading.Thread(target=self._run)
         self.thread.daemon = True
         self.thread.start()
-        print("Signal generator started")
 
     def stop(self):
         self.running = False
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=1.0)
-        print("Signal generator stopped")
 
-    def create_ecg_signal(self):
-        if self.generators['raw']['ECG']['created']:
-            return self.generators['raw']['ECG']['id']
-        signal_id = "ECG"
-        initial_data = {'t': [], 'v': [], 'meta': {}}
-        metadata = {
-            'name': 'ECG Signal',
-            'color': (255, 0, 0),
-            'sampling_rate': self.sampling_rate,
-            'source': 'synthetic',
-            'generator_func': self._generate_ecg,
-            'type': 'raw'
-        }
-        self.plot_registry.register_signal(signal_id, initial_data, metadata)
-        self.signals[signal_id] = metadata
-        self.generators['raw']['ECG']['created'] = True
-        self.generators['raw']['ECG']['id'] = signal_id
-        return signal_id
-
-    def create_eda_signal(self):
-        if self.generators['raw']['EDA']['created']:
-            return self.generators['raw']['EDA']['id']
-        signal_id = "EDA"
-        initial_data = {'t': [], 'v': [], 'meta': {}}
-        metadata = {
-            'name': 'EDA Signal',
-            'color': (220, 120, 0),
-            'sampling_rate': self.sampling_rate,
-            'source': 'synthetic',
-            'generator_func': self._generate_eda,
-            'type': 'raw'
-        }
-        self.plot_registry.register_signal(signal_id, initial_data, metadata)
-        self.signals[signal_id] = metadata
-        self.generators['raw']['EDA']['created'] = True
-        self.generators['raw']['EDA']['id'] = signal_id
-        return signal_id
-
-    def create_sine_signal(self, processed=False, name=None):
-        if not name:
-            name = "WAVE1" if processed else "RAW_SINE"
-        category = 'processed' if processed else 'raw'
-        if name not in self.generators[category]:
-            return None
-        if self.generators[category][name]['created']:
-            return self.generators[category][name]['id']
-        prefix = "PROC" if processed else "RAW"
-        signal_id = f"{prefix}_{name}"
-        initial_data = {'t': [], 'v': [], 'meta': {}}
-        freq_map = {"WAVE1": 0.5, "WAVE2": 0.25, "WAVE3": 0.1, "RAW_SINE": 1.0}
-        frequency = freq_map.get(name, 0.5)
-        def custom_generator(elapsed_time, sample_index):
-            t = elapsed_time
-            value = np.sin(2 * np.pi * frequency * t)
-            noise_level = 0.05 if processed else 0.1
-            value = value * 0.9 + np.random.normal(0, noise_level)
-            return value
-        generator_func = custom_generator
-        metadata = {
-            'name': f'{"Processed" if processed else "Raw"} {name}',
-            'color': (0, 180, 220) if processed else (220, 180, 0),
-            'sampling_rate': self.sampling_rate,
-            'source': 'synthetic',
-            'generator_func': generator_func,
-            'type': 'processed' if processed else 'raw'
-        }
-        self.plot_registry.register_signal(signal_id, initial_data, metadata)
-        self.signals[signal_id] = metadata
-        self.generators[category][name]['created'] = True
-        self.generators[category][name]['id'] = signal_id
-        return signal_id
-
-    def _generate_signals(self):
-        # Create initial signals (only once)
-        self.create_ecg_signal()
-        self.create_eda_signal()
-        self.create_sine_signal(processed=True, name="WAVE1")
+    def _run(self):
         sample_index = 0
         next_sample_time = time.time()
-        # Use deques for each signal's t and v
-        signal_buffers = {}
         while self.running:
             try:
                 with self.data_lock:
-                    current_time = time.time() - self.start_time  # Use time relative to initialization
-                    for signal_id, metadata in self.signals.items():
-                        generate_func = metadata.get('generator_func')
-                        if generate_func:
-                            new_value = generate_func(current_time, sample_index)
-                            self.last_generated_values[signal_id] = new_value
-                            # Initialize deques if not present
-                            if signal_id not in signal_buffers:
-                                signal_buffers[signal_id] = {
-                                    't': collections.deque(maxlen=self.max_buffer_size),
-                                    'v': collections.deque(maxlen=self.max_buffer_size)
-                                }
-                            buf = signal_buffers[signal_id]
-                            buf['t'].append(current_time)
-                            buf['v'].append(new_value)
-                            plot_data = {
-                                't': np.array(buf['t']),
-                                'v': np.array(buf['v']),
-                                'meta': metadata
-                            }
-                            self.plot_registry.register_signal(
-                                signal_id=signal_id,
-                                signal_data=plot_data,
-                                metadata=metadata
-                            )
+                    current_time = time.time() - self.start_time
+                    for signal_id, sigdef in self.signal_defs.items():
+                        gen_func = sigdef['generator_func']
+                        value = gen_func(current_time, sample_index)
+                        self.last_generated_values[signal_id] = value
+                        buf = self.signal_buffers[signal_id]
+                        buf['t'].append(current_time)
+                        buf['v'].append(value)
+                        plot_data = {
+                            't': np.array(buf['t']),
+                            'v': np.array(buf['v'])
+                        }
+                        self.signal_registry.register_signal(signal_id, plot_data, sigdef['metadata'])
+                        self.plot_registry.register_signal(signal_id, plot_data, sigdef['metadata'])
                 sample_index += 1
-                # Real-time sampling: wait until next sample time
                 next_sample_time += 1.0 / self.sampling_rate
                 sleep_time = next_sample_time - time.time()
                 if sleep_time > 0:
@@ -180,44 +103,134 @@ class RegistrySignalGenerator:
                 else:
                     next_sample_time = time.time()
             except Exception as e:
-                print(f"Error in signal generator thread: {e}")
+                print(f"Error in synthetic signal generator: {e}")
                 import traceback; traceback.print_exc()
                 time.sleep(1.0)
 
-    def _generate_ecg(self, elapsed_time, sample_index):
-        t = elapsed_time
-        base_freq = 1.2
-        value = np.sin(2 * np.pi * base_freq * t)
-        spike = np.exp(-80 * ((t * base_freq) % 1 - 0.2) ** 2)
-        value = value * 0.3 + spike * 0.7
-        value = value + np.random.normal(0, 0.05)
-        return value
+    def get_signal_ids(self):
+        return list(self.signal_defs.keys())
 
-    def _generate_eda(self, elapsed_time, sample_index):
-        t = elapsed_time
-        slow_component = 2.0 + 0.5 * np.sin(2 * np.pi * 0.05 * t)
-        random_walk = np.sin(0.5 * t) * np.random.normal(0, 0.02)
-        value = slow_component + random_walk
-        return value
+class RegistrySignalGenerator:
+    """
+    Manager for all signal generators (synthetic, processed, hardware).
+    Allows adding/removing/starting/stopping any generator type.
+    """
+    def __init__(self):
+        self.generators = []
 
-    def _generate_sine(self, elapsed_time, sample_index):
-        t = elapsed_time
-        frequency = 0.5
-        value = np.sin(2 * np.pi * frequency * t)
-        value = value * 0.8 + np.random.normal(0, 0.1)
-        return value
+    def add_generator(self, generator):
+        self.generators.append(generator)
 
-    def add_custom_signal(self, name, processed=False):
-        category = 'processed' if processed else 'raw'
-        if name in self.generators[category]:
-            return self.create_sine_signal(processed=processed, name=name)
-        for gen_name, info in self.generators[category].items():
-            if not info['created']:
-                return self.create_sine_signal(processed=processed, name=gen_name)
-        return None
+    def start_all(self):
+        for gen in self.generators:
+            gen.start()
 
-    def get_active_signal_ids_by_type(self, signal_type):
-        return {
-            signal_id for signal_id, metadata in self.signals.items()
-            if metadata.get('type') == signal_type
-        }
+    def stop_all(self):
+        for gen in self.generators:
+            gen.stop()
+
+    def get_all_signal_ids(self):
+        ids = []
+        for gen in self.generators:
+            ids.extend(gen.get_signal_ids())
+        return ids
+
+class ProcessedSignalGenerator(BaseSignalGenerator):
+    """
+    Processes an existing signal by applying a function, and registers the result as a new processed signal.
+    """
+    def __init__(self, input_signal_id, process_func, output_signal_id, output_metadata, sampling_rate=10, **kwargs):
+        super().__init__(**kwargs)
+        self.input_signal_id = input_signal_id
+        self.process_func = process_func
+        self.output_signal_id = output_signal_id
+        self.output_metadata = output_metadata
+        self.sampling_rate = sampling_rate
+        self.running = False
+        self.thread = None
+
+    def start(self):
+        if self.running:
+            return
+        self.running = True
+        self.thread = threading.Thread(target=self._run)
+        self.thread.daemon = True
+        self.thread.start()
+
+    def stop(self):
+        self.running = False
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=1.0)
+
+    def _run(self):
+        next_sample_time = time.time()
+        while self.running:
+            try:
+                input_data = self.signal_registry.get_signal(self.input_signal_id)
+                if input_data and len(input_data['v']) > 0:
+                    processed_v = self.process_func(np.array(input_data['v']))
+                    processed_t = np.array(input_data['t'])
+                    plot_data = {'t': processed_t, 'v': processed_v}
+                    self.signal_registry.register_signal(self.output_signal_id, plot_data, self.output_metadata)
+                    self.plot_registry.register_signal(self.output_signal_id, plot_data, self.output_metadata)
+                next_sample_time += 1.0 / self.sampling_rate
+                sleep_time = next_sample_time - time.time()
+                if sleep_time > 0:
+                    time.sleep(sleep_time)
+                else:
+                    next_sample_time = time.time()
+            except Exception as e:
+                print(f"Error in processed signal generator: {e}")
+                import traceback; traceback.print_exc()
+                time.sleep(1.0)
+
+    def get_signal_ids(self):
+        return [self.output_signal_id]
+
+class BitalinoSignalGenerator(BaseSignalGenerator):
+    """
+    Wraps a BitalinoReceiver to register hardware signals in the registry system.
+    """
+    def __init__(self, bitalino_mac_address, acquisition_duration, sampling_freq, channel_code, buffer_size, signal_ids, metadata_map, **kwargs):
+        super().__init__(**kwargs)
+        self.receiver = BitalinoReceiver(bitalino_mac_address, acquisition_duration, sampling_freq, channel_code, buffer_size)
+        self.signal_ids = signal_ids  # List of signal ids to register (e.g., ["BITALINO_CH0", ...])
+        self.metadata_map = metadata_map  # Dict mapping signal id to metadata
+        self.running = False
+        self.thread = None
+
+    def start(self):
+        if self.running:
+            return
+        self.running = True
+        self.thread = threading.Thread(target=self._run)
+        self.thread.daemon = True
+        self.thread.start()
+
+    def stop(self):
+        self.running = False
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=1.0)
+        self.receiver.stop()
+
+    def _run(self):
+        while self.running:
+            try:
+                buffers = self.receiver.get_buffers()
+                for i, signal_id in enumerate(self.signal_ids):
+                    if i < len(buffers):
+                        buf = buffers[i]
+                        t = np.array([x[0] for x in buf])
+                        v = np.array([x[1] for x in buf])
+                        plot_data = {'t': t, 'v': v}
+                        metadata = self.metadata_map.get(signal_id, {})
+                        self.signal_registry.register_signal(signal_id, plot_data, metadata)
+                        self.plot_registry.register_signal(signal_id, plot_data, metadata)
+                time.sleep(0.1)
+            except Exception as e:
+                print(f"Error in Bitalino signal generator: {e}")
+                import traceback; traceback.print_exc()
+                time.sleep(1.0)
+
+    def get_signal_ids(self):
+        return self.signal_ids

@@ -29,14 +29,35 @@ abs_file_path = os.path.abspath(__file__)
 path_parts = os.path.normpath(abs_file_path).split(os.sep)
 base_path = os.path.join(*path_parts[-4:-1])
 
-path_plux = os.path.join(base_path, "PLUX-API-Python3",f"{osDic[platform.system()]}")
+path_plux = os.path.join(base_path, "PLUX-API-Python3", f"{osDic[platform.system()]}")
 print(f'path_plux PIC {path_plux}')
-#sys.path.append(path_plux)
 
-sys.path.append("/home/lugo/git/ComfyUI/custom_nodes/PIC-BitalinoComfy/src/PLUX-API-Python3/Linux64")
-#sys.path.append("PLUX-API-Python3/Linux64")
+# Try to add the appropriate path to sys.path
+if os.path.exists(path_plux):
+    sys.path.append(path_plux)
+    print(f"Added {path_plux} to Python path")
+else:
+    print(f"Warning: PLUX API path not found at {path_plux}")
+    # Try some fallback options
+    fallback_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "PLUX-API-Python3", f"{osDic[platform.system()]}"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "PLUX-API-Python3", f"{osDic[platform.system()]}")
+    ]
+    
+    for path in fallback_paths:
+        if os.path.exists(path):
+            sys.path.append(path)
+            print(f"Using fallback path: {path}")
+            break
 
-import plux
+try:
+    import plux
+    print("Successfully imported plux module")
+except ImportError as e:
+    print(f"Error importing plux: {e}")
+    print("Make sure the PLUX-API-Python3 directory is in your PYTHONPATH.")
+    print(f"Current sys.path: {sys.path}")
+    
 
 class NewDevice(plux.SignalsDev):
     def __init__(self, address):
