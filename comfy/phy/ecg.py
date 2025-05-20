@@ -54,6 +54,7 @@ class ECGNode:
         viz_values_deque = deque(maxlen=viz_buffer_size)
         viz_timestamps_deque = deque(maxlen=viz_buffer_size)
 
+        last_registry_data_hash = None
         while not stop_flag[0]:
             # Dynamically fetch the latest signal data from the registry each iteration
             signal_data = registry.get_signal(input_signal_id)
@@ -65,7 +66,7 @@ class ECGNode:
             if len(timestamps) < 2 or len(values) < 2:
                 time.sleep(0.1)
                 continue
-            # Update deques with new data (only append new values)
+            # Only append new data
             if len(viz_timestamps_deque) > 0 and len(timestamps) > 0:
                 last_ts = viz_timestamps_deque[-1]
                 new_data_idx = np.searchsorted(timestamps, last_ts, side='right')
@@ -75,10 +76,15 @@ class ECGNode:
                     feature_timestamps_deque.extend(timestamps[new_data_idx:])
                     feature_values_deque.extend(values[new_data_idx:])
             else:
-                viz_timestamps_deque.extend(timestamps[-viz_buffer_size:] if len(timestamps) > viz_buffer_size else timestamps)
-                viz_values_deque.extend(values[-viz_buffer_size:] if len(values) > viz_buffer_size else values)
-                feature_timestamps_deque.extend(timestamps[-feature_buffer_size:] if len(timestamps) > feature_buffer_size else timestamps)
-                feature_values_deque.extend(values[-feature_buffer_size:] if len(values) > feature_buffer_size else values)
+                # Only keep the last N samples
+                viz_timestamps_deque.clear()
+                viz_values_deque.clear()
+                feature_timestamps_deque.clear()
+                feature_values_deque.clear()
+                viz_timestamps_deque.extend(timestamps[-viz_buffer_size:])
+                viz_values_deque.extend(values[-viz_buffer_size:])
+                feature_timestamps_deque.extend(timestamps[-feature_buffer_size:])
+                feature_values_deque.extend(values[-feature_buffer_size:])
             # Convert deques to numpy arrays for processing
             viz_timestamps = np.array(viz_timestamps_deque)
             viz_values = np.array(viz_values_deque)
@@ -108,25 +114,30 @@ class ECGNode:
             else:
                 viz_timestamps_window = viz_timestamps
                 viz_values_window = viz_values
-            # Map peaks to timestamps in the visualization window
+            # Vectorized peak mapping to window
             peak_timestamps_in_window = []
-            if show_peaks and len(peaks) > 0 and len(feature_timestamps) > 0:
+            if show_peaks and len(peaks) > 0 and len(feature_timestamps) > 0 and len(viz_timestamps_window) > 0:
                 peak_times = feature_timestamps[peaks]
-                # Only include peaks whose timestamps fall within the current visualization window
-                for pt in peak_times:
-                    if len(viz_timestamps_window) > 0 and viz_timestamps_window[0] <= pt <= viz_timestamps_window[-1]:
-                        peak_timestamps_in_window.append(pt)
+                in_window_mask = (peak_times >= viz_timestamps_window[0]) & (peak_times <= viz_timestamps_window[-1])
+                peak_timestamps_in_window = peak_times[in_window_mask].tolist()
             # Prepare filtered ECG for visualization (match window)
-            filtered_viz_ecg = filtered_ecg[-len(viz_values_window):] if len(filtered_ecg) > len(viz_values_window) else filtered_ecg
-            if len(filtered_viz_ecg) < len(viz_values_window):
-                padding = np.zeros(len(viz_values_window) - len(filtered_viz_ecg))
+            n_window = len(viz_values_window)
+            filtered_viz_ecg = filtered_ecg[-n_window:] if len(filtered_ecg) > n_window else filtered_ecg
+            if len(filtered_viz_ecg) < n_window:
+                padding = np.zeros(n_window - len(filtered_viz_ecg))
                 filtered_viz_ecg = np.concatenate([padding, filtered_viz_ecg])
             # Scale filtered ECG to match amplitude
-            if len(viz_values_window) > 0 and len(filtered_viz_ecg) > 0:
+            if n_window > 0 and len(filtered_viz_ecg) > 0:
                 viz_min, viz_max = np.min(viz_values_window), np.max(viz_values_window)
                 filtered_min, filtered_max = np.min(filtered_viz_ecg), np.max(filtered_viz_ecg)
                 if filtered_max != filtered_min:
                     filtered_viz_ecg = (filtered_viz_ecg - filtered_min) / (filtered_max - filtered_min) * (viz_max - viz_min) + viz_min
+            # Hash for registry update optimization
+            data_hash = hash((tuple(viz_timestamps_window[-10:]), tuple(filtered_viz_ecg[-10:]), tuple(peak_timestamps_in_window[-10:]), current_hr))
+            if data_hash == last_registry_data_hash:
+                time.sleep(0.033)
+                continue
+            last_registry_data_hash = data_hash
             metadata = {
                 "id": output_signal_id,
                 "type": "ecg_processed",

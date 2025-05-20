@@ -63,38 +63,36 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
             peak_marker = meta.get('peak_marker', 'x')  # Default to 'x' if not specified
             peak_marker_size = 8  # Size of the peak marker
             peak_marker_color = (255, 255, 255)  # White color for peak markers
-            peak_times = meta['peak_timestamps']
-            for pt in peak_times:
-                # Find the closest index in t_plot for this peak timestamp
-                if len(t_plot) < 2:
-                    continue
-                # Interpolate y value for the peak timestamp
-                if pt < t_plot[0] or pt > t_plot[-1]:
-                    continue
-                peak_x = x + int((pt - window_min) / (window_max - window_min) * w)
-                # Interpolate v_plot at pt
-                peak_y_val = np.interp(pt, t_plot, v_plot)
-                peak_y = y + h - int((peak_y_val-vmin)/(vmax-vmin)*h)
-                if peak_marker == 'x':
-                    pygame.draw.line(screen, peak_marker_color, 
-                                    (peak_x - peak_marker_size//2, peak_y - peak_marker_size//2),
-                                    (peak_x + peak_marker_size//2, peak_y + peak_marker_size//2), 2)
-                    pygame.draw.line(screen, peak_marker_color, 
-                                    (peak_x - peak_marker_size//2, peak_y + peak_marker_size//2),
-                                    (peak_x + peak_marker_size//2, peak_y - peak_marker_size//2), 2)
-                elif peak_marker == 'o':
-                    pygame.draw.circle(screen, peak_marker_color, (peak_x, peak_y), peak_marker_size//2, 2)
-                elif peak_marker == '+':
-                    pygame.draw.line(screen, peak_marker_color, 
-                                    (peak_x, peak_y - peak_marker_size//2),
-                                    (peak_x, peak_y + peak_marker_size//2), 2)
-                    pygame.draw.line(screen, peak_marker_color, 
-                                    (peak_x - peak_marker_size//2, peak_y),
-                                    (peak_x + peak_marker_size//2, peak_y), 2)
-                else:
-                    pygame.draw.rect(screen, peak_marker_color, 
-                                    (peak_x - peak_marker_size//2, peak_y - peak_marker_size//2, 
-                                    peak_marker_size, peak_marker_size), 2)
+            peak_times = np.array(meta['peak_timestamps'])
+            # Only plot peaks that are within the visible window
+            if len(peak_times) > 0 and window_max > window_min:
+                in_window = (peak_times >= window_min) & (peak_times <= window_max)
+                peak_times = peak_times[in_window]
+                for pt in peak_times:
+                    # Interpolate y value for the peak timestamp
+                    peak_x = x + int((pt - window_min) / (window_max - window_min) * w)
+                    peak_y_val = np.interp(pt, t_plot, v_plot)
+                    peak_y = y + h - int((peak_y_val-vmin)/(vmax-vmin)*h)
+                    if peak_marker == 'x':
+                        pygame.draw.line(screen, peak_marker_color, 
+                                        (peak_x - peak_marker_size//2, peak_y - peak_marker_size//2),
+                                        (peak_x + peak_marker_size//2, peak_y + peak_marker_size//2), 2)
+                        pygame.draw.line(screen, peak_marker_color, 
+                                        (peak_x - peak_marker_size//2, peak_y + peak_marker_size//2),
+                                        (peak_x + peak_marker_size//2, peak_y - peak_marker_size//2), 2)
+                    elif peak_marker == 'o':
+                        pygame.draw.circle(screen, peak_marker_color, (peak_x, peak_y), peak_marker_size//2, 2)
+                    elif peak_marker == '+':
+                        pygame.draw.line(screen, peak_marker_color, 
+                                        (peak_x, peak_y - peak_marker_size//2),
+                                        (peak_x, peak_y + peak_marker_size//2), 2)
+                        pygame.draw.line(screen, peak_marker_color, 
+                                        (peak_x - peak_marker_size//2, peak_y),
+                                        (peak_x + peak_marker_size//2, peak_y), 2)
+                    else:
+                        pygame.draw.rect(screen, peak_marker_color, 
+                                        (peak_x - peak_marker_size//2, peak_y - peak_marker_size//2, 
+                                        peak_marker_size, peak_marker_size), 2)
     label = meta.get('name', signal.get('id', ''))
     label_surface = font.render(label, True, TEXT_COLOR)
     screen.blit(label_surface, (x + 10, y + 10))

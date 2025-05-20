@@ -38,39 +38,40 @@ class PlotRegistry:
     
     def register_signal(self, signal_id, signal_data, metadata=None):
         """
-        Register a signal in the registry.
-        
-        Args:
-            signal_id (str): Unique identifier for the signal
-            signal_data (array or tuple): The signal data (numpy array, list, or (timestamps, values) tuple)
-            metadata (dict, optional): Metadata for the signal (color, etc)
+        Register a signal in the registry, optimized to avoid unnecessary copies and metadata updates.
         """
         with self.registry_lock:
-            # --- Accept dict with 't' and 'v' as-is (new format) ---
+            # Accept dict with 't' and 'v' as-is (new format)
             if isinstance(signal_data, dict) and 't' in signal_data and 'v' in signal_data:
-                # Always store meta in the signal dict for UI compatibility
+                # Only copy if the object is not already the same as last
+                prev = self.signals.get(signal_id)
+                if prev is not signal_data:
+                    self.signals[signal_id] = signal_data
+                # Only update meta if changed
                 if metadata is not None:
-                    signal_data = dict(signal_data)  # copy
-                    signal_data['meta'] = metadata
-                self.signals[signal_id] = signal_data
-                logger.debug(f"Signal '{signal_id}' registered as dict with keys {list(signal_data.keys())}")
-            # --- Existing logic for tuple, array, etc ---
+                    prev_meta = self.metadata.get(signal_id)
+                    if prev_meta != metadata:
+                        self.metadata[signal_id] = metadata
+            # Existing logic for tuple, array, etc
             elif isinstance(signal_data, tuple) and len(signal_data) == 2:
-                self.signals[signal_id] = signal_data
-                logger.debug(f"Signal '{signal_id}' registered as tuple with lengths {[len(x) for x in self.signals[signal_id]]}")
+                prev = self.signals.get(signal_id)
+                if prev is not signal_data:
+                    self.signals[signal_id] = signal_data
             elif not isinstance(signal_data, np.ndarray):
-                signal_data = np.array(signal_data)
-                self.signals[signal_id] = signal_data
-                logger.debug(f"Signal '{signal_id}' registered with shape {self.signals[signal_id].shape}")
+                arr = np.array(signal_data)
+                prev = self.signals.get(signal_id)
+                if prev is not arr:
+                    self.signals[signal_id] = arr
             else:
-                self.signals[signal_id] = signal_data
-                logger.debug(f"Signal '{signal_id}' registered with shape {self.signals[signal_id].shape}")
-            
+                prev = self.signals.get(signal_id)
+                if prev is not signal_data:
+                    self.signals[signal_id] = signal_data
             # Store metadata if provided
             if metadata:
-                self.metadata[signal_id] = metadata
+                prev_meta = self.metadata.get(signal_id)
+                if prev_meta != metadata:
+                    self.metadata[signal_id] = metadata
             elif signal_id not in self.metadata:
-                # Default metadata if none exists
                 self.metadata[signal_id] = {
                     'color': self._generate_color_from_id(signal_id),
                     'created': time.time()
