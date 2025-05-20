@@ -42,7 +42,6 @@ class ComfySignalGeneratorNode:
         t_deque = collections.deque(maxlen=maxlen)
         v_deque = collections.deque(maxlen=maxlen)
         start_time = time.time()
-        print(f"[ComfySignalGeneratorNode] Initializing signal '{signal_id}' with type '{signal_type}' for {duration_sec} seconds")
         while not stop_flag['stop']:
             now = time.time()
             t_new = now - start_time

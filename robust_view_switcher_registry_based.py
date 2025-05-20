@@ -28,7 +28,7 @@ from src.registry.plot_registry import PlotRegistry
 from src.plot.performance.latency_monitor import LatencyMonitor
 
 # --- Main App ---
-def main(start_generators=True):
+def main(start_generators=True, stop_event=None):
     pygame.init()
     screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
     pygame.display.set_caption("PIC-2025 Registry Visualization")
@@ -188,6 +188,8 @@ def main(start_generators=True):
             clock.tick(fps_cap)
         else:
             clock.tick()
+        if stop_event is not None and stop_event.is_set():
+            running = False
     if start_generators and generator is not None:
         generator.stop_all()
 
