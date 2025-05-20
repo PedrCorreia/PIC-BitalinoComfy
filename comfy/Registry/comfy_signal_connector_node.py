@@ -52,6 +52,8 @@ class ComfySignalConnectorNode:
             # Always set color, even if not present
             if not color:
                 color_hex = '#FF5555'  # fallback to red
+            meta['color'] = color_hex
+            meta['type'] = signal_type
             if sig is not None:
                 gen_registry.register_signal(signal_id, sig, meta)  # update registry meta
                 plot_registry.register_signal(signal_id, sig, meta)

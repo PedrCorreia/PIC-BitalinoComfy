@@ -48,6 +48,10 @@ class PlotRegistry:
         with self.registry_lock:
             # --- Accept dict with 't' and 'v' as-is (new format) ---
             if isinstance(signal_data, dict) and 't' in signal_data and 'v' in signal_data:
+                # Always store meta in the signal dict for UI compatibility
+                if metadata is not None:
+                    signal_data = dict(signal_data)  # copy
+                    signal_data['meta'] = metadata
                 self.signals[signal_id] = signal_data
                 logger.debug(f"Signal '{signal_id}' registered as dict with keys {list(signal_data.keys())}")
             # --- Existing logic for tuple, array, etc ---
