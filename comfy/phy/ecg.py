@@ -30,8 +30,7 @@ class ECGNode:
             "required": {
                 "input_signal_id": ("STRING", {"default": ""}),
                 "show_peaks": ("BOOLEAN", {"default": True}),
-                "output_signal_id": ("STRING", {"default": "ECG_PROCESSED"})
-            }
+                "output_signal_id": ("STRING", {"default": "ECG_PROCESSED"})            }
         }
         
     RETURN_TYPES = ("FLOAT", "BOOLEAN", "STRING")
@@ -44,115 +43,106 @@ class ECGNode:
         Background processing thread to continuously update registry with processed ECG data
         """
         registry = SignalRegistry.get_instance()
-        
         # Constants for processing
-        feature_buffer_size = 5000
-        viz_buffer_size = 2000  # Default visualization buffer size
+        feature_buffer_size = 10000  # Increased buffer size for better processing
+        viz_window_sec = 60  # Visualization window: 1 minute
+        viz_buffer_size = 1000 * viz_window_sec  # 1000 Hz assumed, 60,000 samples for 1 min
+
+        # Initialize deques for processing
+        feature_values_deque = deque(maxlen=feature_buffer_size)
+        feature_timestamps_deque = deque(maxlen=feature_buffer_size)
+        viz_values_deque = deque(maxlen=viz_buffer_size)
+        viz_timestamps_deque = deque(maxlen=viz_buffer_size)
+
         while not stop_flag[0]:
             # Dynamically fetch the latest signal data from the registry each iteration
             signal_data = registry.get_signal(input_signal_id)
-            
             if not signal_data or "t" not in signal_data or "v" not in signal_data:
-                # Not enough data yet, sleep and retry
                 time.sleep(0.1)
                 continue
-                
             timestamps = np.array(signal_data["t"])
             values = np.array(signal_data["v"])
-            
             if len(timestamps) < 2 or len(values) < 2:
                 time.sleep(0.1)
                 continue
-            viz_timestamps = timestamps[-viz_buffer_size:] if len(timestamps) > viz_buffer_size else timestamps
-            viz_values = values[-viz_buffer_size:] if len(values) > viz_buffer_size else values
-            feature_values = values[-feature_buffer_size:] if len(values) > feature_buffer_size else values
-            
-            # Apply simplified processing - convert to binary signal (1 if above half amplitude, 0 if below)
-            max_amplitude = np.max(feature_values)
-            threshold = max_amplitude / 2
-            
-            # Create binary signal (1 if above threshold, 0 if below)
-            binary_signal = np.zeros_like(feature_values)
-            binary_signal[feature_values > threshold] = 1
-            
-            # Use this binary signal for processing
-            filtered_ecg = binary_signal
-            
-            # Find transitions from 0 to 1 as peaks (rising edges)
-            peaks = np.where(np.diff(binary_signal) > 0)[0]
-            
-            # Calculate heart rate as number of peaks per minute
-            if len(peaks) > 1:
-                # Calculate average time between peaks
-                avg_peak_interval = (peaks[-1] - peaks[0]) / (len(peaks) - 1)
-                # Convert to heart rate (beats per minute)
-                heart_rate = 60 * 1000 / avg_peak_interval if avg_peak_interval > 0 else 0
+            # Update deques with new data (only append new values)
+            if len(viz_timestamps_deque) > 0 and len(timestamps) > 0:
+                last_ts = viz_timestamps_deque[-1]
+                new_data_idx = np.searchsorted(timestamps, last_ts, side='right')
+                if new_data_idx < len(timestamps):
+                    viz_timestamps_deque.extend(timestamps[new_data_idx:])
+                    viz_values_deque.extend(values[new_data_idx:])
+                    feature_timestamps_deque.extend(timestamps[new_data_idx:])
+                    feature_values_deque.extend(values[new_data_idx:])
             else:
-                heart_rate = 0
-            
-            # Safely extract heart rate value
-            current_hr = 0  # Default value
+                viz_timestamps_deque.extend(timestamps[-viz_buffer_size:] if len(timestamps) > viz_buffer_size else timestamps)
+                viz_values_deque.extend(values[-viz_buffer_size:] if len(values) > viz_buffer_size else values)
+                feature_timestamps_deque.extend(timestamps[-feature_buffer_size:] if len(timestamps) > feature_buffer_size else timestamps)
+                feature_values_deque.extend(values[-feature_buffer_size:] if len(values) > feature_buffer_size else values)
+            # Convert deques to numpy arrays for processing
+            viz_timestamps = np.array(viz_timestamps_deque)
+            viz_values = np.array(viz_values_deque)
+            feature_timestamps = np.array(feature_timestamps_deque)
+            feature_values = np.array(feature_values_deque)
+            # Pre-process ECG for better peak detection (on full feature buffer)
+            filtered_ecg = NumpySignalProcessor.bandpass_filter(feature_values, lowcut=5, highcut=15, fs=1000)
+            peaks = ECG.detect_r_peaks(filtered_ecg, fs=1000, mode="qrs")
+            # Calculate heart rate
+            heart_rate = ECG.extract_heart_rate(feature_values, fs=1000, r_peaks=peaks)
+            current_hr = 0
             if isinstance(heart_rate, np.ndarray) and heart_rate.size > 0:
                 try:
                     current_hr = heart_rate[-1][0]
                 except (IndexError, TypeError):
-                    # If heart_rate doesn't have the expected structure
                     if heart_rate.size > 0:
                         current_hr = float(heart_rate[-1])
                     else:
                         current_hr = 0
-            
-            # Create metadata with peak information
+            # Visualization window: last 60 seconds
+            if len(viz_timestamps) > 0:
+                window_max = viz_timestamps[-1]
+                window_min = window_max - viz_window_sec
+                window_mask = (viz_timestamps >= window_min) & (viz_timestamps <= window_max)
+                viz_timestamps_window = viz_timestamps[window_mask]
+                viz_values_window = viz_values[window_mask]
+            else:
+                viz_timestamps_window = viz_timestamps
+                viz_values_window = viz_values
+            # Map peaks to timestamps in the visualization window
+            peak_timestamps_in_window = []
+            if show_peaks and len(peaks) > 0 and len(feature_timestamps) > 0:
+                peak_times = feature_timestamps[peaks]
+                # Only include peaks whose timestamps fall within the current visualization window
+                for pt in peak_times:
+                    if len(viz_timestamps_window) > 0 and viz_timestamps_window[0] <= pt <= viz_timestamps_window[-1]:
+                        peak_timestamps_in_window.append(pt)
+            # Prepare filtered ECG for visualization (match window)
+            filtered_viz_ecg = filtered_ecg[-len(viz_values_window):] if len(filtered_ecg) > len(viz_values_window) else filtered_ecg
+            if len(filtered_viz_ecg) < len(viz_values_window):
+                padding = np.zeros(len(viz_values_window) - len(filtered_viz_ecg))
+                filtered_viz_ecg = np.concatenate([padding, filtered_viz_ecg])
+            # Scale filtered ECG to match amplitude
+            if len(viz_values_window) > 0 and len(filtered_viz_ecg) > 0:
+                viz_min, viz_max = np.min(viz_values_window), np.max(viz_values_window)
+                filtered_min, filtered_max = np.min(filtered_viz_ecg), np.max(filtered_viz_ecg)
+                if filtered_max != filtered_min:
+                    filtered_viz_ecg = (filtered_viz_ecg - filtered_min) / (filtered_max - filtered_min) * (viz_max - viz_min) + viz_min
             metadata = {
                 "id": output_signal_id,
-                "type": "ecg_processed", 
+                "type": "ecg_processed",
                 "heart_rate": current_hr,
-                "color": "#FF5555",  # Red color for ECG signal
-                "show_peaks": show_peaks
+                "color": "#FF5555",
+                "show_peaks": show_peaks,
+                "peak_marker": "x",
+                "peak_timestamps": peak_timestamps_in_window
             }
-              # If we're showing peaks, calculate and add them
-            if show_peaks and len(values) > 0:
-                # Find indices of peaks within visualization window
-                if len(values) <= viz_buffer_size:
-                    # If we're showing all values, just use the peak indices directly
-                    # But make sure they're within range of the signal
-                    valid_indices = np.array([p for p in peaks if p < len(viz_values)])
-                else:
-                    # Calculate the offset between feature values and the original signal
-                    feature_offset = len(values) - len(feature_values)
-                      # Adjust peak indices to match the original signal scale
-                    adjusted_peaks = peaks + feature_offset
-                    
-                    # Get indices for the visualization window
-                    viz_start_idx = len(values) - len(viz_values)
-                    
-                    # Find peaks that are within the visualization window
-                    viz_peak_indices = [p - viz_start_idx for p in adjusted_peaks if viz_start_idx <= p < len(values)]
-                    
-                    # Filter to valid indices only - they must be within the viz window range
-                    valid_indices = np.array([idx for idx in viz_peak_indices if 0 <= idx < len(viz_values)])
-                
-                # Add peak information to metadata
-                metadata["peaks"] = valid_indices.tolist()
-                  # Create new processed signal data structure with binarized values
-            # This ensures we're not just referencing the original data
-            viz_max_amplitude = np.max(viz_values)
-            viz_threshold = viz_max_amplitude / 2
-            viz_binary = np.zeros_like(viz_values)
-            viz_binary[viz_values > viz_threshold] = 1
-            
             processed_signal_data = {
-                "t": viz_timestamps.copy() if isinstance(viz_timestamps, np.ndarray) else viz_timestamps[:],
-                "v": viz_binary  # Use the binarized signal for visualization
+                "t": viz_timestamps_window.copy() if isinstance(viz_timestamps_window, np.ndarray) else viz_timestamps_window[:],
+                "v": filtered_viz_ecg.copy()
             }
-            
-            # Register the processed signal with a distinct ID from the input
-            # Using output_signal_id ensures we're not overwriting the input signal
             registry.register_signal(output_signal_id, processed_signal_data, metadata)
+            time.sleep(0.033)
             
-            # Update every 50ms (20Hz) - provides smooth visualization without too much CPU load
-            time.sleep(0.05)
-
     def process_ecg(self, input_signal_id, show_peaks, output_signal_id):
         """
         Processes ECG signal from registry to extract heart rate and peak detection.
@@ -167,10 +157,10 @@ class ECGNode:
         - heart_rate: Calculated heart rate in beats per minute (bpm).
         - Rpeak: Boolean indicating if the current sample is a peak.
         - signal_id: The signal ID for registry integration.
-        """        # Get data from registry
+        """
+        # Get data from registry
         registry = SignalRegistry.get_instance()
         input_signal = registry.get_signal(input_signal_id)
-        
         if not input_signal or "t" not in input_signal or "v" not in input_signal:
             raise ValueError(f"No valid signal found with ID {input_signal_id}. Make sure to provide a valid signal ID.")
         
@@ -180,32 +170,24 @@ class ECGNode:
         
         if len(timestamps) < 2 or len(values) < 2:
             raise ValueError("Insufficient data in signal.")
-            
-        # Default feature buffer size for processing
-        feature_buffer_size = 5000
-        feature_values = values[-feature_buffer_size:] if len(values) > feature_buffer_size else values
-          # Apply simplified processing - convert to binary signal (1 if above half amplitude, 0 if below)
-        max_amplitude = np.max(feature_values)
-        threshold = max_amplitude / 2
+              # Default feature buffer size for processing
+        feature_buffer_size = 10000  # Larger buffer for better edge handling
         
-        # Create binary signal (1 if above threshold, 0 if below)
-        binary_signal = np.zeros_like(feature_values)
-        binary_signal[feature_values > threshold] = 1
+        # Use deques for processing - provides better handling of streaming data
+        feature_values_deque = deque(maxlen=feature_buffer_size)
+        feature_values_deque.extend(values[-feature_buffer_size:] if len(values) > feature_buffer_size else values)
         
-        # Use this binary signal for processing
-        filtered_ecg = binary_signal
+        # Convert to numpy array for processing
+        feature_values = np.array(feature_values_deque)
         
-        # Find transitions from 0 to 1 as peaks (rising edges)
-        peaks = np.where(np.diff(binary_signal) > 0)[0]
+        # Pre-process ECG for better peak detection
+        filtered_ecg = NumpySignalProcessor.bandpass_filter(feature_values, lowcut=5, highcut=15, fs=1000)
         
-        # Calculate heart rate as number of peaks per minute
-        if len(peaks) > 1:
-            # Calculate average time between peaks
-            avg_peak_interval = (peaks[-1] - peaks[0]) / (len(peaks) - 1)
-            # Convert to heart rate (beats per minute)
-            hr_result = 60 * 1000 / avg_peak_interval if avg_peak_interval > 0 else 0
-        else:
-            hr_result = 0
+        # Use ECG-specific peak detection for better results
+        peaks = ECG.detect_r_peaks(filtered_ecg, fs=1000, mode="qrs")
+        
+        # Calculate heart rate from the peaks
+        hr_result = ECG.extract_heart_rate(feature_values, fs=1000, r_peaks=peaks)
         
         # Safely extract heart rate value
         heart_rate = 0  # Default value

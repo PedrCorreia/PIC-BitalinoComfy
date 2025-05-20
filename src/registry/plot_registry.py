@@ -218,12 +218,14 @@ class PlotRegistry:
             if data is None:
                 continue
             # --- Patch: robustly handle all generator/legacy formats ---
-            t = v = meta = None
+            t = v = None
             # Handle new format: dict with 't', 'v', 'meta'
             if isinstance(data, dict) and 't' in data and 'v' in data:
                 t = np.array(data['t'])
                 v = np.array(data['v'])
-                meta = data.get('meta', meta)
+                # If meta is already in the data dict, use it; otherwise use the one from the registry
+                if 'meta' in data:
+                    meta = data['meta']
             # Handle numpy array of shape (N, 2)
             elif isinstance(data, np.ndarray) and data.ndim == 2 and data.shape[1] == 2:
                 t, v = data[:, 0], data[:, 1]

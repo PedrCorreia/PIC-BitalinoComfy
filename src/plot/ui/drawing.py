@@ -19,23 +19,23 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
     vmin, vmax = np.min(v), np.max(v)
     if vmax == vmin:
         vmax = vmin + 1
-    if window_sec is not None and len(t) > 1:
-        window_max = t[-1]
+    # Always use the original timestamps for plotting and peak placement
+    t_plot = t
+    v_plot = v
+    window_min = t_plot[0] if len(t_plot) > 0 else 0
+    window_max = t_plot[-1] if len(t_plot) > 0 else 0
+    if window_sec is not None and len(t_plot) > 1:
+        window_max = t_plot[-1]
         window_min = window_max - window_sec
-        indices = np.where((t >= window_min) & (t <= window_max))[0]
+        indices = np.where((t_plot >= window_min) & (t_plot <= window_max))[0]
         if len(indices) < 2:
-            t_plot = t[-2:]
-            v_plot = v[-2:]
+            t_plot = t_plot[-2:]
+            v_plot = v_plot[-2:]
             window_min = t_plot[0] if len(t_plot) > 0 else 0
             window_max = t_plot[-1] if len(t_plot) > 0 else 0
         else:
-            t_plot = t[indices]
-            v_plot = v[indices]
-    else:
-        window_min = t[0] if len(t) > 0 else 0
-        window_max = t[-1] if len(t) > 0 else 0
-        t_plot = t
-        v_plot = v
+            t_plot = t_plot[indices]
+            v_plot = v_plot[indices]
     points = [(x + int((t_plot[j] - window_min) / (window_max - window_min) * w), y + h - int((v_plot[j]-vmin)/(vmax-vmin)*h)) for j in range(len(t_plot))] if len(t_plot) > 1 and window_max > window_min else []
     # Color handling: support string color names as well as RGB tuples
     color = meta.get('color', (255,255,255))
@@ -53,10 +53,48 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
                 color = color_map.get(color.lower(), (255,255,255))
         except Exception:
             color = (255, 0, 255)  # fallback magenta for error
-    if not (isinstance(color, tuple) and len(color) == 3 and all(isinstance(c, int) for c in color)):
-        color = (255, 0, 255)  # fallback magenta for error
+    if not (isinstance(color, tuple) and len(color) == 3 and all(isinstance(c, int) and 0 <= c <= 255 for c in color)):
+        color = (255, 255, 255)  # fallback to white for error
+    # Draw the signal lines if we have at least 2 points
     if len(points) >= 2:
         pygame.draw.lines(screen, color, False, points, 2)
+        # Draw peak markers if available in metadata
+        if meta.get('show_peaks', False) and 'peak_timestamps' in meta:
+            peak_marker = meta.get('peak_marker', 'x')  # Default to 'x' if not specified
+            peak_marker_size = 8  # Size of the peak marker
+            peak_marker_color = (255, 255, 255)  # White color for peak markers
+            peak_times = meta['peak_timestamps']
+            for pt in peak_times:
+                # Find the closest index in t_plot for this peak timestamp
+                if len(t_plot) < 2:
+                    continue
+                # Interpolate y value for the peak timestamp
+                if pt < t_plot[0] or pt > t_plot[-1]:
+                    continue
+                peak_x = x + int((pt - window_min) / (window_max - window_min) * w)
+                # Interpolate v_plot at pt
+                peak_y_val = np.interp(pt, t_plot, v_plot)
+                peak_y = y + h - int((peak_y_val-vmin)/(vmax-vmin)*h)
+                if peak_marker == 'x':
+                    pygame.draw.line(screen, peak_marker_color, 
+                                    (peak_x - peak_marker_size//2, peak_y - peak_marker_size//2),
+                                    (peak_x + peak_marker_size//2, peak_y + peak_marker_size//2), 2)
+                    pygame.draw.line(screen, peak_marker_color, 
+                                    (peak_x - peak_marker_size//2, peak_y + peak_marker_size//2),
+                                    (peak_x + peak_marker_size//2, peak_y - peak_marker_size//2), 2)
+                elif peak_marker == 'o':
+                    pygame.draw.circle(screen, peak_marker_color, (peak_x, peak_y), peak_marker_size//2, 2)
+                elif peak_marker == '+':
+                    pygame.draw.line(screen, peak_marker_color, 
+                                    (peak_x, peak_y - peak_marker_size//2),
+                                    (peak_x, peak_y + peak_marker_size//2), 2)
+                    pygame.draw.line(screen, peak_marker_color, 
+                                    (peak_x - peak_marker_size//2, peak_y),
+                                    (peak_x + peak_marker_size//2, peak_y), 2)
+                else:
+                    pygame.draw.rect(screen, peak_marker_color, 
+                                    (peak_x - peak_marker_size//2, peak_y - peak_marker_size//2, 
+                                    peak_marker_size, peak_marker_size), 2)
     label = meta.get('name', signal.get('id', ''))
     label_surface = font.render(label, True, TEXT_COLOR)
     screen.blit(label_surface, (x + 10, y + 10))
