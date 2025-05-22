@@ -163,71 +163,48 @@ class RRNode:
         - is_peak_latest: Boolean indicating if the latest sample is a peak.
         - signal_id: The signal ID for registry integration.
         """
-        # Get data from registry
         registry = SignalRegistry.get_instance()
         input_signal = registry.get_signal(input_signal_id)
         if not input_signal or "t" not in input_signal or "v" not in input_signal:
-            raise ValueError(f"No valid signal found with ID {input_signal_id}. Make sure to provide a valid signal ID.")
-        
-        # Extract timestamps and values
+            print(f"[RRNode] No valid signal found with ID {input_signal_id}. Make sure to provide a valid signal ID.")
+            return 0.0, False, output_signal_id
         timestamps = np.array(input_signal["t"])
         values = np.array(input_signal["v"])
-        
         if len(timestamps) < 2 or len(values) < 2:
-            raise ValueError("Insufficient data in signal.")
-            
-        # Default processing parameters
+            print("[RRNode] Insufficient data in signal.")
+            return 0.0, False, output_signal_id
         viz_buffer_size = 300
-        feature_buffer_size = 600        # Use deques for processing - provides better handling of streaming data
+        feature_buffer_size = 600
         feature_values_deque = deque(maxlen=feature_buffer_size)
         feature_values_deque.extend(values[-feature_buffer_size:] if len(values) > feature_buffer_size else values)
-        
-        # Convert to numpy array for processing
         feature_values = np.array(feature_values_deque)
-        
-        # Pre-process RR signal for better peak detection
         filtered_rr = RR.preprocess_signal(feature_values, fs=100)
-        
-        # Find peaks in the filtered signal
         peaks = NumpySignalProcessor.find_peaks(filtered_rr, fs=100)
-        
-        # Calculate respiration rate from the peaks
         rr_result, _ = RR.extract_respiration_rate(filtered_rr, fs=100)
-        
-        # Safely extract respiration rate value
-        respiration_rate = 0  # Default value
+        respiration_rate = 0
         if isinstance(rr_result, (float, int)):
             respiration_rate = float(rr_result)
         elif isinstance(rr_result, np.ndarray) and rr_result.size > 0:
             respiration_rate = float(rr_result)
-                    
-        # Check if the latest data point is a peak
         is_peak_latest = False
-        if len(peaks) > 0 and peaks[-1] >= len(feature_values) - 3:  # Consider a peak if it's one of the last 3 samples
+        if len(peaks) > 0 and peaks[-1] >= len(feature_values) - 3:
             is_peak_latest = True
-        
-        # Ensure we're using the output signal ID for the processed signal
-        # This guarantees the output signal is different from the input
         signal_id = output_signal_id
-        
-        # Stop any existing processing thread for this signal_id
+        # Defensive: If already processing this signal_id, just return
+        if signal_id in self._processing_threads and self._processing_threads[signal_id].is_alive():
+            return respiration_rate, is_peak_latest, output_signal_id
+        # Defensive: Stop any existing processing thread for this signal_id
         if signal_id in self._stop_flags:
             self._stop_flags[signal_id][0] = True
-            
-        # Create new thread for continuous processing
         stop_flag = [False]
         self._stop_flags[signal_id] = stop_flag
-        
         thread = threading.Thread(
             target=self._background_process,
             args=(input_signal_id, show_peaks, stop_flag, output_signal_id),
             daemon=True
         )
-        
         self._processing_threads[signal_id] = thread
         thread.start()
-        
-        # Return the respiration rate, peak detection, and the output signal ID
         return respiration_rate, is_peak_latest, output_signal_id
         
     def __del__(self):

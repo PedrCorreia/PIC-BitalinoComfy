@@ -64,16 +64,18 @@ except ImportError as e:
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Bio-Processing Nodes: {type(e).__name__} - {e}")
 
-# Plot Unit Node - Latest version using standalone visualization hub
+try:
+    from .comfy.tools import PrintToolNode
+    NODE_CLASS_MAPPINGS["PrintToolNode"] = PrintToolNode
+    NODE_DISPLAY_NAME_MAPPINGS["PrintToolNode"] = "🛠️ Print Tool Node"
+    NODE_CATEGORY_MAPPINGS["PrintToolNode"] = "Pedro_PIC/🛠️ Tools"
+    print("Print Tool Node loaded successfully")
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Print Tool Node: ImportError - {e}")
+except Exception as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Print Tool Node: {type(e).__name__} - {e}")
 
 
-# Mock Signal Node was moved to Signal Registry Nodes section
-
-# Signal Input Node (Modern signal connection approach)
-
-# Logger Node
-
-# Unified Signal Generator (New consolidated generator)
 try:
     from .comfy.Registry.comfy_signal_generator_node import ComfySignalGeneratorNode
     from .comfy.Registry.comfy_signal_connector_node import ComfySignalConnectorNode

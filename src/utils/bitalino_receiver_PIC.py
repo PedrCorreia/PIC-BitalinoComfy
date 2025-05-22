@@ -61,7 +61,6 @@ except ImportError as e:
 
 class NewDevice(plux.SignalsDev):
     def __init__(self, address):
-        #plux.MemoryDev.__init__(address)
         plux.MemoryDev.__init__(address)
         self.time = 0
         self.frequency = 0
@@ -71,23 +70,26 @@ class NewDevice(plux.SignalsDev):
         self.last_value3 = 0
         self.last_value4 = 0
         self.last_value5 = 0
-        self.ts=0
+        self.ts = 0
+        self.real_ts = 0  # Real wall-clock timestamp
 
-    def onRawFrame(self, nSeq, data):  # onRawFrame takes three arguments
-        self.ts = nSeq / self.frequency
+    def onRawFrame(self, nSeq, data):
+        import time
+        self.ts = time.perf_counter()  # Use real time instead of calculated time
+        self.real_ts = time.perf_counter()  # High-res, monotonic timestamp
         if len(data) > 0:
-            self.last_value0 = [self.ts, data[0]]
+            self.last_value0 = [self.ts, float(data[0]), self.real_ts]
         if len(data) > 1:
-            self.last_value1 = [self.ts, data[1]]
+            self.last_value1 = [self.ts, float(data[1]), self.real_ts]
         if len(data) > 2:
-            self.last_value2 = [self.ts, data[2]]
+            self.last_value2 = [self.ts, float(data[2]), self.real_ts]
         if len(data) > 3:
-            self.last_value3 = [self.ts, data[3]]
+            self.last_value3 = [self.ts, float(data[3]), self.real_ts]
         if len(data) > 4:
-            self.last_value4 = [self.ts, data[4]]
+            self.last_value4 = [self.ts, float(data[4]), self.real_ts]
         if len(data) > 5:
-            self.last_value5 = [self.ts, data[5]]
-        if nSeq / self.frequency > self.time:
+            self.last_value5 = [self.ts, float(data[5]), self.real_ts]
+        if self.ts > self.time:
             return True
         return False
 
@@ -103,15 +105,18 @@ class DataCompiler:
         self.buffers = [deque(maxlen=buffer_size) for _ in range(channels)]  # Create deques only for selected channels
         self.last_timestamps = {i: None for i in range(channels)}  # Track the last timestamp for each channel
         self.running = True  # Flag to control the thread
+        self.lock = threading.Lock()  # For thread-safe buffer updates
 
     def compile_data(self):
         """
         Continuously fetch data from the device and store it in the respective deques
         only if the timestamp is new for the channel.
         """
+        import time
+        # Fast, tight acquisition loop
         while self.running:
             if self.device:
-                ts = self.device.ts
+                # Fetch all values and timestamps at once
                 data_values = [
                     self.device.last_value0,
                     self.device.last_value1,
@@ -120,11 +125,14 @@ class DataCompiler:
                     self.device.last_value4,
                     self.device.last_value5,
                 ]
+                # Use real timestamp for each sample
                 for i, buffer in enumerate(self.buffers):
-                    if data_values[i] and self.last_timestamps[i] != ts:
-                        buffer.append((ts, data_values[i][1]))  # Append timestamp and value
-                        self.last_timestamps[i] = ts  # Update the last timestamp for the channel
-            time.sleep(0.01)  # Prevent tight loop
+                    val = data_values[i]
+                    if val and self.last_timestamps[i] != val[2]:  # Use real_ts for uniqueness
+                        with self.lock:
+                            buffer.append((val[2], val[1]))  # (real_ts, value)
+                        self.last_timestamps[i] = val[2]
+            time.sleep(0.001)  # Much tighter loop for speed
 
     def stop(self):
         """
@@ -137,7 +145,16 @@ class DataCompiler:
         Retrieve the current state of all buffers.
         :return: A list of deques containing the compiled data for the selected channels.
         """
-        return self.buffers
+        with self.lock:
+            return [deque(buf) for buf in self.buffers]  # Return copies for thread safety
+
+    def get_latest_for_registry(self):
+        """
+        Return a snapshot of the latest buffer contents for registry use.
+        Output: List of lists, one per channel, each a list of (timestamp, value) tuples.
+        """
+        with self.lock:
+            return [list(buf) for buf in self.buffers]
 
 class BitalinoReceiver():
     def __init__(self, bitalino_mac_address, acquisition_duration, sampling_freq, channel_code, buffer_size):
@@ -225,6 +242,15 @@ class BitalinoReceiver():
         """
         if self.data_compiler:
             return self.data_compiler.get_buffers()
+        return []
+
+    def get_latest_for_registry(self):
+        """
+        Retrieve the latest buffer contents in a registry-friendly format.
+        Output: List of lists, one per channel, each a list of (timestamp, value) tuples.
+        """
+        if self.data_compiler:
+            return self.data_compiler.get_latest_for_registry()
         return []
 
     def get_last_value(self):

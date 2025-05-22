@@ -168,76 +168,62 @@ class ECGNode:
         - Rpeak: Boolean indicating if the current sample is a peak.
         - signal_id: The signal ID for registry integration.
         """
-        # Get data from registry
         registry = SignalRegistry.get_instance()
         input_signal = registry.get_signal(input_signal_id)
         if not input_signal or "t" not in input_signal or "v" not in input_signal:
-            raise ValueError(f"No valid signal found with ID {input_signal_id}. Make sure to provide a valid signal ID.")
-        
-        # Extract timestamps and values
+            print(f"[ECGNode] No valid signal found with ID {input_signal_id}. Make sure to provide a valid signal ID.")
+            return 0.0, False, output_signal_id
         timestamps = np.array(input_signal["t"])
         values = np.array(input_signal["v"])
-        
         if len(timestamps) < 2 or len(values) < 2:
-            raise ValueError("Insufficient data in signal.")
-              # Default feature buffer size for processing
-        feature_buffer_size = 10000  # Larger buffer for better edge handling
-        
-        # Use deques for processing - provides better handling of streaming data
+            print("[ECGNode] Insufficient data in signal.")
+            return 0.0, False, output_signal_id
+        feature_buffer_size = 10000
         feature_values_deque = deque(maxlen=feature_buffer_size)
         feature_values_deque.extend(values[-feature_buffer_size:] if len(values) > feature_buffer_size else values)
-        
-        # Convert to numpy array for processing
         feature_values = np.array(feature_values_deque)
-        
-        # Pre-process ECG for better peak detection
-        filtered_ecg = NumpySignalProcessor.bandpass_filter(feature_values, lowcut=5, highcut=15, fs=1000)
-        
-        # Use ECG-specific peak detection for better results
+        # Add margin to avoid edge effects for filtfilt (adds latency but improves quality)
+        margin = 500  # samples, e.g. 0.5s at 1000Hz
+        if len(feature_values) > 2 * margin:
+            # Only process the central region, avoid edges
+            process_start = margin
+            process_end = len(feature_values) - margin
+            process_values = feature_values[process_start:process_end]
+            filtered_ecg = NumpySignalProcessor.bandpass_filter(process_values, lowcut=8, highcut=18, fs=1000)
+            # Pad filtered_ecg to match feature_values length
+            filtered_ecg = np.pad(filtered_ecg, (process_start, len(feature_values) - process_end), mode='constant')
+        else:
+            filtered_ecg = NumpySignalProcessor.bandpass_filter(feature_values, lowcut=8, highcut=18, fs=1000)
         peaks = ECG.detect_r_peaks(filtered_ecg, fs=1000, mode="qrs")
-        
-        # Calculate heart rate from the peaks
         hr_result = ECG.extract_heart_rate(feature_values, fs=1000, r_peaks=peaks)
-        
-        # Safely extract heart rate value
-        heart_rate = 0  # Default value
+        heart_rate = 0
         if isinstance(hr_result, np.ndarray) and hr_result.size > 0:
             try:
                 heart_rate = hr_result[-1][0]
             except (IndexError, TypeError):
-                # If heart_rate doesn't have the expected structure
                 if hr_result.size > 0:
                     heart_rate = float(hr_result[-1])
                 else:
                     heart_rate = 0
-                    
-        # Check if the latest data point is a peak
         Rpeak = False
-        if len(peaks) > 0 and peaks[-1] >= len(feature_values) - 3:  # Consider a peak if it's one of the last 3 samples
+        if len(peaks) > 0 and peaks[-1] >= len(feature_values) - 3:
             Rpeak = True
-        
-        # Ensure we're using the output signal ID for the processed signal
-        # This guarantees the output signal is different from the input
         signal_id = output_signal_id
-        
-        # Stop any existing processing thread for this signal_id
+        # Defensive: If already processing this signal_id, just return
+        if signal_id in self._processing_threads and self._processing_threads[signal_id].is_alive():
+            return heart_rate, Rpeak, output_signal_id
+        # Defensive: Stop any existing processing thread for this signal_id
         if signal_id in self._stop_flags:
             self._stop_flags[signal_id][0] = True
-            
-        # Create new thread for continuous processing
         stop_flag = [False]
         self._stop_flags[signal_id] = stop_flag
-        
         thread = threading.Thread(
             target=self._background_process,
             args=(input_signal_id, show_peaks, stop_flag, output_signal_id),
             daemon=True
         )
-        
         self._processing_threads[signal_id] = thread
         thread.start()
-        
-        # Return the heart rate, peak detection, and the output signal ID (different from input)
         return heart_rate, Rpeak, output_signal_id
         
     def __del__(self):
