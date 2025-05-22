@@ -44,10 +44,10 @@ class ECGNode:
         """
         registry = SignalRegistry.get_instance()
         # Constants for processing
-        feature_buffer_size = 10000  # Increased buffer size for better processing
+        
         viz_window_sec = 60  # Visualization window: 1 minute
         viz_buffer_size = 1000 * viz_window_sec  # 1000 Hz assumed, 60,000 samples for 1 min
-
+        feature_buffer_size =viz_buffer_size + 500  # Increased buffer size for better processing
         # Initialize deques for processing
         feature_values_deque = deque(maxlen=feature_buffer_size)
         feature_timestamps_deque = deque(maxlen=feature_buffer_size)
@@ -59,42 +59,41 @@ class ECGNode:
             # Dynamically fetch the latest signal data from the registry each iteration
             signal_data = registry.get_signal(input_signal_id)
             if not signal_data or "t" not in signal_data or "v" not in signal_data:
-                time.sleep(0.1)
+                time.sleep(0.5)
                 continue
             timestamps = np.array(signal_data["t"])
             values = np.array(signal_data["v"])
             if len(timestamps) < 2 or len(values) < 2:
-                time.sleep(0.1)
+                time.sleep(0.5)
                 continue
             # Only append new data
+            # If we have existing timestamps, only add new data points
             if len(viz_timestamps_deque) > 0 and len(timestamps) > 0:
                 last_ts = viz_timestamps_deque[-1]
                 new_data_idx = np.searchsorted(timestamps, last_ts, side='right')
                 if new_data_idx < len(timestamps):
+                    # Deques will automatically maintain the maxlen
                     viz_timestamps_deque.extend(timestamps[new_data_idx:])
                     viz_values_deque.extend(values[new_data_idx:])
                     feature_timestamps_deque.extend(timestamps[new_data_idx:])
                     feature_values_deque.extend(values[new_data_idx:])
             else:
-                # Only keep the last N samples
-                viz_timestamps_deque.clear()
-                viz_values_deque.clear()
-                feature_timestamps_deque.clear()
-                feature_values_deque.clear()
-                viz_timestamps_deque.extend(timestamps[-viz_buffer_size:])
-                viz_values_deque.extend(values[-viz_buffer_size:])
-                feature_timestamps_deque.extend(timestamps[-feature_buffer_size:])
-                feature_values_deque.extend(values[-feature_buffer_size:])
+                # First time initialization
+                viz_timestamps_deque.extend(timestamps)
+                viz_values_deque.extend(values)
+                feature_timestamps_deque.extend(timestamps)
+                feature_values_deque.extend(values)
             # Convert deques to numpy arrays for processing
             viz_timestamps = np.array(viz_timestamps_deque)
             viz_values = np.array(viz_values_deque)
             feature_timestamps = np.array(feature_timestamps_deque)
             feature_values = np.array(feature_values_deque)
             # Pre-process ECG for better peak detection (on full feature buffer)
-            filtered_ecg = NumpySignalProcessor.bandpass_filter(feature_values, lowcut=5, highcut=15, fs=1000)
+            filtered_ecg = NumpySignalProcessor.bandpass_filter(feature_values, lowcut=5, highcut=18, fs=1000)
             peaks = ECG.detect_r_peaks(filtered_ecg, fs=1000, mode="qrs")
             # Calculate heart rate
             heart_rate = ECG.extract_heart_rate(feature_values, fs=1000, r_peaks=peaks)
+            print(f"Heart Rate: {heart_rate}")
             current_hr = 0
             if isinstance(heart_rate, np.ndarray) and heart_rate.size > 0:
                 try:

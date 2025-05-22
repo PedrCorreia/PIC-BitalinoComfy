@@ -1,93 +1,49 @@
-import numpy as np
-import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets
 from scipy.signal import welch, hilbert
+import numpy as np
+import pyqtgraph as pg
+import os
 
 from ..utils.signal_processing import NumpySignalProcessor
-import os
 
 
 class ECG:
-
     @staticmethod
     def detect_r_peaks(filtered_signal, fs, mode="qrs", prominence=None):
         """
-        
-        Parameters:
-        - filtered_signal: The filtered ECG signal.
-        - fs: Sampling frequency in Hz.
-        - mode: Detection mode. "qrs" for QRS complex, "all" for the entire heart complex.
-        - prominence: Minimum prominence of peaks to detect (default: None).
-        
-        Returns:
-        - r_peaks: Indices of detected R-peaks.
+        Returns both detected peaks and the smoothed envelope.
         """
-        
-        envelope = np.abs(hilbert(filtered_signal))
-        smoothed_envelope = NumpySignalProcessor.moving_average(envelope, window_size=5)
-
-        if mode == "qrs":
-            threshold = 0.30 * np.max(envelope)
-        elif mode == "all":
-            # Calculate a threshold near the maximum value of the signal
-            threshold = 0.95 * np.max(envelope)
-        else:
-            raise ValueError("Invalid mode. Use 'qrs' for QRS complex or 'all' for the entire heart complex.")
-        
-        # Ensure the window parameter passed to find_peaks is an integer
-        r_peaks = NumpySignalProcessor.find_peaks(smoothed_envelope, fs, threshold=threshold, prominence=prominence)
-        
+        # Use a simple threshold for demonstration; can be tuned
+        threshold = 0.7* np.max(filtered_signal)
+        r_peaks = NumpySignalProcessor.find_peaks(filtered_signal, fs, threshold=threshold, prominence=prominence)
+        r_peaks = ECG.validate_r_peaks(filtered_signal, r_peaks)
         return np.array(r_peaks, dtype=int)
 
     @staticmethod
-    def validate_r_peaks(envelope, r_peaks, mode="qrs", dynamic_factor=1.5, fixed_threshold=0.8):
+    def validate_r_peaks(filtered_signal, detected_peaks, lag=100, match_window=30):
         """
-        Validates R-peaks dynamically using local envelope statistics for "qrs" mode,
-        and a fixed threshold for "all" mode.
-
-        Parameters:
-        - envelope: The envelope or smoothed envelope of the ECG signal.
-        - r_peaks: Indices of detected R-peaks.
-        - mode: Validation mode. "qrs" for dynamic thresholding, "all" for fixed thresholding.
-        - dynamic_factor: Multiplier for the dynamic threshold based on local envelope statistics (for "qrs").
-        - fixed_threshold: Fraction of the maximum envelope value to use as a fixed threshold (for "all").
-
-        Returns:
-        - valid_r_peaks: Indices of validated R-peaks.
+        Validate filtered-signal peaks only if they are near envelope peaks and not within lag samples of the end.
+        - lag: number of samples at the end to ignore for validation (to avoid edge artifacts)
+        - match_window: max distance (samples) to consider a filtered peak as matching an envelope peak
+        Returns validated peak indices (subset of detected_peaks).
         """
-        valid_r_peaks = []
-
-        if mode == "qrs":
-            # future :Dynamic thresholding based on local envelope statistics
-            for idx in r_peaks:
-                if idx < 0 or idx >= len(envelope):
-                    continue
-                # Calculate local mean and standard deviation in a window around the peak
-                window_size = 50  # Adjust window size as needed
-                start = max(0, idx - window_size)
-                end = min(len(envelope), idx + window_size)
-                local_mean = np.mean(envelope[start:end])
-                local_std = np.std(envelope[start:end])
-                dynamic_threshold = local_mean + dynamic_factor * local_std
-
-                # Validate the peak if it exceeds the dynamic threshold
-                if envelope[idx] >= dynamic_threshold:
-                    valid_r_peaks.append(idx)
-
-        elif mode == "all":
-            # Fixed thresholding based on a fraction of the maximum envelope value
-            threshold = fixed_threshold * np.max(envelope)
-            for idx in r_peaks:
-                if idx < 0 or idx >= len(envelope):
-                    continue
-                # Validate the peak if it exceeds the fixed threshold
-                if envelope[idx] >= threshold:
-                    valid_r_peaks.append(idx)
-
-        else:
-            raise ValueError("Invalid mode. Use 'qrs' for dynamic thresholding or 'all' for fixed thresholding.")
-
-        return np.array(valid_r_peaks)
+        # Calculate signal envelope
+        envelope = np.abs(hilbert(filtered_signal))
+        smoothed_envelope = NumpySignalProcessor.moving_average(envelope, window_size=5)
+        
+        # Find envelope peaks
+        env_peaks = NumpySignalProcessor.find_peaks(smoothed_envelope, fs=1, window=match_window, prominence=None)
+        
+        # Only keep detected peaks that are close to envelope peaks and not in lag region
+        valid_peaks = []
+        for idx in detected_peaks:
+            if idx >= len(filtered_signal) - lag:
+                continue  # skip peaks in lag region
+            
+            if np.any(np.abs(env_peaks - idx) <= match_window):
+                valid_peaks.append(idx)
+                
+        return np.array(valid_peaks, dtype=int)
 
     @staticmethod
     def preprocess_signal(
@@ -97,36 +53,24 @@ class ECG:
         dynamic_factor=1.5, 
         fixed_threshold=0.8, 
         validate_peaks=True, 
-        visualization=False
+        visualization=False,
+        lag=100,  # samples
+        match_window=30  # samples
     ):
         """
         Modular pipeline: bandpass, envelope, normalization, smoothing, peak detection, validation.
-
         Returns:
             normed: normalized and zero-centered bandpassed signal
             smoothed_envelope: smoothed envelope (if visualization is True)
             detected_peaks: indices of detected peaks
             validated_peaks: indices of validated peaks (if validate_peaks is True)
         """
-        bandpassed = NumpySignalProcessor.bandpass_filter(ecg_raw, bandpass_low, bandpass_high, fs, order=4)
+        bandpassed = NumpySignalProcessor.bandpass_filter(ecg_raw, bandpass_low, bandpass_high, fs, order=2)
         normed = NumpySignalProcessor.normalize_signal(bandpassed)
-        normed = normed - np.mean(normed)
+        detected_peaks, smoothed_envelope = ECG.detect_r_peaks(normed, fs, mode=mode)
+       
 
-        smoothed_envelope = None
-        if visualization:
-            envelope = np.abs(hilbert(normed))
-            smoothed_envelope = NumpySignalProcessor.moving_average(envelope, window_size=envelope_smooth)
-
-        detected_peaks = ECG.detect_r_peaks(bandpassed, fs, mode=mode)
-        validated_peaks = None
-        if validate_peaks:
-            envelope = np.abs(hilbert(normed))
-            smoothed_envelope = NumpySignalProcessor.moving_average(envelope, window_size=envelope_smooth)
-            validated_peaks = ECG.validate_r_peaks(
-                smoothed_envelope, detected_peaks, mode=mode, dynamic_factor=dynamic_factor, fixed_threshold=fixed_threshold
-            )
-
-        return normed, smoothed_envelope, detected_peaks, validated_peaks
+        return normed, detected_peaks
 
     @staticmethod
     def extract_heart_rate(signal, fs, mode="qrs", r_peaks=None):
@@ -337,164 +281,74 @@ class ECG:
         return ecg_mv
 
     @staticmethod
-    def plot_signals(raw, filtered, r_peaks, heart_rate, fs, hrv_metrics, envelope=None, detected_peaks=None, validated_peaks=None):
+    def plot_signals(raw, filtered, r_peaks, heart_rate, fs, hrv_metrics, envelope=None, detected_peaks=None, validated_peaks=None, lag=100):
         """
-        Plots the raw and filtered ECG signals along with detected R-peaks, validated peaks, envelope, PSDs, LF/HF bands, Poincaré plot, and tachogram.
-        Displays only the first 10 seconds of the signal.
-        All parameters must be precomputed and passed in.
+        Plots the raw and filtered ECG signals along with detected R-peaks, validated peaks, envelope, and shades lag region.
         """
         total_samples = len(raw)
-        total_duration = total_samples / fs
-
         max_samples = int(10 * fs)
         plot_slice = slice(0, max_samples)
         raw_plot = raw[plot_slice]
         filtered_plot = filtered[plot_slice]
         time_np = np.arange(len(raw_plot)) / fs
-
         raw_mv_plot = ECG.convert_adc_to_voltage(raw_plot)
         r_peaks_plot = r_peaks[r_peaks < max_samples] if r_peaks is not None else np.array([])
         detected_peaks_plot = detected_peaks[detected_peaks < max_samples] if detected_peaks is not None else np.array([])
         validated_peaks_plot = validated_peaks[validated_peaks < max_samples] if validated_peaks is not None else np.array([])
         envelope_plot = envelope[plot_slice] if envelope is not None else None
-
         app = QtWidgets.QApplication.instance()
         if app is None:
             app = QtWidgets.QApplication([])
         win = pg.GraphicsLayoutWidget(show=True, title="ECG Signal Analysis")
         win.resize(1800, 1200)
         win.setWindowTitle("ECG Signal Analysis")
-
         pg.setConfigOption('background', 'k')
         pg.setConfigOption('foreground', 'w')
-
         # Raw signal in ADC units
         p1 = win.addPlot(row=0, col=0, title="<b>Raw ECG Signal (ADC Units)</b>")
         p1.plot(time_np, raw_plot, pen=pg.mkPen(color=(100, 200, 255), width=1.2), name="Raw Signal (ADC)")
         p1.showGrid(x=True, y=True, alpha=0.3)
         p1.setLabel('left', "<span style='color:white'>ADC Value</span>")
         p1.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
-
         # Raw signal in millivolts
         p1_mv = win.addPlot(row=0, col=1, title="<b>Raw ECG Signal (mV)</b>")
         p1_mv.plot(time_np, raw_mv_plot, pen=pg.mkPen(color=(0, 255, 255), width=1.2), name="Raw Signal (mV)")
         p1_mv.showGrid(x=True, y=True, alpha=0.3)
         p1_mv.setLabel('left', "<span style='color:white'>Amplitude (mV)</span>")
         p1_mv.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
-
         # Filtered/processed signal with R-peaks, detected peaks, validated peaks, and envelope
         p2 = win.addPlot(row=1, col=0, title="<b>Processed ECG Signal with Peaks and Envelope</b>")
         p2.plot(time_np, filtered_plot, pen=pg.mkPen(color=(255, 170, 0), width=2), name="Filtered Signal")
         # Envelope
         if envelope_plot is not None:
-            p2.plot(time_np, envelope_plot, pen=pg.mkPen(color=(0, 255, 0), width=1.5), name="Envelope")
-        # Detected peaks (green circles) on envelope
+            p2.plot(time_np, envelope_plot, pen=pg.mkPen(color=(0, 255, 0), width=1), name="Envelope")
+        # Detected peaks (green circles)
         if detected_peaks is not None and len(detected_peaks_plot) > 0 and envelope_plot is not None:
-            p2.plot(time_np[detected_peaks_plot], envelope_plot[detected_peaks_plot], pen=None, symbol='o', symbolBrush=(0, 255, 0), symbolPen='g', symbolSize=10, name="Detected Peaks")
-        # Validated peaks (magenta triangles) on envelope
+            p2.plot(time_np[detected_peaks_plot], envelope_plot[detected_peaks_plot], pen=None, symbol='o', symbolBrush=(0,255,0), symbolSize=10, name="Detected Peaks")
+        # Validated peaks (magenta triangles)
         if validated_peaks is not None and len(validated_peaks_plot) > 0 and envelope_plot is not None:
-            p2.plot(time_np[validated_peaks_plot], envelope_plot[validated_peaks_plot], pen=None, symbol='t', symbolBrush=(255, 0, 255), symbolPen='m', symbolSize=12, name="Validated Peaks")
+            p2.plot(time_np[validated_peaks_plot], envelope_plot[validated_peaks_plot], pen=None, symbol='t', symbolBrush=(255,0,255), symbolSize=12, name="Validated Peaks")
+        # Shade lag region at the end
+        if lag > 0:
+            lag_start = (len(filtered_plot) - lag) / fs
+            lag_end = len(filtered_plot) / fs
+            p2.addItem(pg.LinearRegionItem([lag_start, lag_end], brush=(100,100,100,80), movable=False))
         p2.showGrid(x=True, y=True, alpha=0.3)
         p2.setLabel('left', "<span style='color:white'>Amplitude</span>")
         p2.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
-
         # PSD for all processed plots (not raw)
         f_mv, psd_mv = NumpySignalProcessor.compute_psd_numpy(ECG.convert_adc_to_voltage(raw), fs)
         f_filtered, psd_filtered = NumpySignalProcessor.compute_psd_numpy(filtered, fs)
-
         p3 = win.addPlot(row=1, col=1, title="<b>Power Spectral Density (PSD) - Processed Signals</b>")
-        if len(f_mv) > 0 and len(psd_mv) > 0 and len(f_mv) == len(psd_mv):
-            p3.plot(f_mv, psd_mv, pen=pg.mkPen(color=(0, 255, 255), width=1.2), name="Raw mV PSD")
-        if len(f_filtered) > 0 and len(psd_filtered) > 0 and len(f_filtered) == len(psd_filtered):
-            p3.plot(f_filtered, psd_filtered, pen=pg.mkPen(color=(255, 170, 0), width=2), name="Filtered PSD")
+        if f_mv is not None and psd_mv is not None and len(f_mv) > 0 and len(psd_mv) > 0 and len(f_mv) == len(psd_mv):
+            p3.plot(f_mv, psd_mv, pen=pg.mkPen(color=(0,255,255), width=1.2), name="Raw PSD")
+        if f_filtered is not None and psd_filtered is not None and len(f_filtered) > 0 and len(psd_filtered) > 0 and len(f_filtered) == len(psd_filtered):
+            p3.plot(f_filtered, psd_filtered, pen=pg.mkPen(color=(255,170,0), width=1.2), name="Filtered PSD")
         p3.setLabel('left', "<span style='color:white'>PSD [V**2/Hz]</span>")
         p3.setLabel('bottom', "<span style='color:white'>Frequency [Hz]</span>")
         p3.showGrid(x=True, y=True, alpha=0.3)
-
-        # PSD for filtered signal with LF/HF bands highlighted and area under curve colored
-        p4 = win.addPlot(row=2, col=0, title="<b>PSD with LF/HF Bands (Filtered Signal, <0.5Hz)</b>")
-        f_psd = hrv_metrics.get("PSD_F", np.array([]))
-        psd = hrv_metrics.get("PSD", np.array([]))
-        if f_psd is not None and psd is not None and len(f_psd) > 0 and len(psd) > 0:
-            mask = f_psd < 0.5
-            p4.plot(f_psd[mask], psd[mask], pen=pg.mkPen(color=(255, 170, 0), width=2))
-            # Fill LF band
-            lf_band = (0.04, 0.15)
-            lf_mask = (f_psd >= lf_band[0]) & (f_psd < lf_band[1]) & mask
-            if np.any(lf_mask):
-                p4.plot(f_psd[lf_mask], psd[lf_mask], pen=None, fillLevel=0, brush=(50, 255, 50, 120))
-            # Fill HF band
-            hf_band = (0.15, 0.4)
-            hf_mask = (f_psd >= hf_band[0]) & (f_psd < hf_band[1]) & mask
-            if np.any(hf_mask):
-                p4.plot(f_psd[hf_mask], psd[hf_mask], pen=None, fillLevel=0, brush=(50, 50, 255, 120))
-        p4.setLabel('left', "<span style='color:white'>PSD [V**2/Hz]</span>")
-        p4.setLabel('bottom', "<span style='color:white'>Frequency [Hz]</span>")
-        p4.showGrid(x=True, y=True, alpha=0.3)
-
-        # Poincaré plot (HRV)
-        rr_intervals = np.diff(r_peaks) / fs  # Use all R-peaks for HRV
-        if len(rr_intervals) > 1:
-            p5 = win.addPlot(row=2, col=1, title="<b>Poincaré Plot (HRV)</b>")
-            p5.plot(rr_intervals[:-1], rr_intervals[1:], pen=None, symbol='o', symbolBrush=(255, 255, 0), symbolSize=6, name="Poincaré Points")
-            p5.showGrid(x=True, y=True, alpha=0.3)
-            p5.setLabel('left', "<span style='color:white'>RR(n+1) (s)</span>")
-            p5.setLabel('bottom', "<span style='color:white'>RR(n) (s)</span>")
-
-        # Tachogram (RR intervals over time) - left Y: RR, right Y: HRV (SDNN)
-        if len(rr_intervals) > 0:
-            rr_times = np.cumsum(np.insert(rr_intervals, 0, 0))
-            p6 = win.addPlot(row=3, col=0, title="<b>Tachogram (RR Intervals & HRV Over Time)</b>")
-            # Left Y: RR intervals
-            p6.plot(rr_times[1:], rr_intervals, pen=pg.mkPen(color=(255, 255, 0), width=2), symbol='o', symbolBrush=(255, 255, 0), symbolSize=6, name="RR Interval")
-            p6.setLabel('left', "<span style='color:white'>RR Interval (s)</span>")
-            p6.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
-            # Right Y: HRV (SDNN up to each point)
-            p6r = pg.ViewBox()
-            p6.showAxis('right')
-            p6.scene().addItem(p6r)
-            p6.getAxis('right').linkToView(p6r)
-            p6r.setXLink(p6)
-            # Compute rolling SDNN (window=5 by default)
-            window = 5
-            if len(rr_intervals) >= window:
-                rolling_sdnn = np.array([np.std(rr_intervals[max(0, i-window+1):i+1]) for i in range(len(rr_intervals))])
-                p6r.addItem(pg.PlotCurveItem(rr_times[1:], rolling_sdnn, pen=pg.mkPen(color=(255, 0, 0), width=2), name="Rolling SDNN"))
-                p6.getAxis('right').setLabel("<span style='color:red'>HRV (SDNN, s)</span>")
-            else:
-                p6.getAxis('right').setLabel("<span style='color:red'>HRV (SDNN, s)</span>")
-            p6r.setYRange(0, np.max(rolling_sdnn) if len(rr_intervals) >= window else 1)
-            p6r.setGeometry(p6.vb.sceneBoundingRect())
-            p6.vb.sigResized.connect(lambda: p6r.setGeometry(p6.vb.sceneBoundingRect()))
-
-        info_text = f"<span style='font-size:10pt'><b>Heart Rate:</b> <span style='color:#ffae00'>{heart_rate:.2f}</span> bpm<br>"
-        info_text += f"<b>SDNN:</b> <span style='color:#ffae00'>{hrv_metrics['SDNN']:.2f}</span> s<br>"
-        info_text += f"<b>RMSSD:</b> <span style='color:#ffae00'>{hrv_metrics['RMSSD']:.2f}</span> s<br>"
-        info_text += f"<b>LF:</b> <span style='color:#ffae00'>{hrv_metrics['LF']:.2f}</span><br>"
-        info_text += f"<b>HF:</b> <span style='color:#ffae00'>{hrv_metrics['HF']:.2f}</span><br>"
-        info_text += f"<b>LF/HF:</b> <span style='color:#ffae00'>{hrv_metrics['LF/HF']:.2f}</span><br>"
-        info_text += f"<b>Sampling Rate:</b> <span style='color:#ffae00'>{fs} Hz</span><br>"
-        info_text += f"<b>Signal Duration:</b> <span style='color:#ffae00'>{total_duration:.2f} s</span></span>"
-        info_label = pg.LabelItem(info_text, justify='left')
-        win.addItem(info_label, row=0, col=2, rowspan=3)
-
-        legend_text = (
-            "<b>Legend:</b><br>"
-            "<span style='color:#64c8ff'>Raw Signal (ADC, Blue)</span><br>"
-            "<span style='color:#00ffff'>Raw Signal (mV, Cyan)</span><br>"
-            "<span style='color:#ffaa00'>Processed/Filtered Signal (Orange)</span><br>"
-            "<span style='color:#ff5050'>R-Peaks (Red X)</span><br>"
-            "<span style='color:#32ff32'>Detected Peaks (Green Circles)</span><br>"
-            "<span style='color:#ff00ff'>Validated Peaks (Magenta Triangles)</span><br>"
-            "<span style='color:#32ff32'>LF Band (Green Region)</span><br>"
-            "<span style='color:#3232ff'>HF Band (Blue Region)</span><br>"
-            "<span style='color:#ffff00'>Poincaré Points (Yellow Circles)</span><br>"
-            "<span style='color:#ffff00'>Tachogram (Yellow Line)</span>"
-        )
-        legend_label = pg.LabelItem(legend_text, justify='left', size='10pt')
-        win.addItem(legend_label, row=3, col=2, rowspan=2)
-
-        app.exec()
+        # Show the window
+        win.show()
 
 def demo():
     # Allow the user to select electrode placement

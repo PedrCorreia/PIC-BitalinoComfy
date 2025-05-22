@@ -5,12 +5,31 @@ synthetic_functions.py
 """
 import numpy as np
 
-def ecg_waveform(t, sample_index):
-    base_freq = 1.2
-    value = np.sin(2 * np.pi * base_freq * t)
-    spike = np.exp(-80 * ((t * base_freq) % 1 - 0.2) ** 2)
-    value = value * 0.3 + spike * 0.7
-    value = value + np.random.normal(0, 0.05)
+def ecg_waveform(t, sample_index, stress_period=30.0):
+    # Heart rate modulation to simulate stress/calm transitions
+    # Baseline: 65 bpm, Stress: up to 95 bpm
+    base_hr = 65.0
+    stress_hr = 95.0
+    stress_factor = 0.5 + 0.5 * np.sin(2 * np.pi * t / stress_period)
+    current_hr = base_hr + (stress_hr - base_hr) * stress_factor
+    
+    # Convert HR to frequency in Hz
+    freq = current_hr / 60.0
+    
+    # Calculate phase with heart rate variability
+    hrv = 0.03 * np.random.normal()  # Small random variation in timing
+    phase = (t * freq + hrv) % 1.0
+    
+    # ECG components - mainly focused on R peak with subtle P and T waves
+    p_wave = 0.15 * np.exp(-70 * (phase - 0.08)**2)  # Subtle P wave
+    qrs_complex = 0.8 * np.exp(-300 * (phase - 0.22)**2)  # Prominent R peak
+    t_wave = 0.2 * np.exp(-70 * (phase - 0.35)**2)  # Subtle T wave
+    
+    # Combine components and add noise
+    baseline = -0.02 * np.cos(2 * np.pi * phase)  # Subtle baseline drift
+    noise = 0.02 * np.random.normal()  # Electrode noise
+    
+    value = baseline + p_wave + qrs_complex + t_wave + noise
     return value
 
 def eda_waveform(t, sample_index):

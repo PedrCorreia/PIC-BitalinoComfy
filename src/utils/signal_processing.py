@@ -65,7 +65,7 @@ class NumpySignalProcessor:
         return filtered_signal
 
     @staticmethod
-    def find_peaks(signal, fs, window=None, prominence=None, threshold=None):
+    def find_peaks(signal, fs, window=None, prominence=None, threshold=None,Live=False):
         """
         Finds peaks in the signal using NumPy, with an optional threshold.
 
@@ -79,29 +79,57 @@ class NumpySignalProcessor:
         Returns:
         - indices: Indices of the detected peaks.
         """
-        N = len(signal)
-        if window is None:
-            window = max(1, int(0.01 * N))  # Default window is 1% of signal length
-        if prominence is None:
-            prominence = 0.01 * np.std(signal)  # Default prominence is 10% of std deviation
-        mean = np.mean(signal)
-        # Pad the signal at both ends to handle edge effects
-        padded = np.pad(signal, (window, window), mode='edge')
-        # Create a sliding window view of the signal
-        shape = (N, 2 * window + 1)
-        strides = (padded.strides[0], padded.strides[0])
-        windows = np.lib.stride_tricks.as_strided(padded, shape=shape, strides=strides)
-        # Find the maximum value in each window
-        max_in_window = np.max(windows, axis=1)
-        # A peak is a point that is the maximum in its window and above mean+prominence
-        is_peak = (signal >= max_in_window) & (signal > mean + prominence)
+        if Live:
+            # For live signal processing, we need a more robust approach
+            N = len(signal)
+            if window is None:
+                window = max(1, int(0.05 * N))  # Larger default window for live signals
+            if prominence is None:
+                prominence = 0.02 * np.std(signal)  # More sensitive prominence for live signals
+                
+            # Calculate adaptive statistics from recent signal history
+            recent_mean = np.mean(signal[-min(N, 1000):])  # Use most recent 1000 samples or less
+            recent_std = np.std(signal[-min(N, 1000):])
+            
+            # Adaptive threshold based on recent statistics
+            adaptive_threshold = recent_mean + prominence * recent_std
+            
+            # For live processing, we only check if the last point could be a peak
+            is_peak = False
+            if N > window:
+                # Check if the current point is a local maximum in its window
+                window_start = max(0, N - window - 1)
+                window_end = N
+                window_signal = signal[window_start:window_end]
+                if signal[-1] == max(window_signal) and signal[-1] > adaptive_threshold:
+                    is_peak = True
+            
+            # Return the index of the detected peak (if found)
+            return [N-1] if is_peak else []
+        else:
+            N = len(signal)
+            if window is None:
+                window = max(1, int(0.01 * N))  # Default window is 1% of signal length
+            if prominence is None:
+                prominence = 0.01 * np.std(signal)  # Default prominence is 10% of std deviation
+            mean = np.mean(signal)
+            # Pad the signal at both ends to handle edge effects
+            padded = np.pad(signal, (window, window), mode='edge')
+            # Create a sliding window view of the signal
+            shape = (N, 2 * window + 1)
+            strides = (padded.strides[0], padded.strides[0])
+            windows = np.lib.stride_tricks.as_strided(padded, shape=shape, strides=strides)
+            # Find the maximum value in each window
+            max_in_window = np.max(windows, axis=1)
+            # A peak is a point that is the maximum in its window and above mean+prominence
+            is_peak = (signal >= max_in_window) & (signal > mean + prominence)
 
-        # If a threshold is provided, further require the peak to be above this value
-        if threshold is not None:
-            is_peak &= (signal > threshold)
+            # If a threshold is provided, further require the peak to be above this value
+            if threshold is not None:
+                is_peak &= (signal > threshold)
 
-        # Return the indices of detected peaks
-        return np.flatnonzero(is_peak)
+            # Return the indices of detected peaks
+            return np.flatnonzero(is_peak)
 
     @staticmethod
     def compute_psd_numpy(signal, fs, nperseg=None, noverlap=None, window='hann', detrend='constant'):
