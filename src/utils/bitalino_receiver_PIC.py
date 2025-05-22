@@ -75,19 +75,18 @@ class NewDevice(plux.SignalsDev):
 
     def onRawFrame(self, nSeq, data):  # onRawFrame takes three arguments
         self.ts = nSeq / self.frequency
-        if len(data) >1:
-         self.last_value0 = [self.ts,data[0]]
-         if len(data) > 2:
-            self.last_value1 = [self.ts,data[1]]
-            if len(data) > 3:
-                self.last_value2 = [self.ts,data[2]]
-                if len(data) > 4:
-                    self.last_value3 = [self.ts,data[3]]
-                    if len(data) > 5:
-                        self.last_value4 = [self.ts,data[4]]
-                        if len(data) > 6:
-                            self.last_value5 = [self.ts,data[5]]
-                
+        if len(data) > 0:
+            self.last_value0 = [self.ts, data[0]]
+        if len(data) > 1:
+            self.last_value1 = [self.ts, data[1]]
+        if len(data) > 2:
+            self.last_value2 = [self.ts, data[2]]
+        if len(data) > 3:
+            self.last_value3 = [self.ts, data[3]]
+        if len(data) > 4:
+            self.last_value4 = [self.ts, data[4]]
+        if len(data) > 5:
+            self.last_value5 = [self.ts, data[5]]
         if nSeq / self.frequency > self.time:
             return True
         return False
@@ -125,6 +124,7 @@ class DataCompiler:
                     if data_values[i] and self.last_timestamps[i] != ts:
                         buffer.append((ts, data_values[i][1]))  # Append timestamp and value
                         self.last_timestamps[i] = ts  # Update the last timestamp for the channel
+            time.sleep(0.01)  # Prevent tight loop
 
     def stop(self):
         """
@@ -141,27 +141,34 @@ class DataCompiler:
 
 class BitalinoReceiver():
     def __init__(self, bitalino_mac_address, acquisition_duration, sampling_freq, channel_code, buffer_size):
+        print(f"[BitalinoReceiver] __init__ called with mac={bitalino_mac_address}, duration={acquisition_duration}, freq={sampling_freq}, channel_code={channel_code}, buffer_size={buffer_size}")
         self.device = None
         self.device_initialized = threading.Event()  # Event to signal device initialization
         self.data_compiler = None  # DataCompiler instance
 
         def bitalinoAcquisition(address, time, freq, code):  # time acquisition for each frequency
+            print(f"[BitalinoReceiver] bitalinoAcquisition called with address={address}, time={time}, freq={freq}, code={code}")
             try:
                 self.device = NewDevice(address)
                 self.device.time = time  # interval of acquisition
                 self.device.frequency = freq
-                self.device.start(self.device.frequency, 0x3F, 16)  # Pass code_sequence as a list of integers
+                print(f"[BitalinoReceiver] Starting device with freq={self.device.frequency}, code=0x{code:X}")
+                self.device.start(self.device.frequency, code, 16)  # Use the provided channel_code
                 self.device_initialized.set()  # Signal that the device is initialized
                 self.device.loop()  # calls device.onRawFrame until it returns True
                 self.device.stop()
                 self.device.close()
+                print(f"[BitalinoReceiver] Acquisition loop finished and device closed.")
             except Exception as e:
+                print(f"[BitalinoReceiver] Exception in bitalinoAcquisition: {e}")
                 self.device = None
                 self.device_initialized.set()  # Signal that initialization failed
 
         def createThreads(address_list, time, freq_list, code_list):
+            print(f"[BitalinoReceiver] createThreads called")
             thread_list = []
             for index in range(len(address_list)):
+                print(f"[BitalinoReceiver] Creating acquisition thread for address={address_list[index]}, code={code_list[index]}")
                 thread_list.append(
                     threading.Thread(
                         target=bitalinoAcquisition,
@@ -176,13 +183,18 @@ class BitalinoReceiver():
                 thread_list[index].start()
 
             # Wait for the acquisition thread to initialize the device
+            print(f"[BitalinoReceiver] Waiting for device initialization...")
             self.device_initialized.wait()  # Wait until the device is initialized or an error occurs
+            print(f"[BitalinoReceiver] Device initialized: {self.device is not None}")
 
             if self.device is None:
+                print(f"[BitalinoReceiver] Device initialization failed.")
                 return
 
             # Start the DataCompiler for the selected channels
-            self.data_compiler = DataCompiler(self.device, buffer_size, channel_code.bit_length())
+            num_channels = bin(channel_code).count('1')
+            print(f"[BitalinoReceiver] Starting DataCompiler with {num_channels} channels")
+            self.data_compiler = DataCompiler(self.device, buffer_size, num_channels)
             compiler_thread = threading.Thread(target=self.data_compiler.compile_data)
             thread_list.append(compiler_thread)
             compiler_thread.start()
@@ -193,6 +205,7 @@ class BitalinoReceiver():
             if platform.system() == "Darwin":
                 plux.MacOS.stopMainLoop()
 
+        print(f"[BitalinoReceiver] Launching main acquisition thread...")
         main_thread = threading.Thread(
             target=createThreads, args=([bitalino_mac_address], acquisition_duration, [sampling_freq], [channel_code])
         )
@@ -216,8 +229,10 @@ class BitalinoReceiver():
 
     def get_last_value(self):
         if self.device is not None:
+            print(f"last value0 {self.device.last_value0}")
             return [self.device.ts, self.device.last_value0, self.device.last_value1, self.device.last_value2, 
                     self.device.last_value3, self.device.last_value4, self.device.last_value5]
+         
         else:
             return []
 

@@ -11,7 +11,7 @@ import time
 import collections
 from src.registry.plot_registry import PlotRegistry
 from src.registry.signal_registry import SignalRegistry
-from src.utils.bitalino_receiver import BitalinoReceiver
+from src.utils.bitalino_receiver_PIC import BitalinoReceiver
 
 class BaseSignalGenerator:
     """

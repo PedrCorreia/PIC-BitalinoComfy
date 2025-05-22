@@ -9,6 +9,14 @@ Registry-based Version: PIC-2025 Visualization Interface
 import pygame
 import numpy as np
 import time
+import sys
+import os
+# Ensure src/utils is in sys.path for dynamic imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+utils_path = os.path.abspath(os.path.join(current_dir, '..', '..', 'src', 'utils'))
+if utils_path not in sys.path:
+    sys.path.insert(0, utils_path)
+
 from src.plot.constants import (
     WINDOW_WIDTH, WINDOW_HEIGHT, SIDEBAR_WIDTH, STATUS_BAR_HEIGHT,
     BACKGROUND_COLOR, SIDEBAR_COLOR, STATUS_COLOR, BUTTON_COLOR, BUTTON_COLOR_SETTINGS,

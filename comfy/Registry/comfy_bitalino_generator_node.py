@@ -6,82 +6,125 @@ ComfyUI Node: Comfy Signal Generator
 """
 import numpy as np
 from ...src.registry.signal_registry import SignalRegistry
-from ...src.registry import synthetic_functions
 import threading
 import time
+from ...src.utils.bitalino_receiver_PIC import BitalinoReceiver
+from ...src.registry.signal_registry import SignalRegistry
 
-class ComfySignalGeneratorNode:
-    _registered_signals = set()  # Class-level set to track registered signals
-    _generator_threads = {}      # Track background threads by signal_id
-    _stop_flags = {}            # Track stop flags for each signal_id
+class BITSignalGeneratorNode:
+    _registered_signals = set()
+    _generator_threads = {}
+    _stop_flags = {}
+    _bitalino_instances = {}
+
+    def __init__(self):
+        # Step 19: Initializing LRBitalinoReceiver
+        print("Step 19: Initializing LRBitalinoReceiver")
+
 
     @classmethod
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "signal_type": ("STRING", {"default": "sine_waveform", "options": [
-                    "sine_waveform", "ecg_waveform", "eda_waveform"
-                ]}),
-                "sampling_freq": ("INT", {"default": 100, "min": 1, "max": 1000}),
-                "freq": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 100.0}),
-                "signal_id": ("STRING", {"default": "GEN_0"}),
-                "duration_sec": ("INT", {"default": 10, "min": 1, "max": 3600}),
+                "sampling_freq": (["10", "100", "1000"], {"default": "100"}),
+                "duration_sec": ("INT", {"default": 10, "min": 1, "max": 36000000}),
+                "bitalino_mac_address": ("STRING", {"default": "BTH20:16:07:18:17:02"}),
+                "channel_1": ("BOOLEAN", {"default": True}),
+                "channel_2": ("BOOLEAN", {"default": True}),
+                "channel_3": ("BOOLEAN", {"default": True}),
+                "channel_4": ("BOOLEAN", {"default": False}),
+                "channel_5": ("BOOLEAN", {"default": False}),
+                "channel_6": ("BOOLEAN", {"default": False}),
+                "buffer_size": ("INT", {"default": 1000, "min": 10, "max": 10000}),
+                "signal_id_1": ("STRING", {"default": "BIT_1"}),
+                "signal_id_2": ("STRING", {"default": "BIT_2"}),
+                "signal_id_3": ("STRING", {"default": "BIT_3"}),
+                "signal_id_4": ("STRING", {"default": "BIT_4"}),
+                "signal_id_5": ("STRING", {"default": "BIT_5"}),
+                "signal_id_6": ("STRING", {"default": "BIT_6"}),
             }
         }
 
-    RETURN_TYPES = ("STRING",)
-    FUNCTION = "generate"
+    RETURN_TYPES = ("STRING", "STRING", "STRING", "STRING", "STRING", "STRING")
+    FUNCTION = "generate_bitalino"
     CATEGORY = "Registry/SignalGen"
     OUTPUT_NODE = True
 
-    def _background_generate(self, signal_type, sampling_freq, freq, signal_id, duration_sec, stop_flag):
-        import collections
+    def _background_update(self, key, channel_bools, signal_ids, update_interval=0.05):
         registry = SignalRegistry.get_instance()
-        t_window = 10  # seconds
-        maxlen = int(t_window * sampling_freq)
-        t_deque = collections.deque(maxlen=maxlen)
-        v_deque = collections.deque(maxlen=maxlen)
-        start_time = time.time()
+        bitalino = self._bitalino_instances[key]
+        stop_flag = self._stop_flags[key]
         while not stop_flag['stop']:
-            now = time.time()
-            t_new = now - start_time
-            if t_new > duration_sec:
-                break
-            t_deque.append(t_new)
-            sample_index = len(t_deque) - 1
-            if signal_type == "sine_waveform":
-                v_new = synthetic_functions.sine_waveform(np.array([t_new]), np.array([sample_index]), frequency=freq)[0]
-            elif signal_type == "ecg_waveform":
-                v_new = synthetic_functions.ecg_waveform(np.array([t_new]), np.array([sample_index]))[0]
-            elif signal_type == "eda_waveform":
-                v_new = synthetic_functions.eda_waveform(np.array([t_new]), np.array([sample_index]))[0]
-            else:
-                raise ValueError(f"Unknown signal_type: {signal_type}")
-            v_deque.append(v_new)
-            t_arr = np.array(t_deque)
-            v_arr = np.array(v_deque)
-            meta = {"id": signal_id, "sampling_rate": sampling_freq, "freq": freq}
-            registry.register_signal(signal_id, {"t": t_arr, "v": v_arr}, meta)
-            time.sleep(1/sampling_freq)
-        # After finished, keep last data in registry so UI doesn't crash
-        registry.register_signal(signal_id, {"t": t_arr, "v": v_arr}, meta)
+            buffers = bitalino.get_buffers()
+            while len(buffers) < 6:
+                buffers.append([])
+            for i, sid in enumerate(signal_ids):
+                buf = buffers[i]
+                if buf:
+                    t, v = zip(*buf)
+                    print(f"[BITSignalGeneratorNode][BG] Registering {sid}: {len(t)} samples (last t={t[-1] if t else None})")
+                    registry.register_signal(sid, {"t": list(t), "v": list(v)})
+                    # Debug: print a sample of the registered data
+                    if len(t) > 0:
+                        print(f"[BITSignalGeneratorNode][BG] {sid} sample: t={t[-1]}, v={v[-1]}")
+                else:
+                    print(f"[BITSignalGeneratorNode][BG] Registering {sid}: EMPTY")
+                    registry.register_signal(sid, {"t": [], "v": []})
+            time.sleep(update_interval)
 
-    def generate(self, signal_type, sampling_freq, freq, signal_id, duration_sec):
-        if signal_id in self._generator_threads:
-            # Already running in background, just return the ID
-            return (signal_id,)
-        stop_flag = {'stop': False}
-        self._stop_flags[signal_id] = stop_flag
-        thread = threading.Thread(target=self._background_generate, args=(signal_type, sampling_freq, freq, signal_id, duration_sec, stop_flag), daemon=True)
-        self._generator_threads[signal_id] = thread
-        thread.start()
-        self._registered_signals.add(signal_id)
-        return (signal_id,)
+    def generate_bitalino(self, sampling_freq, duration_sec, bitalino_mac_address,
+                        channel_1, channel_2, channel_3, channel_4, channel_5, channel_6,
+                        buffer_size,
+                        signal_id_1, signal_id_2, signal_id_3, signal_id_4, signal_id_5, signal_id_6):
+        # Convert sampling_freq from string to integer
+        sampling_freq = int(sampling_freq)
+        print(f"[BITSignalGeneratorNode] Called with: sampling_freq={sampling_freq}, duration_sec={duration_sec}, mac={bitalino_mac_address}, buffer_size={buffer_size}")
+        print(f"[BITSignalGeneratorNode] Channels: {[channel_1, channel_2, channel_3, channel_4, channel_5, channel_6]}")
+        print(f"[BITSignalGeneratorNode] Signal IDs: {[signal_id_1, signal_id_2, signal_id_3, signal_id_4, signal_id_5, signal_id_6]}")
+        # Compute channel_code from booleans
+        channel_bools = [channel_1, channel_2, channel_3, channel_4, channel_5, channel_6]
+        channel_code = 0
+        for i, active in enumerate(channel_bools):
+            if active:
+                channel_code |= (1 << i)
+        print(f"[BITSignalGeneratorNode] Computed channel_code: {hex(channel_code)}")
+        key = (bitalino_mac_address, sampling_freq, channel_code)
+        ids = [signal_id_1, signal_id_2, signal_id_3, signal_id_4, signal_id_5, signal_id_6]
+        if key not in self._bitalino_instances:
+            print(f"[BITSignalGeneratorNode] Initializing new BitalinoReceiver for key: {key}")
+            self._bitalino_instances[key] = BitalinoReceiver(
+                bitalino_mac_address, duration_sec, sampling_freq, channel_code, buffer_size
+            )
+            # Wait for device to initialize (max 5s)
+            receiver = self._bitalino_instances[key]
+            if hasattr(receiver, 'device_initialized'):
+                print("[BITSignalGeneratorNode] Waiting for BITalino device to initialize...")
+                if not receiver.device_initialized.wait(timeout=5.0):
+                    print("[BITSignalGeneratorNode] Warning: BITalino device did not initialize in time.")
+            self._stop_flags[key] = {'stop': False}
+            thread = threading.Thread(target=self._background_update, args=(key, channel_bools, ids), daemon=True)
+            self._generator_threads[key] = thread
+            thread.start()
+        bitalino = self._bitalino_instances[key]
+        buffers = bitalino.get_buffers()
+        print(f"[BITSignalGeneratorNode] Buffers lengths: {[len(b) for b in buffers]}")
+        while len(buffers) < 6:
+            buffers.append([])
+        registry = SignalRegistry.get_instance()
+        ids = [signal_id_1, signal_id_2, signal_id_3, signal_id_4, signal_id_5, signal_id_6]
+        for i, sid in enumerate(ids):
+            buf = buffers[i]
+            if buf:
+                t, v = zip(*buf)
+                print(f"[BITSignalGeneratorNode] Registering {sid}: {len(t)} samples")
+                registry.register_signal(sid, {"t": list(t), "v": list(v)})
+            else:
+                print(f"[BITSignalGeneratorNode] Registering {sid}: EMPTY")
+                registry.register_signal(sid, {"t": [], "v": []})
+        return tuple(ids)
 
     def __del__(self):
-        # Attempt to stop all background threads gracefully
         for stop_flag in self._stop_flags.values():
             stop_flag['stop'] = True
 
-NODE_CLASS_MAPPINGS = {"ComfySignalGeneratorNode": ComfySignalGeneratorNode}
-NODE_DISPLAY_NAME_MAPPINGS = {"ComfySignalGeneratorNode": "Comfy Signal Generator"}
+
