@@ -62,13 +62,8 @@ class BITSignalGeneratorNode:
                 buf = buffers[i]
                 if buf:
                     t, v = zip(*buf)
-                    print(f"[BITSignalGeneratorNode][BG] Registering {sid}: {len(t)} samples (last t={t[-1] if t else None})")
                     registry.register_signal(sid, {"t": list(t), "v": list(v)})
-                    # Debug: print a sample of the registered data
-                    if len(t) > 0:
-                        print(f"[BITSignalGeneratorNode][BG] {sid} sample: t={t[-1]}, v={v[-1]}")
                 else:
-                    print(f"[BITSignalGeneratorNode][BG] Registering {sid}: EMPTY")
                     registry.register_signal(sid, {"t": [], "v": []})
             time.sleep(update_interval)
 

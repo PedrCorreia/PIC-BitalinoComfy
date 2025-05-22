@@ -93,7 +93,7 @@ class ECGNode:
             peaks = ECG.detect_r_peaks(filtered_ecg, fs=1000, mode="qrs")
             # Calculate heart rate
             heart_rate = ECG.extract_heart_rate(feature_values, fs=1000, r_peaks=peaks)
-            print(f"Heart Rate: {heart_rate}")
+            #print(f"Heart Rate: {heart_rate}")
             current_hr = 0
             if isinstance(heart_rate, np.ndarray) and heart_rate.size > 0:
                 try:
