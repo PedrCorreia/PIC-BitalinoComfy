@@ -1,7 +1,9 @@
 import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets
-from signal_processing import NumpySignalProcessor
+from scipy.signal import hilbert
+from ..utils.signal_processing import NumpySignalProcessor
+
 import os
 import time
 
@@ -26,7 +28,7 @@ class RR:
         Preprocesses the signal by filtering and normalizing.
         """
         # Filtering
-        filtered_signal = NumpySignalProcessor.bandpass_filter(signal, 0.1, 0.5, fs)
+        filtered_signal = NumpySignalProcessor.bandpass_filter(signal, 0.1, 0.5, fs, order=1)
 
         # Normalization
         normalized_signal = NumpySignalProcessor.normalize_signal(filtered_signal)
@@ -119,9 +121,7 @@ class RR:
         p4.plot(freqs_filtered, psd_filtered, pen=pg.mkPen(color=(255, 170, 0), width=2))
         p4.setLabel('left', "<span style='color:white'>PSD [V**2/Hz]</span>")
         p4.setLabel('bottom', "<span style='color:white'>Frequency [Hz]</span>")
-        p4.showGrid(x=True, y=True, alpha=0.3)
-
-        app.exec()
+        p4.showGrid(x=True, y=True, alpha=0.3)        app.exec()
 
     @staticmethod
     def is_peak(filtered_rr, feature_timestamps, fs, last_peak_time=None, epsilon=None, start_time=None, rr=None, used_peaks=None):
@@ -130,9 +130,12 @@ class RR:
         and the peak has not been used before (not in used_peaks).
         used_peaks: set or list of previously used peak times (in seconds).
         """
-        peaks = NumpySignalProcessor.find_peaks(filtered_rr, fs=fs)
-        if isinstance(peaks, np.ndarray) and len(peaks) > 0 and len(feature_timestamps) > 0:
-            peak_times = feature_timestamps[peaks]
+        # Detect peaks and validate them with lag-based edge avoidance
+        detected_peaks = NumpySignalProcessor.find_peaks(filtered_rr, fs=fs)
+        validated_peaks = RR.validate_rr_peaks(filtered_rr, detected_peaks, lag=50, match_window=20)
+        
+        if isinstance(validated_peaks, np.ndarray) and len(validated_peaks) > 0 and len(feature_timestamps) > 0:
+            peak_times = feature_timestamps[validated_peaks]
             latest_peak_time = peak_times[-1]
             # Estimate RR from breath intervals (if possible)
             if len(peak_times) > 1:
@@ -143,7 +146,7 @@ class RR:
                 rr_est = 12.0  # fallback default (12 breaths/min)
             rr_used = rr if rr is not None else rr_est
             if epsilon is None:
-                epsilon = 1.5
+                epsilon = 0.5
             if start_time is not None:
                 now = time.time() - start_time
             else:
@@ -155,7 +158,37 @@ class RR:
                 is_new_peak = not any(abs(latest_peak_time - t) < 1e-4 for t in used_peaks)
             print(f"[RR.is_peak] start_time: {start_time}, now: {now}, latest_peak_time: {latest_peak_time}, RR: {rr_used:.2f}, epsilon: {epsilon:.3f}, is_in_time_neighborhood: {is_in_time_neighborhood}, is_new_peak: {is_new_peak}")
             return (is_in_time_neighborhood and is_new_peak), latest_peak_time
-        return False, None
+        return False, None@staticmethod
+    def validate_rr_peaks(filtered_signal, detected_peaks, lag=50, match_window=20):
+        """
+        Validate RR peaks by ensuring they are not within lag samples of the end and match signal envelope.
+        - lag: number of samples at the end to ignore for validation (to avoid edge artifacts)
+        - match_window: max distance (samples) to consider a filtered peak as matching an envelope peak
+        Returns validated peak indices (subset of detected_peaks).
+        """
+        # Calculate signal envelope for RR using hilbert transform
+        envelope = np.abs(hilbert(filtered_signal))
+        smoothed_envelope = NumpySignalProcessor.moving_average(envelope, window_size=3)
+        
+        # Use adaptive threshold for envelope peaks
+        env_threshold = 0.4 * np.mean(smoothed_envelope) + 0.3 * np.max(smoothed_envelope)
+        env_peaks = NumpySignalProcessor.find_peaks(smoothed_envelope, fs=1, 
+                                                   threshold=env_threshold,
+                                                   window=match_window, 
+                                                   prominence=None)
+        
+        # Only keep detected peaks that are close to envelope peaks and not in lag region
+        valid_peaks = []
+        for idx in detected_peaks:
+            # Skip peaks in lag region (edge avoidance)
+            if idx >= len(filtered_signal) - lag:
+                continue
+                
+            # Match peak to envelope peak
+            if np.any(np.abs(env_peaks - idx) <= match_window):
+                valid_peaks.append(idx)
+                
+        return np.array(valid_peaks, dtype=int)
 
 if __name__ == "__main__":
     file_path = os.path.join(os.path.dirname(__file__), "RR", "signal_data.json")

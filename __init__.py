@@ -39,30 +39,41 @@ except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} SignalProcessing Nodes: {type(e).__name__} - {e}")
 
 # Bio Processing Nodes
+# ECG Node
 try:
-    # Import all bio-processing nodes in a batch
     from .comfy.phy.ecg import ECGNode
-    from .comfy.phy.rr import RRNode  # Removed RRLastValueNode
-    from .comfy.phy.eda import EDANode
-    
-    # Register nodes with consistent categories
-    bio_nodes = {
-        "ECGNode": ("❤️ ECG Processing", "Pedro_PIC/🔬 Bio-Processing"),
-        "RRNode": ("🫁 RR Processing", "Pedro_PIC/🔬 Bio-Processing"),
-        "EDANode": ("💧 EDA Processing", "Pedro_PIC/🔬 Bio-Processing"),
-    }
-    
-    for node_name, (display_name, category) in bio_nodes.items():
-        node_class = locals()[node_name]
-        NODE_CLASS_MAPPINGS[node_name] = node_class
-        NODE_DISPLAY_NAME_MAPPINGS[node_name] = display_name
-        NODE_CATEGORY_MAPPINGS[node_name] = category
-    
-    print("Bio-Processing Nodes loaded successfully")
+    NODE_CLASS_MAPPINGS["ECGNode"] = ECGNode
+    NODE_DISPLAY_NAME_MAPPINGS["ECGNode"] = "❤️ ECG Processing"
+    NODE_CATEGORY_MAPPINGS["ECGNode"] = "Pedro_PIC/🔬 Bio-Processing"
+    print("ECG Node loaded successfully")
 except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Bio-Processing Nodes: ImportError - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} ECG Node: ImportError - {e}")
 except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Bio-Processing Nodes: {type(e).__name__} - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} ECG Node: {type(e).__name__} - {e}")
+
+# RR Node
+try:
+    from .comfy.phy.rr import RRNode
+    NODE_CLASS_MAPPINGS["RRNode"] = RRNode
+    NODE_DISPLAY_NAME_MAPPINGS["RRNode"] = "🫁 RR Processing"
+    NODE_CATEGORY_MAPPINGS["RRNode"] = "Pedro_PIC/🔬 Bio-Processing"
+    print("RR Node loaded successfully")
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} RR Node: ImportError - {e}")
+except Exception as e:
+    print(f"{IMPORT_ERROR_MESSAGE} RR Node: {type(e).__name__} - {e}")
+
+# EDA Node
+try:
+    from .comfy.phy.eda import EDANode
+    NODE_CLASS_MAPPINGS["EDANode"] = EDANode
+    NODE_DISPLAY_NAME_MAPPINGS["EDANode"] = "💧 EDA Processing"
+    NODE_CATEGORY_MAPPINGS["EDANode"] = "Pedro_PIC/🔬 Bio-Processing"
+    print("EDA Node loaded successfully")
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} EDA Node: ImportError - {e}")
+except Exception as e:
+    print(f"{IMPORT_ERROR_MESSAGE} EDA Node: {type(e).__name__} - {e}")
 
 try:
     from .comfy.tools import PrintToolNode, PrintMultiToolNode, EnhancedPrintToolNode

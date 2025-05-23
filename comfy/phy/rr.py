@@ -2,8 +2,7 @@ from collections import deque
 import numpy as np
 import threading
 import time
-import uuid
-from ...src.phy.rr_signal_processing import RR
+from ...src.test_src.rr_signal_processing import RR
 from ...src.registry.signal_registry import SignalRegistry
 from ...src.utils.signal_processing import NumpySignalProcessor
 
@@ -42,66 +41,143 @@ class RRNode:
     FUNCTION = "process_rr"
     CATEGORY = "Pedro_PIC/🔬 Bio-Processing"    
     
+    def __init__(self):
+        self._recent_peak_times = []
+        self._last_rr = 0.0
+        self._last_is_peak = False
+
     def _background_process(self, input_signal_id, show_peaks, stop_flag, output_signal_id):
-        """
-        Background processing thread to continuously update registry with processed RR data
-        """
         registry = SignalRegistry.get_instance()
-        # Constants for processing
-        
-        viz_window_sec = 60  # Visualization window: 1 minute
-        viz_buffer_size = 100 * viz_window_sec  # 100 Hz assumed, 6,000 samples for 1 min
-        feature_buffer_size = viz_buffer_size + 500  # Increased buffer size for better processing
-        # Initialize deques for processing
+        fs = 1000  # RR typical sampling frequency
+        viz_window_sec = 10
+        viz_buffer_size = fs * viz_window_sec
+        feature_buffer_size = viz_buffer_size + fs
         feature_values_deque = deque(maxlen=feature_buffer_size)
         feature_timestamps_deque = deque(maxlen=feature_buffer_size)
         viz_values_deque = deque(maxlen=viz_buffer_size)
         viz_timestamps_deque = deque(maxlen=viz_buffer_size)
-
+        max_peaks_to_average = 10
         last_registry_data_hash = None
+        last_process_time = time.time()
+        processing_interval = 0.033
+        start_time = None
+        # --- Filtering parameters for RR, adapted for decimation if needed ---
+        nyquist_fs = fs / 2
+        max_frequency_interest = 40  # RR rarely above 1 Hz (60 bpm)
+        decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
+        use_decimation = decimation_factor > 1
         while not stop_flag[0]:
-            # Dynamically fetch the latest signal data from the registry each iteration
+            current_time = time.time()
+            if current_time - last_process_time < processing_interval:
+                time.sleep(0.001)
+                continue
+            last_process_time = current_time
             signal_data = registry.get_signal(input_signal_id)
             if not signal_data or "t" not in signal_data or "v" not in signal_data:
-                time.sleep(0.5)
+                time.sleep(processing_interval)
                 continue
             timestamps = np.array(signal_data["t"])
             values = np.array(signal_data["v"])
             if len(timestamps) < 2 or len(values) < 2:
-                time.sleep(0.5)
+                time.sleep(processing_interval)
                 continue
+            # --- Retrieve start_time from metadata if available (for peak logic only) ---
+            meta = None
+            if hasattr(registry, 'get_signal_metadata'):
+                meta = registry.get_signal_metadata(input_signal_id)
+            elif isinstance(signal_data, dict) and 'meta' in signal_data:
+                meta = signal_data['meta']
+            meta_start_time = meta['start_time'] if meta and 'start_time' in meta else None
+            if start_time is None and len(feature_timestamps_deque) > 0:
+                start_time = time.time() - feature_timestamps_deque[0]
             # Only append new data
-            # If we have existing timestamps, only add new data points
             if len(viz_timestamps_deque) > 0 and len(timestamps) > 0:
                 last_ts = viz_timestamps_deque[-1]
                 new_data_idx = np.searchsorted(timestamps, last_ts, side='right')
                 if new_data_idx < len(timestamps):
-                    # Deques will automatically maintain the maxlen
-                    viz_timestamps_deque.extend(timestamps[new_data_idx:])
-                    viz_values_deque.extend(values[new_data_idx:])
-                    feature_timestamps_deque.extend(timestamps[new_data_idx:])
-                    feature_values_deque.extend(values[new_data_idx:])
+                    if use_decimation:
+                        remaining_points = min(len(timestamps), len(values)) - new_data_idx
+                        if remaining_points > 0:
+                            max_index = new_data_idx + remaining_points
+                            new_indices = np.arange(new_data_idx, max_index, decimation_factor)
+                            max_valid = min(len(timestamps), len(values))
+                            new_indices = new_indices[new_indices < max_valid]
+                            if len(new_indices) > 0:
+                                viz_timestamps_deque.extend(timestamps[new_indices])
+                                viz_values_deque.extend(values[new_indices])
+                                feature_timestamps_deque.extend(timestamps[new_indices])
+                                feature_values_deque.extend(values[new_indices])
+                    else:
+                        viz_timestamps_deque.extend(timestamps[new_data_idx:])
+                        viz_values_deque.extend(values[new_data_idx:])
+                        feature_timestamps_deque.extend(timestamps[new_data_idx:])
+                        feature_values_deque.extend(values[new_data_idx:])
             else:
-                # First time initialization
-                viz_timestamps_deque.extend(timestamps)
-                viz_values_deque.extend(values)
-                feature_timestamps_deque.extend(timestamps)
-                feature_values_deque.extend(values)
-            # Convert deques to numpy arrays for processing
+                if use_decimation:
+                    if len(timestamps) > 0:
+                        indices = np.arange(0, len(timestamps), decimation_factor)
+                        indices = indices[indices < len(timestamps)]
+                        if len(indices) > 0:
+                            viz_timestamps_deque.extend(timestamps[indices])
+                            viz_values_deque.extend(values[indices])
+                            feature_timestamps_deque.extend(timestamps[indices])
+                            feature_values_deque.extend(values[indices])
+                else:
+                    viz_timestamps_deque.extend(timestamps)
+                    viz_values_deque.extend(values)
+                    feature_timestamps_deque.extend(timestamps)
+                    feature_values_deque.extend(values)
             viz_timestamps = np.array(viz_timestamps_deque)
             viz_values = np.array(viz_values_deque)
             feature_timestamps = np.array(feature_timestamps_deque)
             feature_values = np.array(feature_values_deque)
-            # Pre-process RR signal
-            filtered_rr = RR.preprocess_signal(feature_values, fs=100)
-            peaks = NumpySignalProcessor.find_peaks(filtered_rr, fs=100)
-            # Calculate respiration rate
-            rr_value, _ = RR.extract_respiration_rate(filtered_rr, fs=100)
-            #print(f"Respiration Rate: {rr_value}")
-            # Visualization window: last 60 seconds
+            # Adjust effective sampling rate if decimation was applied
+            effective_fs = fs
+            if use_decimation:
+                effective_fs = fs / decimation_factor
+            # Pre-process RR with bandpass filter adapted for RR (0.1-0.5 Hz)
+            lowcut = 0.1
+            highcut = min(0.5, effective_fs * 0.4)
+            filtered_rr = NumpySignalProcessor.bandpass_filter(
+                feature_values,
+                lowcut=lowcut,
+                highcut=highcut,
+                fs=effective_fs
+            )            # Calculate RR and maintain recent peak times
+            detected_peaks = NumpySignalProcessor.find_peaks(filtered_rr, fs=fs)
+            # Validate peaks with lag-based edge avoidance (similar to ECG)
+            peaks = RR.validate_rr_peaks(filtered_rr, detected_peaks, lag=50, match_window=20)
+            avg_rr = 0.0
+            if isinstance(peaks, np.ndarray) and len(peaks) > 0 and len(feature_timestamps) > 0:
+                peak_times = feature_timestamps[peaks]
+                latest_peak_time = peak_times[-1]
+                add_peak = False
+                if not self._recent_peak_times or latest_peak_time != self._recent_peak_times[-1]:
+                    if self._recent_peak_times:
+                        last_time = self._recent_peak_times[-1]
+                        if (latest_peak_time - last_time) >= 1.0:  # min breath interval
+                            add_peak = True
+                    else:
+                        add_peak = True
+                    if add_peak:
+                        self._recent_peak_times.append(latest_peak_time)
+                        if len(self._recent_peak_times) > max_peaks_to_average:
+                            self._recent_peak_times.pop(0)
+                if len(self._recent_peak_times) > 1:
+                    breath_intervals = np.diff(self._recent_peak_times)
+                    avg_breath = np.mean(breath_intervals)
+                    if avg_breath > 0:
+                        avg_rr = 60.0 / avg_breath
+            # Robust is_peak logic (timing + newness)
+            is_peak, latest_peak_time = RR.is_peak(
+                filtered_rr, feature_timestamps, fs, start_time=meta_start_time, rr=avg_rr, used_peaks=self._recent_peak_times[:-1] if len(self._recent_peak_times) > 1 else []
+            )
+            self._last_rr = avg_rr
+            self._last_is_peak = is_peak
+            # Visualization window
             if len(viz_timestamps) > 0:
                 window_max = viz_timestamps[-1]
-                window_min = window_max - viz_window_sec
+                window_min = max(window_max - viz_window_sec, viz_timestamps[0])
                 window_mask = (viz_timestamps >= window_min) & (viz_timestamps <= window_max)
                 viz_timestamps_window = viz_timestamps[window_mask]
                 viz_values_window = viz_values[window_mask]
@@ -112,88 +188,56 @@ class RRNode:
             peak_timestamps_in_window = []
             if show_peaks and len(peaks) > 0 and len(feature_timestamps) > 0 and len(viz_timestamps_window) > 0:
                 peak_times = feature_timestamps[peaks]
-                in_window_mask = (peak_times >= viz_timestamps_window[0]) & (peak_times <= viz_timestamps_window[-1])
+                in_window_mask = (peak_times >= window_min) & (peak_times <= window_max)
                 peak_timestamps_in_window = peak_times[in_window_mask].tolist()
             # Prepare filtered RR for visualization (match window)
-            n_window = len(viz_values_window)
-            filtered_viz_rr = filtered_rr[-n_window:] if len(filtered_rr) > n_window else filtered_rr
-            if len(filtered_viz_rr) < n_window:
-                padding = np.zeros(n_window - len(filtered_viz_rr))
-                filtered_viz_rr = np.concatenate([padding, filtered_viz_rr])
-            # Scale filtered RR to match amplitude
-            if n_window > 0 and len(filtered_viz_rr) > 0:
+            filtered_viz_rr = np.zeros_like(viz_values_window)
+            if len(filtered_rr) > 0 and len(viz_values_window) > 0:
+                if len(window_mask) == len(filtered_rr):
+                    filtered_viz_rr = filtered_rr[window_mask]
+                else:
+                    n_window = len(viz_values_window)
+                    filtered_window = filtered_rr[-n_window:] if len(filtered_rr) > n_window else filtered_rr
+                    if len(filtered_window) < n_window:
+                        filtered_viz_rr[-len(filtered_window):] = filtered_window
+                    else:
+                        filtered_viz_rr = filtered_window
                 viz_min, viz_max = np.min(viz_values_window), np.max(viz_values_window)
                 filtered_min, filtered_max = np.min(filtered_viz_rr), np.max(filtered_viz_rr)
-                if filtered_max != filtered_min:
+                if filtered_max != filtered_min and viz_max != viz_min:
                     filtered_viz_rr = (filtered_viz_rr - filtered_min) / (filtered_max - filtered_min) * (viz_max - viz_min) + viz_min
-            # Hash for registry update optimization
-            data_hash = hash((tuple(viz_timestamps_window[-10:]), tuple(filtered_viz_rr[-10:]), tuple(peak_timestamps_in_window[-10:]), rr_value))
+            data_hash = hash((
+                tuple(viz_timestamps_window[-5:]),
+                tuple(filtered_viz_rr[-5:]),
+                tuple(peak_timestamps_in_window[-3:] if peak_timestamps_in_window else []),
+                avg_rr
+            ))
             if data_hash == last_registry_data_hash:
-                time.sleep(0.033)
+                time.sleep(0.01)
                 continue
             last_registry_data_hash = data_hash
             metadata = {
                 "id": output_signal_id,
                 "type": "rr_processed",
-                "respiration_rate": rr_value,
+                "respiration_rate": avg_rr,
                 "color": "#55F4FF",
                 "show_peaks": show_peaks,
                 "peak_marker": "o",
                 "peak_timestamps": peak_timestamps_in_window
             }
             processed_signal_data = {
-                "t": viz_timestamps_window.copy() if isinstance(viz_timestamps_window, np.ndarray) else viz_timestamps_window[:],
-                "v": filtered_viz_rr.copy()
+                "t": viz_timestamps_window.tolist(),
+                "v": filtered_viz_rr.tolist()
             }
             registry.register_signal(output_signal_id, processed_signal_data, metadata)
-            time.sleep(0.033)
-            
+            time.sleep(0.01)
+
     def process_rr(self, input_signal_id="", show_peaks=True, output_signal_id="RR_PROCESSED"):
-        """
-        Processes RR signal from registry to extract respiration rate and peak detection.
-        Automatically registers the processed signal back into the registry.
-
-        Parameters:
-        - input_signal_id: Signal ID to get data from registry.
-        - show_peaks: Whether to include peak markings in visualization.
-        - output_signal_id: ID for the processed signal in registry.
-
-        Returns:
-        - respiration_rate: Calculated respiration rate in breaths per minute.
-        - is_peak_latest: Boolean indicating if the latest sample is a peak.
-        - signal_id: The signal ID for registry integration.
-        """
-        registry = SignalRegistry.get_instance()
-        input_signal = registry.get_signal(input_signal_id)
-        if not input_signal or "t" not in input_signal or "v" not in input_signal:
-            print(f"[RRNode] No valid signal found with ID {input_signal_id}. Make sure to provide a valid signal ID.")
-            return 0.0, False, output_signal_id
-        timestamps = np.array(input_signal["t"])
-        values = np.array(input_signal["v"])
-        if len(timestamps) < 2 or len(values) < 2:
-            print("[RRNode] Insufficient data in signal.")
-            return 0.0, False, output_signal_id
-        viz_buffer_size = 300
-        feature_buffer_size = 600
-        feature_values_deque = deque(maxlen=feature_buffer_size)
-        feature_values_deque.extend(values[-feature_buffer_size:] if len(values) > feature_buffer_size else values)
-        feature_values = np.array(feature_values_deque)
-        filtered_rr = RR.preprocess_signal(feature_values, fs=100)
-        peaks = NumpySignalProcessor.find_peaks(filtered_rr, fs=100)
-        rr_result, _ = RR.extract_respiration_rate(filtered_rr, fs=100)
-        respiration_rate = 0
-        if isinstance(rr_result, (float, int)):
-            respiration_rate = float(rr_result)
-        elif isinstance(rr_result, np.ndarray) and rr_result.size > 0:
-            respiration_rate = float(rr_result)
-        is_peak_latest = False
-        if len(peaks) > 0 and peaks[-1] >= len(feature_values) - 3:
-            is_peak_latest = True
         signal_id = output_signal_id
-        # Defensive: If already processing this signal_id, just return
         if signal_id in self._processing_threads and self._processing_threads[signal_id].is_alive():
-            return respiration_rate, is_peak_latest, output_signal_id
-        # Defensive: Stop any existing processing thread for this signal_id
+            avg_rr = getattr(self, '_last_rr', 0.0)
+            is_peak = getattr(self, '_last_is_peak', False)
+            return avg_rr, is_peak, output_signal_id
         if signal_id in self._stop_flags:
             self._stop_flags[signal_id][0] = True
         stop_flag = [False]
@@ -205,7 +249,7 @@ class RRNode:
         )
         self._processing_threads[signal_id] = thread
         thread.start()
-        return respiration_rate, is_peak_latest, output_signal_id
+        return 0.0, False, output_signal_id
         
     def __del__(self):
         """Clean up background threads when node is deleted"""
