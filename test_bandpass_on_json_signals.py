@@ -74,11 +74,11 @@ for name, signal in [("Heart", heart_signal), ("Collarbone", collarbone_signal)]
         filtered_norm = (filtered - np.min(filtered)) / (np.max(filtered) - np.min(filtered)) if np.max(filtered) != np.min(filtered) else filtered
         t = np.arange(len(signal)) / fs
         plt.figure(figsize=(14, 6))
-        plt.plot(t, signal_norm, label=f'{name} Raw (normalized)', alpha=0.5)
-        plt.plot(t, filtered_norm, label=f'{name} Bandpassed (8-20 Hz, normalized)', color='red', linewidth=1.2)
+        plt.scatter(t, signal_norm, label=f'{name} Raw (normalized)', alpha=0.5, s=8)
+        plt.scatter(t, filtered_norm, label=f'{name} Bandpassed (8-15 Hz, normalized)', color='red', s=8)
         plt.xlabel('Time (s)')
         plt.ylabel('Normalized Signal')
-        plt.title(f'{name} Signal: Raw vs Bandpassed (8-20 Hz, Butterworth, filtfilt)')
+        plt.title(f'{name} Signal: Raw vs Bandpassed (8-15 Hz, Butterworth, filtfilt)')
         plt.legend()
         plt.tight_layout()
         plt.show()

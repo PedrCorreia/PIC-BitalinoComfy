@@ -65,11 +65,17 @@ except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Bio-Processing Nodes: {type(e).__name__} - {e}")
 
 try:
-    from .comfy.tools import PrintToolNode
+    from .comfy.tools import PrintToolNode, PrintMultiToolNode, EnhancedPrintToolNode
     NODE_CLASS_MAPPINGS["PrintToolNode"] = PrintToolNode
+    NODE_CLASS_MAPPINGS["PrintMultiToolNode"] = PrintMultiToolNode
+    NODE_CLASS_MAPPINGS["EnhancedPrintToolNode"] = EnhancedPrintToolNode
     NODE_DISPLAY_NAME_MAPPINGS["PrintToolNode"] = "🛠️ Print Tool Node"
+    NODE_DISPLAY_NAME_MAPPINGS["PrintMultiToolNode"] = "🛠️ Multi Print Tool"
+    NODE_DISPLAY_NAME_MAPPINGS["EnhancedPrintToolNode"] = "🛠️ Enhanced Print Tool"
     NODE_CATEGORY_MAPPINGS["PrintToolNode"] = "Pedro_PIC/🛠️ Tools"
-    print("Print Tool Node loaded successfully")
+    NODE_CATEGORY_MAPPINGS["PrintMultiToolNode"] = "Pedro_PIC/🛠️ Tools"
+    NODE_CATEGORY_MAPPINGS["EnhancedPrintToolNode"] = "Pedro_PIC/🛠️ Tools"
+    print("Print Tool Nodes loaded successfully")
 except ImportError as e:
     print(f"{IMPORT_ERROR_MESSAGE} Print Tool Node: ImportError - {e}")
 except Exception as e:

@@ -11,12 +11,46 @@ class ECG:
     @staticmethod
     def detect_r_peaks(filtered_signal, fs, mode="qrs", prominence=None):
         """
-        Returns both detected peaks and the smoothed envelope.
+        Returns detected R-peaks using adaptive thresholding.
+        
+        Dynamic threshold adapts to:
+        1. Recent signal history using multiple window sizes
+        2. Quickly responds to amplitude changes
+        3. Handles both surges and drops in signal strength
         """
-        # Use a simple threshold for demonstration; can be tuned
-        threshold = 0.7* np.max(filtered_signal)
-        r_peaks = NumpySignalProcessor.find_peaks(filtered_signal, fs, threshold=threshold, prominence=prominence)
+        # Get signal length for window calculations
+        signal_length = len(filtered_signal)
+        
+        # Use multiple window sizes for more robust detection
+        short_window = min(int(fs * 0.5), signal_length)  # 0.5 second (recent activity)
+        med_window = min(int(fs * 2), signal_length)      # 2 seconds (medium history)
+        
+        # Compute thresholds at different time scales
+        if signal_length > short_window:
+            # Recent window threshold (responds quickly to surges)
+            recent_max = np.max(filtered_signal[-short_window:])
+            recent_mean = np.mean(np.abs(filtered_signal[-short_window:]))
+            short_threshold = 0.5 * recent_max + 0.25 * recent_mean
+            
+            # Medium window threshold (more stable)
+            med_max = np.max(filtered_signal[-med_window:])
+            med_mean = np.mean(np.abs(filtered_signal[-med_window:]))
+            med_threshold = 0.4 * med_max + 0.3 * med_mean
+            
+            # Combine thresholds with bias toward recent activity for faster response
+            adaptive_threshold = 0.7 * short_threshold + 0.3 * med_threshold
+        else:
+            # Fallback for very short signals
+            adaptive_threshold = 0.5 * np.max(filtered_signal)
+        
+        # Use a minimum threshold to avoid detecting noise when signal is weak
+        min_threshold = 0.2 * np.max(filtered_signal)
+        final_threshold = max(adaptive_threshold, min_threshold)
+        
+        # Apply threshold to find peaks
+        r_peaks = NumpySignalProcessor.find_peaks(filtered_signal, fs, threshold=final_threshold, prominence=prominence)
         r_peaks = ECG.validate_r_peaks(filtered_signal, r_peaks)
+        
         return np.array(r_peaks, dtype=int)
 
     @staticmethod
@@ -27,20 +61,34 @@ class ECG:
         - match_window: max distance (samples) to consider a filtered peak as matching an envelope peak
         Returns validated peak indices (subset of detected_peaks).
         """
-        # Calculate signal envelope
+        # Calculate signal envelope with optimized parameters for surge detection
         envelope = np.abs(hilbert(filtered_signal))
         smoothed_envelope = NumpySignalProcessor.moving_average(envelope, window_size=5)
         
-        # Find envelope peaks
-        env_peaks = NumpySignalProcessor.find_peaks(smoothed_envelope, fs=1, window=match_window, prominence=None)
+        # Use adaptive threshold for envelope peaks as well
+        env_threshold = 0.5 * np.mean(smoothed_envelope) + 0.2 * np.max(smoothed_envelope)
+        env_peaks = NumpySignalProcessor.find_peaks(smoothed_envelope, fs=1, 
+                                                   threshold=env_threshold,
+                                                   window=match_window, 
+                                                   prominence=None)
         
         # Only keep detected peaks that are close to envelope peaks and not in lag region
         valid_peaks = []
         for idx in detected_peaks:
+            # Skip peaks in lag region
             if idx >= len(filtered_signal) - lag:
-                continue  # skip peaks in lag region
+                continue
+                
+            # Match peak to envelope peak with more lenient window during surges
+            # During signal surges (high amplitude), use wider window for matching
+            local_amplitude = np.max(filtered_signal[max(0, idx-30):min(len(filtered_signal), idx+30)])
+            global_amplitude = np.max(filtered_signal)
+            is_surge = local_amplitude > 0.8 * global_amplitude
             
-            if np.any(np.abs(env_peaks - idx) <= match_window):
+            # Adjust matching window during surges to be more permissive
+            actual_match_window = match_window * 1.5 if is_surge else match_window
+                
+            if np.any(np.abs(env_peaks - idx) <= actual_match_window):
                 valid_peaks.append(idx)
                 
         return np.array(valid_peaks, dtype=int)
