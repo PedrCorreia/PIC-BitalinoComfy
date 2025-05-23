@@ -78,7 +78,7 @@ class BITSignalGeneratorNode:
         # Pre-allocate these lists for efficiency
         t_rel_lists = [[] for _ in range(len(signal_ids))]
         v_lists = [[] for _ in range(len(signal_ids))]
-        
+        start_time = None
         while not stop_flag['stop']:
             update_start = time.perf_counter()
             
@@ -99,9 +99,12 @@ class BITSignalGeneratorNode:
                         t_rel_lists[i].append(ts)
                         v_lists[i].append(val)
                     
-                    # Register the data in a single operation
+                    # Set start_time at the moment the first sample is received
+                    if start_time is None:
+                        start_time = time.time()
                     if t_rel_lists[i]:
-                        registry.register_signal(sid, {"t": t_rel_lists[i], "v": v_lists[i]})
+                        meta = {"id": sid, "sampling_rate": sampling_freq, "start_time": start_time}
+                        registry.register_signal(sid, {"t": t_rel_lists[i], "v": v_lists[i]}, meta)
                 else:
                     registry.register_signal(sid, {"t": [], "v": []})
             

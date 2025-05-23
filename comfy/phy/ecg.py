@@ -37,60 +37,67 @@ class ECGNode:
     RETURN_NAMES = ("Heart_Rate", "Rpeak", "Signal_ID")
     FUNCTION = "process_ecg"
     CATEGORY = "Pedro_PIC/🔬 Bio-Processing"
+    OUTPUT_NODE = False
     
+    @classmethod
+    def IS_CHANGED(cls, *args, **kwargs):
+        return float("NaN")
+
+    def __init__(self):
+        self.ecg = ECG()  # Now an instance, stateful
+        # Remove redundant state tracking; ECG class handles peak state
+
     def _background_process(self, input_signal_id, show_peaks, stop_flag, output_signal_id):
         """
         Background processing thread to continuously update registry with processed ECG data
         """
         registry = SignalRegistry.get_instance()
-        
-        # Optimize buffer sizes based on Nyquist principles
         fs = 1000  # Sampling frequency assumption
         nyquist_fs = fs / 2  # Nyquist frequency
-        viz_window_sec = 5  # Reduced from 60 to 5 seconds for more efficient visualization
-        
-        # Buffer sizes optimized for performance
-        viz_buffer_size = fs * viz_window_sec  # Exactly 5 seconds of data at full rate
-        feature_buffer_size = viz_buffer_size + fs  # Add 1 second for processing margin
-        
-        # Initialize deques for processing
+        viz_window_sec = 5
+        viz_buffer_size = fs * viz_window_sec
+        feature_buffer_size = viz_buffer_size + fs
         feature_values_deque = deque(maxlen=feature_buffer_size)
         feature_timestamps_deque = deque(maxlen=feature_buffer_size)
         viz_values_deque = deque(maxlen=viz_buffer_size)
         viz_timestamps_deque = deque(maxlen=viz_buffer_size)
-        
-        # Determine if decimation is needed (only if fs > 2*max_frequency_of_interest)
-        # For ECG QRS complex, max frequency of interest is ~40Hz
+        max_peaks_to_average = 10
+        recent_peak_times = []
+        last_peak_index = -1
+        last_registry_data_hash = None
+        last_process_time = time.time()
+        processing_interval = 0.033
+        # --- define decimation_factor and use_decimation ---
         max_frequency_interest = 40  # Hz for QRS complex
         decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
         use_decimation = decimation_factor > 1
-
-        last_registry_data_hash = None
-        last_process_time = time.time()
-        processing_interval = 0.033  # ~30Hz updates for visualization
-        
+        start_time = None
         while not stop_flag[0]:
             current_time = time.time()
-            
-            # Only process at the specified interval
             if current_time - last_process_time < processing_interval:
-                time.sleep(0.001)  # Short sleep to prevent CPU hogging
+                time.sleep(0.001)
                 continue
-                
             last_process_time = current_time
-                
-            # Dynamically fetch the latest signal data from the registry each iteration
             signal_data = registry.get_signal(input_signal_id)
             if not signal_data or "t" not in signal_data or "v" not in signal_data:
                 time.sleep(processing_interval)
                 continue
-                
             timestamps = np.array(signal_data["t"])
             values = np.array(signal_data["v"])
-            
             if len(timestamps) < 2 or len(values) < 2:
                 time.sleep(processing_interval)
                 continue
+            # --- Retrieve start_time from metadata if available (for peak logic only) ---
+            meta = None
+            if hasattr(registry, 'get_signal_metadata'):
+                meta = registry.get_signal_metadata(input_signal_id)
+            elif isinstance(signal_data, dict) and 'meta' in signal_data:
+                meta = signal_data['meta']
+            meta_start_time = meta['start_time'] if meta and 'start_time' in meta else None
+            # --- start_time sync for is_peak ---
+            # Only use meta_start_time for is_peak, not for timestamp alignment
+            if start_time is None and len(feature_timestamps_deque) > 0:
+                start_time = time.time() - feature_timestamps_deque[0]
                 
             # Only append new data
             if len(viz_timestamps_deque) > 0 and len(timestamps) > 0:
@@ -100,14 +107,20 @@ class ECGNode:
                 if new_data_idx < len(timestamps):
                     # Apply decimation if needed
                     if use_decimation:
-                        # Keep only every Nth sample for processing
-                        new_indices = np.arange(new_data_idx, len(timestamps), decimation_factor)
-                        viz_timestamps_deque.extend(timestamps[new_indices])
-                        viz_values_deque.extend(values[new_indices])
-                        feature_timestamps_deque.extend(timestamps[new_indices])
-                        feature_values_deque.extend(values[new_indices])
+                        remaining_points = min(len(timestamps), len(values)) - new_data_idx
+                        if remaining_points > 0:
+                            max_index = new_data_idx + remaining_points
+                            new_indices = np.arange(new_data_idx, max_index, decimation_factor)
+                            # Ensure indices are within bounds of BOTH arrays
+                            max_valid = min(len(timestamps), len(values))
+                            new_indices = new_indices[new_indices < max_valid]
+                            if len(new_indices) > 0:
+                                viz_timestamps_deque.extend(timestamps[new_indices])
+                                viz_values_deque.extend(values[new_indices])
+                                feature_timestamps_deque.extend(timestamps[new_indices])
+                                feature_values_deque.extend(values[new_indices])
                     else:
-                        # Use all samples
+                        # Use all samples (unchanged code)
                         viz_timestamps_deque.extend(timestamps[new_data_idx:])
                         viz_values_deque.extend(values[new_data_idx:])
                         feature_timestamps_deque.extend(timestamps[new_data_idx:])
@@ -115,12 +128,18 @@ class ECGNode:
             else:
                 # First time initialization with optional decimation
                 if use_decimation:
-                    indices = np.arange(0, len(timestamps), decimation_factor)
-                    viz_timestamps_deque.extend(timestamps[indices])
-                    viz_values_deque.extend(values[indices])
-                    feature_timestamps_deque.extend(timestamps[indices])
-                    feature_values_deque.extend(values[indices])
+                    # Safely generate indices with decimation
+                    if len(timestamps) > 0:
+                        indices = np.arange(0, len(timestamps), decimation_factor)
+                        # Safety check - ensure indices are within bounds
+                        indices = indices[indices < len(timestamps)]
+                        if len(indices) > 0:
+                            viz_timestamps_deque.extend(timestamps[indices])
+                            viz_values_deque.extend(values[indices])
+                            feature_timestamps_deque.extend(timestamps[indices])
+                            feature_values_deque.extend(values[indices])
                 else:
+                    # Use all samples (unchanged)
                     viz_timestamps_deque.extend(timestamps)
                     viz_values_deque.extend(values)
                     feature_timestamps_deque.extend(timestamps)
@@ -148,23 +167,22 @@ class ECGNode:
                 highcut=highcut, 
                 fs=effective_fs
             )
+            # Use ECG class for peak and HR calculation with separate methods
+            avg_hr = self.ecg.calculate_hr(
+                filtered_ecg, feature_timestamps, effective_fs, max_peaks_to_average
+            )
+            is_peak = self.ecg.is_peak(
+                filtered_ecg, feature_timestamps, effective_fs, start_time=meta_start_time, hr=avg_hr
+            )
+            # Store latest state in ECG instance for access from process_ecg
+            setattr(self.ecg, '_last_hr', avg_hr)
+            setattr(self.ecg, '_last_is_peak', is_peak)
+            # For visualization, get peaks for windowing
+            peaks = self.ecg.detect_r_peaks(filtered_ecg, fs=effective_fs, mode="qrs")
+            if len(peaks) > 0 and len(feature_timestamps) > 0:
+                peak_times = feature_timestamps[peaks]
+                print(f"[ECGNode] Peak timestamps (s): {peak_times}")
             
-            # Detect peaks more efficiently (adjust fs based on decimation)
-            peaks = ECG.detect_r_peaks(filtered_ecg, fs=effective_fs, mode="qrs")
-            
-            # Calculate heart rate
-            heart_rate = ECG.extract_heart_rate(feature_values, fs=effective_fs, r_peaks=peaks)
-            
-            current_hr = 0
-            if isinstance(heart_rate, np.ndarray) and heart_rate.size > 0:
-                try:
-                    current_hr = heart_rate[-1][0]
-                except (IndexError, TypeError):
-                    if heart_rate.size > 0:
-                        current_hr = float(heart_rate[-1])
-                    else:
-                        current_hr = 0
-                        
             # Visualization window: use adaptive window size for better performance
             if len(viz_timestamps) > 0:
                 window_max = viz_timestamps[-1]
@@ -215,7 +233,7 @@ class ECGNode:
                 tuple(viz_timestamps_window[-5:]), 
                 tuple(filtered_viz_ecg[-5:]), 
                 tuple(peak_timestamps_in_window[-3:] if peak_timestamps_in_window else []), 
-                current_hr
+                avg_hr
             ))
             
             if data_hash == last_registry_data_hash:
@@ -228,7 +246,7 @@ class ECGNode:
             metadata = {
                 "id": output_signal_id,
                 "type": "ecg_processed",
-                "heart_rate": current_hr,
+                "heart_rate": avg_hr,
                 "color": "#FF5555",
                 "show_peaks": show_peaks,
                 "peak_marker": "x",
@@ -249,65 +267,14 @@ class ECGNode:
     def process_ecg(self, input_signal_id, show_peaks, output_signal_id):
         """
         Processes ECG signal from registry to extract heart rate and peak detection.
-        Automatically registers the processed signal back into the registry.
-
-        Parameters:
-        - input_signal_id: Signal ID to get data from registry.
-        - show_peaks: Whether to include peak markings in visualization.
-        - output_signal_id: ID for the processed signal in registry.
-
-        Returns:
-        - heart_rate: Calculated heart rate in beats per minute (bpm).
-        - Rpeak: Boolean indicating if the current sample is a peak.
-        - signal_id: The signal ID for registry integration.
+        Returns the latest average HR and Rpeak calculated by the background thread.
         """
-        registry = SignalRegistry.get_instance()
-        input_signal = registry.get_signal(input_signal_id)
-        if not input_signal or "t" not in input_signal or "v" not in input_signal:
-            print(f"[ECGNode] No valid signal found with ID {input_signal_id}. Make sure to provide a valid signal ID.")
-            return 0.0, False, output_signal_id
-        timestamps = np.array(input_signal["t"])
-        values = np.array(input_signal["v"])
-        if len(timestamps) < 2 or len(values) < 2:
-            print("[ECGNode] Insufficient data in signal.")
-            return 0.0, False, output_signal_id
-        # Use optimized buffer size based on sampling frequency
-        fs = 1000  # Assumed sampling frequency
-        feature_buffer_size = fs * 3  # 3 seconds of data is typically enough for ECG analysis
-        feature_values_deque = deque(maxlen=feature_buffer_size)
-        feature_values_deque.extend(values[-feature_buffer_size:] if len(values) > feature_buffer_size else values)
-        feature_values = np.array(feature_values_deque)
-        # Add margin to avoid edge effects for filtfilt (adds latency but improves quality)
-        margin = 500  # samples, e.g. 0.5s at 1000Hz
-        if len(feature_values) > 2 * margin:
-            # Only process the central region, avoid edges
-            process_start = margin
-            process_end = len(feature_values) - margin
-            process_values = feature_values[process_start:process_end]
-            filtered_ecg = NumpySignalProcessor.bandpass_filter(process_values, lowcut=8, highcut=18, fs=1000)
-            # Pad filtered_ecg to match feature_values length
-            filtered_ecg = np.pad(filtered_ecg, (process_start, len(feature_values) - process_end), mode='constant')
-        else:
-            filtered_ecg = NumpySignalProcessor.bandpass_filter(feature_values, lowcut=8, highcut=18, fs=1000)
-        peaks = ECG.detect_r_peaks(filtered_ecg, fs=1000, mode="qrs")
-        hr_result = ECG.extract_heart_rate(feature_values, fs=1000, r_peaks=peaks)
-        heart_rate = 0
-        if isinstance(hr_result, np.ndarray) and hr_result.size > 0:
-            try:
-                heart_rate = hr_result[-1][0]
-            except (IndexError, TypeError):
-                if hr_result.size > 0:
-                    heart_rate = float(hr_result[-1])
-                else:
-                    heart_rate = 0
-        Rpeak = False
-        if len(peaks) > 0 and peaks[-1] >= len(feature_values) - 3:
-            Rpeak = True
         signal_id = output_signal_id
-        # Defensive: If already processing this signal_id, just return
         if signal_id in self._processing_threads and self._processing_threads[signal_id].is_alive():
-            return heart_rate, Rpeak, output_signal_id
-        # Defensive: Stop any existing processing thread for this signal_id
+            # Always get the latest state from the ECG instance
+            avg_hr = getattr(self.ecg, '_last_hr', 0.0) if hasattr(self.ecg, '_last_hr') else 0.0
+            is_peak = getattr(self.ecg, '_last_is_peak', False) if hasattr(self.ecg, '_last_is_peak') else False
+            return avg_hr, is_peak, output_signal_id
         if signal_id in self._stop_flags:
             self._stop_flags[signal_id][0] = True
         stop_flag = [False]
@@ -319,7 +286,8 @@ class ECGNode:
         )
         self._processing_threads[signal_id] = thread
         thread.start()
-        return heart_rate, Rpeak, output_signal_id
+        # On first call, return 0, False
+        return 0.0, False, output_signal_id
         
     def __del__(self):
         """Clean up background threads when node is deleted"""

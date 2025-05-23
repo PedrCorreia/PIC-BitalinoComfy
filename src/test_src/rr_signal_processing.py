@@ -3,6 +3,7 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtWidgets
 from signal_processing import NumpySignalProcessor
 import os
+import time
 
 class RR:
 
@@ -121,6 +122,40 @@ class RR:
         p4.showGrid(x=True, y=True, alpha=0.3)
 
         app.exec()
+
+    @staticmethod
+    def is_peak(filtered_rr, feature_timestamps, fs, last_peak_time=None, epsilon=None, start_time=None, rr=None, used_peaks=None):
+        """
+        Returns True if the latest detected peak is within epsilon seconds of the current time,
+        and the peak has not been used before (not in used_peaks).
+        used_peaks: set or list of previously used peak times (in seconds).
+        """
+        peaks = NumpySignalProcessor.find_peaks(filtered_rr, fs=fs)
+        if isinstance(peaks, np.ndarray) and len(peaks) > 0 and len(feature_timestamps) > 0:
+            peak_times = feature_timestamps[peaks]
+            latest_peak_time = peak_times[-1]
+            # Estimate RR from breath intervals (if possible)
+            if len(peak_times) > 1:
+                breath_intervals = np.diff(peak_times)
+                avg_breath = np.mean(breath_intervals)
+                rr_est = 60.0 / avg_breath if avg_breath > 0 else 12.0
+            else:
+                rr_est = 12.0  # fallback default (12 breaths/min)
+            rr_used = rr if rr is not None else rr_est
+            if epsilon is None:
+                epsilon = 1.5
+            if start_time is not None:
+                now = time.time() - start_time
+            else:
+                now = feature_timestamps[-1]
+            is_in_time_neighborhood = abs(now - latest_peak_time) <= epsilon
+            # Check if this peak has been used before
+            is_new_peak = True
+            if used_peaks is not None:
+                is_new_peak = not any(abs(latest_peak_time - t) < 1e-4 for t in used_peaks)
+            print(f"[RR.is_peak] start_time: {start_time}, now: {now}, latest_peak_time: {latest_peak_time}, RR: {rr_used:.2f}, epsilon: {epsilon:.3f}, is_in_time_neighborhood: {is_in_time_neighborhood}, is_new_peak: {is_new_peak}")
+            return (is_in_time_neighborhood and is_new_peak), latest_peak_time
+        return False, None
 
 if __name__ == "__main__":
     file_path = os.path.join(os.path.dirname(__file__), "RR", "signal_data.json")

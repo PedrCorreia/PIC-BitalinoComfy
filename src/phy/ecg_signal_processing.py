@@ -3,11 +3,16 @@ from scipy.signal import welch, hilbert
 import numpy as np
 import pyqtgraph as pg
 import os
+import time
 
 from ..utils.signal_processing import NumpySignalProcessor
 
 
 class ECG:
+    def __init__(self):
+        self._recent_peak_times = []
+        self._last_peak_index = -1
+
     @staticmethod
     def detect_r_peaks(filtered_signal, fs, mode="qrs", prominence=None):
         """
@@ -115,10 +120,16 @@ class ECG:
         """
         bandpassed = NumpySignalProcessor.bandpass_filter(ecg_raw, bandpass_low, bandpass_high, fs, order=2)
         normed = NumpySignalProcessor.normalize_signal(bandpassed)
-        detected_peaks, smoothed_envelope = ECG.detect_r_peaks(normed, fs, mode=mode)
-       
-
-        return normed, detected_peaks
+        envelope = np.abs(hilbert(normed))
+        smoothed_envelope = NumpySignalProcessor.moving_average(envelope, window_size=envelope_smooth)
+        detected_peaks = ECG.detect_r_peaks(normed, fs, mode=mode)
+        validated_peaks = None
+        if validate_peaks:
+            validated_peaks = ECG.validate_r_peaks(normed, detected_peaks, lag=lag, match_window=match_window)
+        if visualization:
+            return normed, smoothed_envelope, detected_peaks, validated_peaks
+        else:
+            return normed, detected_peaks
 
     @staticmethod
     def extract_heart_rate(signal, fs, mode="qrs", r_peaks=None):
@@ -366,7 +377,7 @@ class ECG:
         p1_mv.setLabel('bottom', "<span style='color:white'>Time (s)</span>")
         # Filtered/processed signal with R-peaks, detected peaks, validated peaks, and envelope
         p2 = win.addPlot(row=1, col=0, title="<b>Processed ECG Signal with Peaks and Envelope</b>")
-        p2.plot(time_np, filtered_plot, pen=pg.mkPen(color=(255, 170, 0), width=2), name="Filtered Signal")
+        p2.plot(time_np, filtered_plot, pen=pg.mkPen(color=(255,170,0), width=2), name="Filtered Signal")
         # Envelope
         if envelope_plot is not None:
             p2.plot(time_np, envelope_plot, pen=pg.mkPen(color=(0, 255, 0), width=1), name="Envelope")
@@ -397,6 +408,72 @@ class ECG:
         p3.showGrid(x=True, y=True, alpha=0.3)
         # Show the window
         win.show()
+
+    def calculate_hr(self, filtered_ecg, feature_timestamps, fs, max_peaks_to_average=10, min_rr_s=0.3):
+        """
+        Calculate average heart rate from filtered_ecg and timestamps (in seconds).
+        Only add a new peak if it's at least min_rr_s from the last one.
+        feature_timestamps must be in seconds.
+        """
+        peaks = self.detect_r_peaks(filtered_ecg, fs=fs, mode="qrs")
+        avg_hr = 0.0
+        if isinstance(peaks, np.ndarray) and len(peaks) > 0 and len(feature_timestamps) > 0:
+            # Convert peak indices to timestamps (seconds)
+            peak_times = feature_timestamps[peaks]
+            latest_peak_time = peak_times[-1]
+            add_peak = False
+            if not self._recent_peak_times or latest_peak_time != self._recent_peak_times[-1]:
+                if self._recent_peak_times:
+                    last_time = self._recent_peak_times[-1]
+                    if (latest_peak_time - last_time) >= min_rr_s:
+                        add_peak = True
+                else:
+                    add_peak = True
+                if add_peak:
+                    self._recent_peak_times.append(latest_peak_time)
+                    if len(self._recent_peak_times) > max_peaks_to_average:
+                        self._recent_peak_times.pop(0)
+            if len(self._recent_peak_times) > 1:
+                rr_intervals = np.diff(self._recent_peak_times)
+                avg_rr = np.mean(rr_intervals)
+                if avg_rr > 0:
+                    avg_hr = 60.0 / avg_rr
+        return avg_hr
+
+    @staticmethod
+    def is_peak(filtered_ecg, feature_timestamps, fs, last_peak_time=None, epsilon=None, start_time=None, hr=None, used_peaks=None):
+        """
+        Returns True if the latest detected peak is within epsilon seconds of the current time,
+        and the peak has not been used before (not in used_peaks).
+        used_peaks: set or list of previously used peak times (in seconds).
+        """
+        peaks = ECG.detect_r_peaks(filtered_ecg, fs=fs, mode="qrs")
+        if isinstance(peaks, np.ndarray) and len(peaks) > 0 and len(feature_timestamps) > 0:
+            peak_times = feature_timestamps[peaks]
+            latest_peak_time = peak_times[-1]
+            # Estimate HR from RR interval (if possible)
+            if len(peak_times) > 1:
+                rr_intervals = np.diff(peak_times)
+                avg_rr = np.mean(rr_intervals)
+                hr_est = 60.0 / avg_rr if avg_rr > 0 else 60.0
+            else:
+                hr_est = 60.0  # fallback default
+            hr_used = hr if hr is not None else hr_est
+            if epsilon is None:
+                epsilon = 1.5
+            if start_time is not None:
+                now = time.time() - start_time
+            else:
+                now = feature_timestamps[-1]
+            is_in_time_neighborhood = abs(now - latest_peak_time) <= epsilon
+            # Check if this peak has been used before
+            is_new_peak = True
+            if used_peaks is not None:
+                # Allow for floating point tolerance
+                is_new_peak = not any(abs(latest_peak_time - t) < 1e-4 for t in used_peaks)
+            print(f"start_time: {start_time}, now: {now}, latest_peak_time: {latest_peak_time}, HR: {hr_used:.2f}, epsilon: {epsilon:.3f}, is_in_time_neighborhood: {is_in_time_neighborhood}, is_new_peak: {is_new_peak}")
+            return (is_in_time_neighborhood and is_new_peak), latest_peak_time
+        return False, None
 
 def demo():
     # Allow the user to select electrode placement

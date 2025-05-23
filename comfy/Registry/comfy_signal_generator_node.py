@@ -41,9 +41,11 @@ class ComfySignalGeneratorNode:
         maxlen = int(t_window * sampling_freq)
         t_deque = collections.deque(maxlen=maxlen)
         v_deque = collections.deque(maxlen=maxlen)
-        start_time = time.time()
+        start_time = None
         while not stop_flag['stop']:
             now = time.time()
+            if start_time is None:
+                start_time = now
             t_new = now - start_time
             if t_new > duration_sec:
                 break
@@ -60,7 +62,7 @@ class ComfySignalGeneratorNode:
             v_deque.append(v_new)
             t_arr = np.array(t_deque)
             v_arr = np.array(v_deque)
-            meta = {"id": signal_id, "sampling_rate": sampling_freq, "freq": freq}
+            meta = {"id": signal_id, "sampling_rate": sampling_freq, "freq": freq, "start_time": start_time}
             registry.register_signal(signal_id, {"t": t_arr, "v": v_arr}, meta)
             time.sleep(1/sampling_freq)
         # After finished, keep last data in registry so UI doesn't crash

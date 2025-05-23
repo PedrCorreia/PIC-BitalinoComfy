@@ -19,6 +19,10 @@ class PrintToolNode:
     CATEGORY = "Pedro_PIC/🛠️ Tools"
     OUTPUT_NODE = True 
 
+    @classmethod
+    def IS_CHANGED(cls, *args, **kwargs):
+        return True
+
     def print_tool(self, thing, comment):
         print(f"{comment} {thing}")
         return (thing,)
@@ -47,6 +51,10 @@ class PrintMultiToolNode:
     FUNCTION = "print_multi_tool"
     CATEGORY = "Pedro_PIC/🛠️ Tools"
     OUTPUT_NODE = True
+
+    @classmethod
+    def IS_CHANGED(cls, *args, **kwargs):
+        return True
 
     def print_multi_tool(self, comment, HR=None, RR=None, is_peak=None, signal_id=None, thing=None):
         msg = f"{comment}"
@@ -93,6 +101,10 @@ class EnhancedPrintToolNode:
     FUNCTION = "enhanced_print"
     CATEGORY = "Pedro_PIC/🛠️ Tools"
     OUTPUT_NODE = True
+
+    @classmethod
+    def IS_CHANGED(cls, *args, **kwargs):
+        return True
 
     def enhanced_print(self, comment, **kwargs):
         # Start with the comment
