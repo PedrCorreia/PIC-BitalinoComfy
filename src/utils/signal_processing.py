@@ -17,7 +17,7 @@ from scipy.signal import detrend
 
 class NumpySignalProcessor:
     @staticmethod
-    def bandpass_filter(signal, lowcut, highcut, fs, order=4):
+    def bandpass_filter(signal, lowcut, highcut, fs, order=1):
         """
         Applies a zero-phase bandpass filter to the signal using NumPy's butter and filtfilt.
         

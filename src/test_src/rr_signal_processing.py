@@ -28,7 +28,7 @@ class RR:
         Preprocesses the signal by filtering and normalizing.
         """
         # Filtering
-        filtered_signal = NumpySignalProcessor.bandpass_filter(signal, 0.1, 0.5, fs, order=1)
+        filtered_signal = NumpySignalProcessor.bandpass_filter(signal, 0.1, 1, fs, order=1)
 
         # Normalization
         normalized_signal = NumpySignalProcessor.normalize_signal(filtered_signal)
@@ -121,7 +121,8 @@ class RR:
         p4.plot(freqs_filtered, psd_filtered, pen=pg.mkPen(color=(255, 170, 0), width=2))
         p4.setLabel('left', "<span style='color:white'>PSD [V**2/Hz]</span>")
         p4.setLabel('bottom', "<span style='color:white'>Frequency [Hz]</span>")
-        p4.showGrid(x=True, y=True, alpha=0.3)        app.exec()
+        p4.showGrid(x=True, y=True, alpha=0.3)        
+        app.exec()
 
     @staticmethod
     def is_peak(filtered_rr, feature_timestamps, fs, last_peak_time=None, epsilon=None, start_time=None, rr=None, used_peaks=None):
@@ -132,7 +133,7 @@ class RR:
         """
         # Detect peaks and validate them with lag-based edge avoidance
         detected_peaks = NumpySignalProcessor.find_peaks(filtered_rr, fs=fs)
-        validated_peaks = RR.validate_rr_peaks(filtered_rr, detected_peaks, lag=50, match_window=20)
+        validated_peaks =detected_peaks    #RR.validate_rr_peaks(filtered_rr, detected_peaks, lag=50, match_window=20)
         
         if isinstance(validated_peaks, np.ndarray) and len(validated_peaks) > 0 and len(feature_timestamps) > 0:
             peak_times = feature_timestamps[validated_peaks]

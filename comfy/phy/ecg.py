@@ -68,7 +68,7 @@ class ECGNode:
         last_process_time = time.time()
         processing_interval = 0.033
         # --- define decimation_factor and use_decimation ---
-        max_frequency_interest = 40  # Hz for QRS complex
+        max_frequency_interest = 250  # Hz for QRS complex
         decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
         use_decimation = decimation_factor > 1
         start_time = None

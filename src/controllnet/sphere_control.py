@@ -26,17 +26,17 @@ class SphereControl:
         """
         self.arousal = float(np.clip(arousal, 0, 1))
 
-    def get_depth_map(self, image_shape=(64, 64), axis='z', distortion_mode='both'):
+    def set_git_branch(self, branch_name):
         """
-        Returns a 2D depth map (numpy array) of the sphere projected along the given axis.
-        Depth is normalized [0, 1], 0 = far, 1 = closest.
-        distortion_mode: 'both', 'spikes', or 'noise' (default: 'both')
+        Set the git branch name for tracking or display purposes.
         """
-        h, w = image_shape
-        y, x = np.meshgrid(
-            np.linspace(0, 1, h),
-            np.linspace(0, 1, w),
-            indexing='ij'
+        self.git_branch = branch_name
+
+    def get_git_branch(self):
+        """
+        Get the current git branch name if set, else return None.
+        """
+        return getattr(self, 'git_branch', None)
         )
         cx, cy, cz = self.center
         r = self.radius
