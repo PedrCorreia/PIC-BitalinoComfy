@@ -60,7 +60,9 @@ def main():
     def get_depth_map(img):
         # Use grayscale intensity as a simple depth proxy (0=far, 1=near)
         if img.shape[-1] == 3:
-            depth = rgb2gray(img)
+            import cv2
+            gray = cv2.cvtColor((img * 255).astype(np.uint8), cv2.COLOR_RGB2GRAY)
+            depth = gray.astype(np.float32) / 255.0
         else:
             depth = img
         return depth
@@ -75,13 +77,12 @@ def main():
 
     # Store the original image without grid
     orig_image = image.copy()
-    
     # Calculate edge map and depth map from the original image (without grid)
     depth_map = get_depth_map(orig_image)
     edge_map = get_edge_map(orig_image)
-    
     # Create display image with grid for visualization
-    display_image = add_grid_overlay(image, grid_spacing=max(16, min(image.shape[0], image.shape[1])//20), grid_color=(1,0,0), thickness=1)
+    grid_image = add_grid_overlay(orig_image, grid_spacing=max(16, min(orig_image.shape[0], orig_image.shape[1])//20), grid_color=(1,0,0), thickness=1)
+    display_image = grid_image.copy()
 
     # UI setup
     fig, ax = plt.subplots(figsize=(7,7))
@@ -171,9 +172,9 @@ def main():
         center_marker.set_visible(show_edges[0])
 
         if show_depth[0]:
-            # Display grayscale depth map directly (brighter = closer)
+            # Display grayscale depth map (white=near, black=far)
             img_disp.set_data(depth_map)
-            img_disp.set_cmap('gray')  # Use grayscale colormap
+            img_disp.set_cmap('gray')
             img_disp.set_visible(True)
             center_marker.set_visible(False)
             fig.canvas.draw_idle()
@@ -197,11 +198,13 @@ def main():
                 global_quiver_obj = None
             def compute_and_draw_vector():
                 # Use detected object center for vector field
-                # Only show vectors inside the object mask
-                from scipy.ndimage import binary_dilation
-                obj_mask = binary_dilation(edges, iterations=8)
+                from scipy.ndimage import binary_fill_holes, binary_dilation
+                # Fill the object (edges + inside) for the mask
+                obj_mask = binary_fill_holes(edges)
+                # Optionally dilate to include a bit beyond the edge
+                obj_mask = binary_dilation(obj_mask, iterations=2)
                 x, y, dx, dy = get_displacement_field(tname, (h, w), strength=strength, center=obj_center)
-                # Mask out vectors outside the object
+                # Mask out vectors outside the object (keep all inside and on edge)
                 dx = np.where(obj_mask, dx, 0)
                 dy = np.where(obj_mask, dy, 0)
                 step = max(1, int(h // 32))
@@ -236,7 +239,8 @@ def main():
                 global_quiver_obj = None
             img_disp.set_visible(True)
             def compute_and_draw_image():
-                base_img = orig_image.copy()
+                # Always start from the original image with grid
+                base_img = grid_image.copy()
                 if test_with_noise[0]:
                     noise = np.random.normal(0, 0.08, base_img.shape)
                     color_bias = np.random.uniform(-0.15, 0.15, (1, 1, 3))
@@ -245,13 +249,13 @@ def main():
                     base_img = np.clip(base_img, 0, 1)
                 # Use edge map to identify object region
                 edges = edge_map
-                from scipy.ndimage import binary_dilation
-                obj_mask = binary_dilation(edges, iterations=8)
-                # Use the same center as calculated globally
+                from scipy.ndimage import binary_fill_holes, binary_dilation
+                # Mask: fill inside the edges and include a bit beyond the edge
+                obj_mask = binary_fill_holes(edges)
+                obj_mask = binary_dilation(obj_mask, iterations=2)
                 cx, cy = obj_center
                 depth = depth_map
                 local_strength = strength * (1 - depth)
-                # Apply transformation to base image, only inside object mask
                 if tname == 'radial':
                     img_t = radial_distort(base_img, strength=local_strength, center=(cx, cy), order=0)
                 elif tname == 'spin':
@@ -267,10 +271,7 @@ def main():
                     post_noise = post_noise + post_color_bias
                     img_t = img_t + post_noise
                     img_t = np.clip(img_t, 0, 1)
-                grid_spacing = max(16, min(img_t.shape[0], img_t.shape[1])//20)
-                img_t_with_grid = add_grid_overlay(img_t, grid_spacing=grid_spacing, grid_color=(1,0,0), thickness=1)
-                return img_t_with_grid
-
+                return img_t
             def on_image_done(fut):
                 try:
                     img_t = fut.result()
@@ -365,6 +366,9 @@ def main():
 
     def reset(_event):
         strength_slider.reset()
+        img_disp.set_data(grid_image)
+        img_disp.set_cmap(None)
+        fig.canvas.draw_idle()
 
     # --- UI event bindings (after all UI elements created) ---
     strength_slider.on_changed(update)
