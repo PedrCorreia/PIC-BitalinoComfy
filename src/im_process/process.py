@@ -15,12 +15,15 @@ class Canny:
         return edges
 
 class Midas:
-    def __init__(self, model_type='MiDaS_small', device=None):
+    def __init__(self, model_type='MiDaS_small', device=None, force_perspective=False, min_z=-15, max_blur=8):
         self.model_type = model_type
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = None
         self.transform = None
         self._loaded = False
+        self.force_perspective = force_perspective
+        self.min_z = min_z
+        self.max_blur = max_blur
 
     def load_model(self):
         if self._loaded:
@@ -35,8 +38,22 @@ class Midas:
             self.transform = getattr(transforms, 'default_transform', None)
         self._loaded = True
 
-    def predict(self, img):
-        """Predict depth map from an input image (numpy array, BGR or RGB)."""
+    def apply_perspective_blur(self, img, z):
+        """Apply logarithmic Gaussian blur based on z position."""
+        if z < 0:
+            if z <= self.min_z:
+                blur_sigma = self.max_blur
+            else:
+                blur_sigma = self.max_blur * (np.log1p(abs(z)) / np.log1p(abs(self.min_z)))
+        else:
+            blur_sigma = 0
+        if blur_sigma > 0.2:
+            ksize = int(2 * round(blur_sigma) + 1)
+            img = cv2.GaussianBlur(img, (ksize, ksize), blur_sigma)
+        return img
+
+    def predict(self, img, z=None):
+        """Predict depth map from an input image (numpy array, BGR or RGB). Optionally apply perspective blur if enabled."""
         self.load_model()
         import cv2
         if img.ndim == 3 and img.shape[2] == 3:
@@ -58,4 +75,6 @@ class Midas:
             ).squeeze()
             output = prediction.cpu().numpy()
             output = (output - output.min()) / (output.max() - output.min() + 1e-8)
+        if self.force_perspective and z is not None:
+            output = self.apply_perspective_blur(output, z)
         return output
