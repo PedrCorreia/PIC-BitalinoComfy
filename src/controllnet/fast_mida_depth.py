@@ -4,8 +4,8 @@ import numpy as np
 import time
 
 def main():
-    image_path = "src/controllnet/sphere_render.png"
-    output_path = "depth_output.png"
+    image_path = "src\controllnet\multi_sphere_render.png" #"src/controllnet/sphere_render.png"
+    output_path = "depth_output2.png"
     print(f"Estimating depth for {image_path}...")
     try:
         estimate_depth(image_path, output_path)
@@ -13,15 +13,17 @@ def main():
         print(f"Error: {e}")
 
 def estimate_depth(image_path, output_path="depth_output.png"):
-    midas = torch.hub.load('intel-isl/MiDaS', 'MiDaS_small')
-    midas.to('cpu')
+    # Use MiDaS DPT_Hybrid for better speed/accuracy tradeoff (or MiDaS v2.1 small for fastest)
+    midas = torch.hub.load('intel-isl/MiDaS', 'MiDaS_small')  # Already using the fastest model
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    midas.to(device)
     midas.eval()
     transform = torch.hub.load('intel-isl/MiDaS', 'transforms').small_transform
     frame = cv2.imread(image_path)
     if frame is None:
         raise FileNotFoundError(f"Image not found or cannot be opened: {image_path}")
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    framebatch = transform(frame_rgb).to('cpu')
+    framebatch = transform(frame_rgb).to(device)
     with torch.no_grad():
         t0 = time.time()
         prediction = midas(framebatch)

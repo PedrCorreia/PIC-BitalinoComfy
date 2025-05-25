@@ -10,151 +10,94 @@ import io
 import os
 import argparse
 import time
+import pyvista as pv
 
-class SphereRenderer:
-    def __init__(self, 
-                 center=(0.5, 0.5, 0.5), 
-                 radius=0.5, 
-                 img_size=(512, 512), 
-                 color='red',
-                 elevation=20, 
-                 azimuth=30,
-                 ambient_light=0.3,
-                 specular_light=0.5):
-        """
-        Initialize a 3D sphere renderer with custom parameters
-        
-        Args:
-            center: (x, y, z) coordinates of sphere center, range 0-1
-            radius: sphere radius, range 0-1
-            img_size: output image dimensions in pixels (width, height)
-            color: sphere color (matplotlib color name or RGB tuple)
-            elevation: camera elevation angle in degrees
-            azimuth: camera azimuth angle in degrees
-            ambient_light: intensity of ambient light (0-1)
-            specular_light: intensity of specular highlights (0-1)
-        """
+class Sphere:
+    def __init__(self, center=(0, 0, 0), radius=0.3, color='white', edge_color='black', theta_res=16, phi_res=16):
         self.center = center
         self.radius = radius
-        self.img_size = img_size
         self.color = color
-        self.elevation = elevation
-        self.azimuth = azimuth
-        self.ambient_light = ambient_light
-        self.specular_light = specular_light
-        
-    def render(self, benchmark=False):
-        """Render the 3D sphere and return as numpy RGB array"""
+        self.edge_color = edge_color
+        self.theta_res = theta_res
+        self.phi_res = phi_res
+
+class SphereScene:
+    def __init__(self, img_size=512, background='white'):
+        self.spheres = []
+        self.img_size = img_size
+        self.background = background
+
+    def add_sphere(self, sphere: Sphere):
+        self.spheres.append(sphere)
+
+    def render(self, output="multi_sphere_render.png", benchmark=True):
         start_time = time.time()
-        
-        # Create figure with 3D axes
-        fig = plt.figure(figsize=(self.img_size[0]/100, self.img_size[1]/100), dpi=100)
-        ax = fig.add_subplot(111, projection='3d')
-        
-        # Set background color to black
-        ax.set_facecolor('black')
-        fig.patch.set_facecolor('black')
-        
-        # Define the view angle for camera
-        ax.view_init(elev=self.elevation, azim=self.azimuth)
-        
-        # Hide axes and set limits
-        ax.set_axis_off()
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.set_zlim(0, 1)
-        
-        # Draw the sphere
-        cx, cy, cz = self.center
-        r = self.radius
-        
-        # Create sphere mesh with higher resolution for smoother sphere
-        u = np.linspace(0, 2 * np.pi, 100)  # Increased from 50 to 100
-        v = np.linspace(0, np.pi, 100)      # Increased from 50 to 100
-        x = cx + r * np.outer(np.cos(u), np.sin(v))
-        y = cy + r * np.outer(np.sin(u), np.sin(v))
-        z = cz + r * np.outer(np.ones(np.size(u)), np.cos(v))
-        
-        mesh_creation_time = time.time() - start_time
-        plot_start_time = time.time()
-        
-        # Plot the sphere with lighting
-        ax.plot_surface(
-            x, y, z, 
-            color=self.color, 
-            shade=True,
-            alpha=1.0,
-            rstride=1,  # Reduced stride for higher detail
-            cstride=1,  # Reduced stride for higher detail
-            linewidth=0
-        )
-        
-        plot_time = time.time() - plot_start_time
-        render_start_time = time.time()
-        
-        # Render to numpy array
-        plt.tight_layout(pad=0)
-        fig.canvas.draw()
-        
-        # Get the image data
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', dpi=100, bbox_inches='tight', pad_inches=0)
-        buf.seek(0)
-        
-        # Convert to numpy array and ensure RGB (no alpha channel)
-        img = np.array(Image.open(buf).convert('RGB'))
-        
-        # Close figure to prevent memory leak
-        plt.close(fig)
-        
+        plotter = pv.Plotter(window_size=(self.img_size, self.img_size), off_screen=True)
+        mesh_times = []
+        for s in self.spheres:
+            mesh_start = time.time()
+            sphere = pv.Sphere(
+                center=s.center,
+                radius=s.radius,
+                theta_resolution=s.theta_res,
+                phi_resolution=s.phi_res
+            )
+            plotter.add_mesh(
+                sphere,
+                color=s.color,
+                smooth_shading=True,
+                specular=0.7,
+                specular_power=30,
+                ambient=0.2,
+                diffuse=0.8,
+                show_edges=True,
+                edge_color=s.edge_color,
+                opacity=1.0
+            )
+            mesh_times.append(time.time() - mesh_start)
+        plotter.set_background(self.background, top=self.background)
+        plotter.show_axes()
+        plot_start = time.time()
+        # Dramatic perspective: camera far from the spheres, looking down the line
+        plotter.camera_position = [(1, 1, 2), (0.2, 0.2, -1), (0, 0, 1)]
+        img = plotter.screenshot(output, transparent_background=True)
+        plotter.close()
         total_time = time.time() - start_time
-        
+        plot_time = time.time() - plot_start
         if benchmark:
-            print(f"Benchmark results:")
-            print(f"  Mesh creation: {mesh_creation_time:.3f}s")
-            print(f"  Surface plotting: {plot_time:.3f}s")
-            print(f"  Image rendering: {time.time() - render_start_time:.3f}s")
-            print(f"  Total time: {total_time:.3f}s")
-            print(f"  Resolution: {len(u)}x{len(v)} points, Image: {img.shape[1]}x{img.shape[0]} pixels")
-        
+            for i, t in enumerate(mesh_times):
+                print(f"Mesh creation for sphere {i+1}: {t:.3f}s")
+            print(f"Rendering time: {plot_time:.3f}s")
+            print(f"Total time: {total_time:.3f}s")
+            # Check if background is transparent
+            from PIL import Image
+            im = Image.open(output)
+            if im.mode == 'RGBA':
+                extrema = im.getchannel('A').getextrema()
+                if isinstance(extrema, tuple) and len(extrema) == 2:
+                    min_alpha, max_alpha = extrema
+                    try:
+                        if isinstance(max_alpha, (int, float)) and max_alpha < 255:
+                            print("Background is transparent.")
+                        else:
+                            print("Background is not transparent (likely white).")
+                    except Exception as e:
+                        print(f"Could not determine transparency: {e}")
+                        print("Background is not transparent (likely white).")
+                else:
+                    print("Background is not transparent (likely white).")
+            else:
+                print("Background is not transparent (likely white).")
+        print(f"Rendered image saved to {output} (with transparent background if supported)")
         return img
-    
-    def save_image(self, output_path="sphere_render.png", benchmark=False):
-        """Render and save the sphere image to a file"""
-        img = self.render(benchmark=benchmark)
-        Image.fromarray(img).save(output_path)
-        print(f"Rendered image saved to {output_path}")
-        return output_path
 
-def main():
-    """Command-line interface for rendering spheres"""
-    parser = argparse.ArgumentParser(description="Render a 3D sphere with proper shading")
-    parser.add_argument("--cx", type=float, default=0.5, help="X-coordinate of sphere center (0-1)")
-    parser.add_argument("--cy", type=float, default=0.5, help="Y-coordinate of sphere center (0-1)")
-    parser.add_argument("--cz", type=float, default=0.5, help="Z-coordinate of sphere center (0-1)")
-    parser.add_argument("--radius", type=float, default=0.2, help="Sphere radius (0-1)")
-    parser.add_argument("--color", type=str, default="red", help="Sphere color (matplotlib color name)")
-    parser.add_argument("--elevation", type=float, default=20, help="Camera elevation angle (degrees)")
-    parser.add_argument("--azimuth", type=float, default=30, help="Camera azimuth angle (degrees)")
-    parser.add_argument("--output", type=str, default="sphere_render.png", help="Output image file path")
-    parser.add_argument("--width", type=int, default=512, help="Output image width in pixels")
-    parser.add_argument("--height", type=int, default=512, help="Output image height in pixels")
-    parser.add_argument("--benchmark", action="store_true", help="Run and display benchmarking information")
-    
-    args = parser.parse_args()
-    
-    # Create renderer with command line parameters
-    renderer = SphereRenderer(
-        center=(args.cx, args.cy, args.cz),
-        radius=args.radius,
-        img_size=(args.width, args.height),
-        color=args.color,
-        elevation=args.elevation,
-        azimuth=args.azimuth
-    )
-    
-    # Render and save the image
-    renderer.save_image(args.output, benchmark=args.benchmark)
-
+# Example usage: create 3 spheres, add to scene, render
 if __name__ == "__main__":
-    main()
+    scene = SphereScene(img_size=512, background='white')
+    # Place spheres in a triangle, nearby but not in a line, with different depths
+    scene.add_sphere(Sphere(center=(0, 0, 0), radius=0.3, color='white', edge_color='black', theta_res=16, phi_res=16))
+    scene.add_sphere(Sphere(center=(0.5, 0.2, -0.5), radius=0.25, color='red', edge_color='black', theta_res=16, phi_res=16))
+    scene.add_sphere(Sphere(center=(0.2, 0.6, -1), radius=0.2, color='blue', edge_color='black', theta_res=16, phi_res=16))
+    # Camera set to show all spheres in a good perspective
+    scene.render(output="multi_sphere_render.png", benchmark=True)
+
