@@ -52,6 +52,7 @@ class ECGNode:
         Background processing thread to continuously update registry with processed ECG data
         """
         registry = SignalRegistry.get_instance()
+        metrics_registry = SignalRegistry.get_instance()
         fs = 1000  # Sampling frequency assumption
         nyquist_fs = fs / 2  # Nyquist frequency
         viz_window_sec = 5
@@ -72,6 +73,8 @@ class ECGNode:
         decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
         use_decimation = decimation_factor > 1
         start_time = None
+        metrics_buffer_size = 300  # e.g., 5 minutes at 1Hz
+        metrics_deque = deque(maxlen=metrics_buffer_size)
         while not stop_flag[0]:
             current_time = time.time()
             if current_time - last_process_time < processing_interval:
@@ -241,18 +244,28 @@ class ECGNode:
                 continue
                 
             last_registry_data_hash = data_hash
-            
+
+            # Compute RR interval (mean of RR intervals in window) BEFORE metadata
+            avg_rr = None
+            if len(peaks) > 1 and len(feature_timestamps) > 0:
+                rr_intervals = np.diff(feature_timestamps[peaks])
+                if len(rr_intervals) > 0:
+                    avg_rr = float(np.mean(rr_intervals))
+
             # Optimize metadata
             metadata = {
                 "id": output_signal_id,
                 "type": "ecg_processed",
                 "heart_rate": avg_hr,
+                "hr": avg_hr,  # <-- Add for passive metrics
+                "rr": avg_rr,  # <-- Add for passive metrics (if available)
                 "color": "#FF5555",
                 "show_peaks": show_peaks,
                 "peak_marker": "x",
                 "peak_timestamps": peak_timestamps_in_window,
                 "decimation_factor": decimation_factor if use_decimation else 1,
-                "effective_fs": effective_fs
+                "effective_fs": effective_fs,
+                "hr_metric_id": "HR_METRIC"  # <-- Add reference to metric signal
             }
             
             # Efficiently prepare processed signal data
@@ -262,6 +275,34 @@ class ECGNode:
             }
             
             registry.register_signal(output_signal_id, processed_signal_data, metadata)
+            
+            # After ECG processing and before sleep:
+            # Get the last timestamp from feature_timestamps (if available)
+            last_timestamp = float(feature_timestamps[-1]) if len(feature_timestamps) > 0 else time.time()
+            # Compute RR interval (mean of RR intervals in window)
+            avg_rr = None
+            if len(peaks) > 1 and len(feature_timestamps) > 0:
+                rr_intervals = np.diff(feature_timestamps[peaks])
+                if len(rr_intervals) > 0:
+                    avg_rr = float(np.mean(rr_intervals))
+            # Append to metrics deque
+            metrics_deque.append((last_timestamp, avg_hr, avg_rr))
+            # Prepare metrics signal for registry (per-node/local metrics)
+            metrics_t = [x[0] for x in metrics_deque]
+            metrics_hr = [x[1] for x in metrics_deque]
+            # Register global HR metric as a time series for MetricsView compatibility
+            metrics_data = {
+                't': metrics_t,
+                'v': metrics_hr
+            }
+            metrics_registry.register_signal('HR_METRIC', metrics_data, {
+                'id': 'HR_METRIC',
+                'type': 'ecg_metrics',
+                'label': 'Global Heart Rate',
+                'source': output_signal_id,
+                'scope': 'global_metric'
+            })
+            print(f"[ECGNode][metrics_registry] {output_signal_id + '_METRICS'}: t={metrics_t[-1] if metrics_t else None}, hr={metrics_hr[-1] if metrics_hr else None}")
             time.sleep(0.01)  # Reduced sleep time for faster updates
 
     def process_ecg(self, input_signal_id, show_peaks, output_signal_id):

@@ -220,6 +220,8 @@ class RRNode:
                 "id": output_signal_id,
                 "type": "rr_processed",
                 "respiration_rate": avg_rr,
+                "rr": avg_rr,  # Add for passive metrics
+                "rr_metric_id": "RR_METRIC",  # Add reference to RR metric signal
                 "color": "#55F4FF",
                 "show_peaks": show_peaks,
                 "peak_marker": "o",

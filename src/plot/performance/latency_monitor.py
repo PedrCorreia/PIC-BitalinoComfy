@@ -108,6 +108,16 @@ class LatencyMonitor:
         """
         return self.last_calculated_latency
     
+    def get_latency(self):
+        """
+        Alias for get_current_latency() for compatibility with main app usage.
+        
+        Returns:
+            float: Current latency in seconds
+        """
+        return self.get_current_latency()
+
+    
     def get_average_latency(self):
         """
         =====Method: get_average_latency=====

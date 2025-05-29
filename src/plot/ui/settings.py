@@ -101,22 +101,30 @@ class SettingsPanel:
         screen.blit(sig_header, (plot_x + SECTION_MARGIN, y_cursor))
         y_cursor += sig_header.get_height() + CONTROL_MARGIN
         # Place per-signal controls on the right, below the section header
-        sig_ctrl_x = plot_x + plot_width - 260
+        sig_ctrl_x = plot_x + plot_width - 320  # Increase left margin for more space
         sig_ctrl_y = y_cursor
         btn_size = 24
-        self._sig_window_btn_rects = []  # (minus_rect, plus_rect, sig_id)
+        self._sig_window_btn_rects = []  # (minus_rect, plus_rect, sid)
         for i, sid in enumerate(all_ids):
             y = sig_ctrl_y + i * (btn_size + ELEMENT_PADDING)
             display_id = str(sid) if len(str(sid)) < 18 else str(sid)[:15] + '...'
             label = self.font.render(f"{display_id}", True, (200,220,255))
             screen.blit(label, (sig_ctrl_x, y))
+            # Determine view mode for this signal (raw/processed/twin/metrics)
+            meta = self.plot_registry.get_signal_metadata(sid) or {}
+            meta_type = meta.get('type')
+            if meta_type == 'processed':
+                view_mode = ViewMode.PROCESSED
+            else:
+                view_mode = ViewMode.RAW
             win_sec = 2
             if signal_window_sec is not None:
-                win_sec = signal_window_sec.get(sid, 2)
+                win_sec = signal_window_sec.get(sid, window_sec_dict.get(view_mode, 2))
+            # Add more space between label and window size
             win_label = self.font.render(f"{win_sec} s", True, TEXT_COLOR)
-            screen.blit(win_label, (sig_ctrl_x + 110, y))
-            minus_rect = pygame.Rect(sig_ctrl_x + 160, y, btn_size, btn_size)
-            plus_rect = pygame.Rect(sig_ctrl_x + 200, y, btn_size, btn_size)
+            screen.blit(win_label, (sig_ctrl_x + 200, y))
+            minus_rect = pygame.Rect(sig_ctrl_x + 220, y, btn_size, btn_size)
+            plus_rect = pygame.Rect(sig_ctrl_x + 260, y, btn_size, btn_size)
             mouse_over_plus = plus_rect.collidepoint(mx, my)
             mouse_over_minus = minus_rect.collidepoint(mx, my)
             plus_color = (0, 255, 120) if mouse_over_plus else ACCENT_COLOR

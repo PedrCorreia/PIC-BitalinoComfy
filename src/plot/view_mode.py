@@ -21,5 +21,5 @@ class ViewMode(Enum):
     RAW = 0
     PROCESSED = 1
     TWIN = 2
-    STACKED = 3
+    METRICS = 3
     SETTINGS = 4

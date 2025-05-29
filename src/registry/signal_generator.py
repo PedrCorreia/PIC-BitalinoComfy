@@ -134,59 +134,6 @@ class RegistrySignalGenerator:
         for gen in self.generators:
             ids.extend(gen.get_signal_ids())
         return ids
-
-class ProcessedSignalGenerator(BaseSignalGenerator):
-    """
-    Processes an existing signal by applying a function, and registers the result as a new processed signal.
-    """
-    def __init__(self, input_signal_id, process_func, output_signal_id, output_metadata, sampling_rate=10, **kwargs):
-        super().__init__(**kwargs)
-        self.input_signal_id = input_signal_id
-        self.process_func = process_func
-        self.output_signal_id = output_signal_id
-        self.output_metadata = output_metadata
-        self.sampling_rate = sampling_rate
-        self.running = False
-        self.thread = None
-
-    def start(self):
-        if self.running:
-            return
-        self.running = True
-        self.thread = threading.Thread(target=self._run)
-        self.thread.daemon = True
-        self.thread.start()
-
-    def stop(self):
-        self.running = False
-        if self.thread and self.thread.is_alive():
-            self.thread.join(timeout=1.0)
-
-    def _run(self):
-        next_sample_time = time.time()
-        while self.running:
-            try:
-                input_data = self.signal_registry.get_signal(self.input_signal_id)
-                if input_data and len(input_data['v']) > 0:
-                    processed_v = self.process_func(np.array(input_data['v']))
-                    processed_t = np.array(input_data['t'])
-                    plot_data = {'t': processed_t, 'v': processed_v}
-                    self.signal_registry.register_signal(self.output_signal_id, plot_data, self.output_metadata)
-                    self.plot_registry.register_signal(self.output_signal_id, plot_data, self.output_metadata)
-                next_sample_time += 1.0 / self.sampling_rate
-                sleep_time = next_sample_time - time.time()
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
-                else:
-                    next_sample_time = time.time()
-            except Exception as e:
-                print(f"Error in processed signal generator: {e}")
-                import traceback; traceback.print_exc()
-                time.sleep(1.0)
-
-    def get_signal_ids(self):
-        return [self.output_signal_id]
-
 class BitalinoSignalGenerator(BaseSignalGenerator):
     """
     Wraps a BitalinoReceiver to register hardware signals in the registry system.

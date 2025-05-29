@@ -63,6 +63,41 @@ class EDANode:
         phasic_viz = phasic[-viz_buffer_size:]
         visualization_data = np.column_stack((viz_data[:, 0], viz_data[:, 1], tonic_viz, phasic_viz))
 
+        # --- Remove direct registration of SCL_METRIC and SCK_METRIC ---
+        # Instead, store current and last values in metadata for MetricsSignalGenerator
+        # Maintain last values for scl and sck
+        if not hasattr(self, '_last_scl'):
+            self._last_scl = None
+        if not hasattr(self, '_last_sck'):
+            self._last_sck = None
+        last_scl = self._last_scl
+        last_sck = self._last_sck
+        self._last_scl = float(np.mean(tonic_viz)) if len(tonic_viz) > 0 else 0.0
+        self._last_sck = float(np.mean(phasic_viz)) if len(phasic_viz) > 0 else 0.0
+        # Prepare metadata for processed signal
+        metadata = {
+            "scl": self._last_scl,
+            "last_scl": last_scl,
+            "sck": self._last_sck,
+            "last_sck": last_sck,
+            "scl_metric_id": "SCL_METRIC",  # Add reference to SCL metric signal
+            "sck_metric_id": "SCK_METRIC"   # Add reference to SCK metric signal
+        }
+        # If a registry is available, register the processed signal with metadata
+        try:
+            from ...src.registry.plot_registry import PlotRegistry
+            registry = PlotRegistry.get_instance()
+            processed_signal_id = "EDA_PROCESSED"
+            processed_signal_data = {
+                "t": viz_data[:, 0].tolist(),
+                "v": viz_data[:, 1].tolist(),
+                "tonic": tonic_viz.tolist(),
+                "phasic": phasic_viz.tolist()
+            }
+            registry.register_signal(processed_signal_id, processed_signal_data, metadata)
+        except Exception as e:
+            pass  # Registry may not be available in all contexts
+
         tonic_out = tonic if output_type in ("tonic", "both") else None
         phasic_out = phasic if output_type in ("phasic", "both") else None
 

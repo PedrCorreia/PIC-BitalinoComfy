@@ -39,8 +39,10 @@ class PlotRegistry:
     def register_signal(self, signal_id, signal_data, metadata=None):
         """
         Register a signal in the registry, optimized to avoid unnecessary copies and metadata updates.
+        Also, if the signal contains metrics (e.g., HR, RR, SCL, SCK), register/update corresponding metrics signals for MetricsView.
         """
         with self.registry_lock:
+            # --- Existing registration logic ---
             # Accept dict with 't' and 'v' as-is (new format)
             if isinstance(signal_data, dict) and 't' in signal_data and 'v' in signal_data:
                 # Only copy if the object is not already the same as last
@@ -76,7 +78,60 @@ class PlotRegistry:
                     'color': self._generate_color_from_id(signal_id),
                     'created': time.time()
                 }
-                
+            # --- Passive metrics registration ---
+            metrics_to_check = [
+                ("hr", "HR_METRIC"),
+                ("rr", "RR_METRIC"),
+                ("scl", "SCL_METRIC"),
+                ("sck", "SCK_METRIC"),
+            ]
+            meta_src = metadata or (signal_data.get('meta') if isinstance(signal_data, dict) else None)
+            # If this is a time series with 't' and 'v', and the metric is present, register as a time series
+            for metric_key, metric_id in metrics_to_check:
+                # If this signal is itself a metric time series, skip (avoid recursion)
+                if signal_id == metric_id:
+                    continue
+                # If this is a time series and meta has the metric, append to metric time series
+                if (
+                    isinstance(signal_data, dict)
+                    and 't' in signal_data and 'v' in signal_data
+                    and meta_src and metric_key in meta_src
+                ):
+                    t_now = float(signal_data['t'][-1]) if len(signal_data['t']) else time.time()
+                    val = meta_src[metric_key]
+                    prev = self.signals.get(metric_id)
+                    if prev and isinstance(prev, dict) and 't' in prev and 'v' in prev:
+                        prev['t'].append(t_now)
+                        prev['v'].append(val)
+                        if len(prev['t']) > 1000:
+                            prev['t'] = prev['t'][-1000:]
+                            prev['v'] = prev['v'][-1000:]
+                        self.signals[metric_id] = prev
+                    else:
+                        self.signals[metric_id] = {'t': [t_now], 'v': [val]}
+                    if metric_id not in self.metadata:
+                        self.metadata[metric_id] = {
+                            'id': metric_id,
+                            'type': 'metric',
+                            'source': signal_id,
+                            'created': t_now
+                        }
+                    print(f"[PlotRegistry][metrics] Registered/updated {metric_id}: t={t_now}, val={val}, keys={list(self.signals[metric_id].keys())}")
+                # If this is a metric value (not a time series), register as a single-point time series
+                elif meta_src and metric_key in meta_src:
+                    t_now = time.time()
+                    val = meta_src[metric_key]
+                    self.signals[metric_id] = {'t': [t_now], 'v': [val]}
+                    if metric_id not in self.metadata:
+                        self.metadata[metric_id] = {
+                            'id': metric_id,
+                            'type': 'metric',
+                            'source': signal_id,
+                            'created': t_now
+                        }
+                    print(f"[PlotRegistry][metrics] Registered/updated {metric_id}: t={t_now}, val={val}, keys={list(self.signals[metric_id].keys())}")
+            # ...existing code...
+    
     def connect_node_to_signal(self, node_id, signal_id):
         """
         Connect a visualization node to a specific signal.

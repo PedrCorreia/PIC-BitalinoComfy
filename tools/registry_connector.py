@@ -98,6 +98,19 @@ class RegistryConnector:
                 # Register with plot registry
                 plot_registry.register_signal(signal_id, signal_data, metadata)
                 logger.info(f"Connected signal {signal_id} to plot registry")
+                
+                # --- Passive metric linking ---
+                if metadata:
+                    for k, v in metadata.items():
+                        if k.endswith('_metric_id') and v:
+                            metric_id = v
+                            metric_data = signal_registry.get_signal(metric_id)
+                            metric_meta = signal_registry.get_signal_metadata(metric_id)
+                            if metric_data is not None:
+                                plot_registry.register_signal(metric_id, metric_data, metric_meta)
+                                logger.info(f"Connected associated metric signal {metric_id} to plot registry (from {signal_id})")
+                            else:
+                                logger.warning(f"Metric signal {metric_id} referenced in {signal_id} metadata not found in registry")
             except Exception as e:
                 logger.error(f"Failed to connect signal {signal_id}: {e}")
                 success = False

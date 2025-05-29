@@ -29,7 +29,7 @@ class Sidebar:
         current_mode (ViewMode): The currently active view mode
         settings (dict): Settings dictionary for additional configurations
     """
-    def __init__(self, surface, width, height, font, icon_font, current_mode, settings):
+    def __init__(self, surface, width, height, font, icon_font, current_mode, settings, tabs, tab_icons):
         """
         Initialize the sidebar.
         
@@ -41,6 +41,8 @@ class Sidebar:
             icon_font (pygame.font.Font): Font for icon rendering
             current_mode (ViewMode): The currently active view mode
             settings (dict): Settings dictionary for additional configurations
+            tabs (list): List of tab mode values (e.g., ViewMode enums or strings)
+            tab_icons (list): List of tab icon strings (same length as tabs)
         """       
         self.surface = surface
         self.width = width
@@ -49,6 +51,8 @@ class Sidebar:
         self.icon_font = icon_font
         self.current_mode = current_mode
         self.settings = settings  # Add settings reference
+        self.tabs = tabs
+        self.tab_icons = tab_icons
         # Button settings
         self.button_height = TAB_HEIGHT + 10  # Use TAB_HEIGHT constant plus padding
         self.button_spacing = 15  # Space between buttons
@@ -64,7 +68,7 @@ class Sidebar:
         
         # Draw mode buttons with hover effect
         mx, my = pygame.mouse.get_pos()
-        for i, (mode, icon) in enumerate(zip([ViewMode.RAW, ViewMode.PROCESSED, ViewMode.TWIN, ViewMode.SETTINGS], ['R', 'P', 'T', 'S'])):
+        for i, (mode, icon) in enumerate(zip(self.tabs, self.tab_icons)):
             y = status_bar_offset + self.button_spacing + i * (self.button_height + self.button_spacing)
             button_rect = pygame.Rect(0, y, self.width, self.button_height)
             is_active = self.current_mode == mode
@@ -74,7 +78,7 @@ class Sidebar:
             icon_surface = self.icon_font.render(icon, True, TEXT_COLOR)
             icon_rect = icon_surface.get_rect(center=(self.width // 2, y + self.button_height // 2))
             self.surface.blit(icon_surface, icon_rect)
-        # Draw status indicator dot below the S button
+        # Draw status indicator dot below the last button
         self._draw_status_dot_below_settings()
 
     def _draw_mode_button(self, position, icon, tooltip, mode_value):
@@ -152,10 +156,10 @@ class Sidebar:
             y (int): Y coordinate of the click
             
         Returns:
-            ViewMode: The ViewMode enum value for the clicked button, or None if no button was clicked
+            The tab value for the clicked button, or None if no button was clicked
         """
         status_bar_offset = STATUS_BAR_HEIGHT if STATUS_BAR_TOP else 0
-        for i, mode in enumerate([ViewMode.RAW, ViewMode.PROCESSED, ViewMode.TWIN, ViewMode.SETTINGS]):
+        for i, mode in enumerate(self.tabs):
             button_top = status_bar_offset + self.button_spacing + i * (self.button_height + self.button_spacing)
             button_bottom = button_top + self.button_height
             if button_top <= y <= button_bottom:
