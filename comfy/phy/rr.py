@@ -9,10 +9,8 @@ from ...src.utils.signal_processing import NumpySignalProcessor
 class RRNode:
     """
     Node for processing RR (Respiratory Rate) signals.
-    Provides visualization-ready data and calculates respiration rate using detected peaks.
-    Buffer sizes for visualization and feature extraction are configurable.
-    Now also returns is_peak for the latest sample, and prints RR if requested.
-    Supports registry integration for visualization with optional peak highlighting.
+    Provides visualization-ready data and calculates respiration rate (breaths/min) using detected peaks.
+    This is the ONLY node whose output should be used for RR_METRIC in MetricsView.
     """
     
     # Track background processing threads
@@ -167,7 +165,7 @@ class RRNode:
                     breath_intervals = np.diff(self._recent_peak_times)
                     avg_breath = np.mean(breath_intervals)
                     if avg_breath > 0:
-                        avg_rr = 60.0 / avg_breath
+                        avg_rr = 60.0 / avg_breath  # Respiration rate in breaths/min
             # Robust is_peak logic (timing + newness)
             is_peak, latest_peak_time = RR.is_peak(
                 filtered_rr, feature_timestamps, fs, start_time=meta_start_time, rr=avg_rr, used_peaks=self._recent_peak_times[:-1] if len(self._recent_peak_times) > 1 else []
@@ -219,8 +217,7 @@ class RRNode:
             metadata = {
                 "id": output_signal_id,
                 "type": "rr_processed",
-                "respiration_rate": avg_rr,
-                "rr": avg_rr,  # Add for passive metrics
+                "rr": avg_rr,  # For compatibility, but this is breaths/min
                 "rr_metric_id": "RR_METRIC",  # Add reference to RR metric signal
                 "color": "#55F4FF",
                 "show_peaks": show_peaks,

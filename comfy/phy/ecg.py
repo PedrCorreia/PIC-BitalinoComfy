@@ -12,6 +12,8 @@ class ECGNode:
     Node for processing ECG (Electrocardiogram) signals.
     Takes an input signal ID, processes the ECG data, and outputs heart rate and peak detection.
     Supports registry integration for visualization with optional peak highlighting.
+    
+    NOTE: The RR value here is the R-R interval (heartbeat interval), NOT respiration rate. Do NOT use this for RR_METRIC in MetricsView.
     """
     
     # Track background processing threads
@@ -256,9 +258,7 @@ class ECGNode:
             metadata = {
                 "id": output_signal_id,
                 "type": "ecg_processed",
-                "heart_rate": avg_hr,
-                "hr": avg_hr,  # <-- Add for passive metrics
-                "rr": avg_rr,  # <-- Add for passive metrics (if available)
+                "hr": avg_hr,  
                 "color": "#FF5555",
                 "show_peaks": show_peaks,
                 "peak_marker": "x",

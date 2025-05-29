@@ -296,7 +296,7 @@ class ECG:
 
         # Debugging: Print the percentage of points marked as artifacts
         artifact_percentage = np.sum(artifact_mask) / len(signal) * 100
-        print(f"Artifact Percentage: {artifact_percentage:.2f}%")
+        # print(f"Artifact Percentage: {artifact_percentage:.2f}%")
 
         # Step 3: Replace artifacts with interpolated values
         cleaned_signal = signal.copy()
@@ -305,7 +305,7 @@ class ECG:
             valid_indices = indices[~artifact_mask]
             if valid_indices.size == 0:
                 # If no valid points are left, return the original signal with a warning
-                print("Warning: All points in the signal are marked as artifacts. Returning the original signal.")
+                # print("Warning: All points in the signal are marked as artifacts. Returning the original signal.")
                 return signal
             cleaned_signal[artifact_mask] = np.interp(indices[artifact_mask], valid_indices, signal[~artifact_mask])
 
@@ -471,7 +471,7 @@ class ECG:
             if used_peaks is not None:
                 # Allow for floating point tolerance
                 is_new_peak = not any(abs(latest_peak_time - t) < 1e-4 for t in used_peaks)
-            print(f"start_time: {start_time}, now: {now}, latest_peak_time: {latest_peak_time}, HR: {hr_used:.2f}, epsilon: {epsilon:.3f}, is_in_time_neighborhood: {is_in_time_neighborhood}, is_new_peak: {is_new_peak}")
+            # print(f"start_time: {start_time}, now: {now}, latest_peak_time: {latest_peak_time}, HR: {hr_used:.2f}, epsilon: {epsilon:.3f}, is_in_time_neighborhood: {is_in_time_neighborhood}, is_new_peak: {is_new_peak}")
             return (is_in_time_neighborhood and is_new_peak), latest_peak_time
         return False, None
 
@@ -479,7 +479,7 @@ def demo():
     # Allow the user to select electrode placement
     placement = input("Enter electrode placement ('heart' or 'collarbone'): ").strip().lower()
     if placement not in ["heart", "collarbone"]:
-        print("Invalid placement. Please enter 'heart' or 'collarbone'.")
+        # print("Invalid placement. Please enter 'heart' or 'collarbone'.")
         return
 
     # Dynamically select the JSON file based on placement
@@ -490,7 +490,7 @@ def demo():
     fs = 1000
 
     # Always use Bandpass+Peaks method for demo
-    print("Using Bandpass+Peaks method for demo...")
+    # print("Using Bandpass+Peaks method for demo...")
 
     # Modular pipeline
     normed, smoothed_envelope, detected_peaks, validated_peaks = ECG.preprocess_signal(
@@ -506,10 +506,10 @@ def demo():
     r_peaks_for_metrics = validated_peaks if validated_peaks is not None and len(validated_peaks) > 1 else detected_peaks
 
     heart_rate = ECG.extract_heart_rate(normed, fs, mode="qrs", r_peaks=r_peaks_for_metrics)
-    print(f"Heart Rate: {heart_rate:.2f} bpm")
+    # print(f"Heart Rate: {heart_rate:.2f} bpm")
 
     hrv_metrics = ECG.calculate_hrv(normed, fs, mode="qrs", r_peaks=r_peaks_for_metrics)
-    print(f"HRV Metrics: SDNN = {hrv_metrics['SDNN']:.2f} s, RMSSD = {hrv_metrics['RMSSD']:.2f} s, LF = {hrv_metrics['LF']:.2f}, HF = {hrv_metrics['HF']:.2f}, LF/HF = {hrv_metrics['LF/HF']:.2f}")
+    # print(f"HRV Metrics: SDNN = {hrv_metrics['SDNN']:.2f} s, RMSSD = {hrv_metrics['RMSSD']:.2f} s, LF = {hrv_metrics['LF']:.2f}, HF = {hrv_metrics['HF']:.2f}, LF/HF = {hrv_metrics['LF/HF']:.2f}")
 
     ECG.plot_signals(
         raw_signal,

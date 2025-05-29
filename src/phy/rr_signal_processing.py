@@ -131,15 +131,15 @@ if __name__ == "__main__":
     preprocessed_signal = RR.preprocess_signal(raw_signal, fs)
     
     rr, avg_breath_duration = RR.extract_respiration_rate(preprocessed_signal, fs)
-    print(f"Respiration Rate: {rr:.2f} breaths per minute")
-    print(f"Average Breath Duration: {avg_breath_duration:.2f} s")
+    # print(f"Respiration Rate: {rr:.2f} breaths per minute")
+    # print(f"Average Breath Duration: {avg_breath_duration:.2f} s")
     
     peaks = NumpySignalProcessor.find_peaks(preprocessed_signal, fs)
     valleys = NumpySignalProcessor.find_peaks(-preprocessed_signal, fs)  # Find valleys as negative peaks
     
     # Detect deep breaths
     deep_breaths = RR.detect_deep_breaths(preprocessed_signal, peaks)
-    print(f"Deep Breaths Detected: {len(deep_breaths)} at indices {deep_breaths}")
+    # print(f"Deep Breaths Detected: {len(deep_breaths)} at indices {deep_breaths}")
     
     # Plot signals with deep breaths
     RR.plot_signals(raw_signal, preprocessed_signal, preprocessed_signal, peaks, valleys, rr, avg_breath_duration, fs, deep_breaths)

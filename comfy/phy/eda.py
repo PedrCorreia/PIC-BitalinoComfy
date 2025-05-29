@@ -7,6 +7,7 @@ class EDANode:
     Node for processing EDA (Electrodermal Activity) signals.
     Extracts tonic and phasic components, provides visualization-ready data,
     and allows selection of which components to output.
+    Robust and registry-ready for MetricsView integration.
     """
 
     @classmethod
@@ -80,8 +81,8 @@ class EDANode:
             "last_scl": last_scl,
             "sck": self._last_sck,
             "last_sck": last_sck,
-            "scl_metric_id": "SCL_METRIC",  # Add reference to SCL metric signal
-            "sck_metric_id": "SCK_METRIC"   # Add reference to SCK metric signal
+            "scl_metric_id": "SCL_METRIC",  # Reference to SCL metric signal
+            "sck_metric_id": "SCK_METRIC"   # Reference to SCK metric signal
         }
         # If a registry is available, register the processed signal with metadata
         try:
