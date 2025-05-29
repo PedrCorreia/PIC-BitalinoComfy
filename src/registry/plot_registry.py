@@ -116,7 +116,7 @@ class PlotRegistry:
                             'source': signal_id,
                             'created': t_now
                         }
-                    print(f"[PlotRegistry][metrics] Registered/updated {metric_id}: t={t_now}, val={val}, keys={list(self.signals[metric_id].keys())}")
+                    #print(f"[PlotRegistry][metrics] Registered/updated {metric_id}: t={t_now}, val={val}, keys={list(self.signals[metric_id].keys())}")
                 # If this is a metric value (not a time series), register as a single-point time series
                 elif meta_src and metric_key in meta_src:
                     t_now = time.time()
@@ -129,7 +129,7 @@ class PlotRegistry:
                             'source': signal_id,
                             'created': t_now
                         }
-                    print(f"[PlotRegistry][metrics] Registered/updated {metric_id}: t={t_now}, val={val}, keys={list(self.signals[metric_id].keys())}")
+                    #print(f"[PlotRegistry][metrics] Registered/updated {metric_id}: t={t_now}, val={val}, keys={list(self.signals[metric_id].keys())}")
             # ...existing code...
     
     def connect_node_to_signal(self, node_id, signal_id):

@@ -184,7 +184,7 @@ class ECGNode:
             peaks = self.ecg.detect_r_peaks(filtered_ecg, fs=effective_fs, mode="qrs")
             if len(peaks) > 0 and len(feature_timestamps) > 0:
                 peak_times = feature_timestamps[peaks]
-                print(f"[ECGNode] Peak timestamps (s): {peak_times}")
+                #print(f"[ECGNode] Peak timestamps (s): {peak_times}")
             
             # Visualization window: use adaptive window size for better performance
             if len(viz_timestamps) > 0:
@@ -302,7 +302,7 @@ class ECGNode:
                 'source': output_signal_id,
                 'scope': 'global_metric'
             })
-            print(f"[ECGNode][metrics_registry] {output_signal_id + '_METRICS'}: t={metrics_t[-1] if metrics_t else None}, hr={metrics_hr[-1] if metrics_hr else None}")
+            #print(f"[ECGNode][metrics_registry] {output_signal_id + '_METRICS'}: t={metrics_t[-1] if metrics_t else None}, hr={metrics_hr[-1] if metrics_hr else None}")
             time.sleep(0.01)  # Reduced sleep time for faster updates
 
     def process_ecg(self, input_signal_id, show_peaks, output_signal_id):
