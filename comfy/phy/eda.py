@@ -1,6 +1,8 @@
 from collections import deque
 import numpy as np
 from ...src.phy.eda_signal_processing import EDA
+import time
+import threading
 
 class EDANode:
     """
@@ -27,7 +29,8 @@ class EDANode:
                     "choices": ["tonic", "phasic", "both"]
                 }),
                 "viz_buffer_size": ("INT", {"default": 1000}),
-                "feature_buffer_size": ("INT", {"default": 5000})
+                "feature_buffer_size": ("INT", {"default": 5000}),
+                "enabled": ("BOOLEAN", {"default": True})
             }
         }
 
@@ -35,60 +38,48 @@ class EDANode:
     RETURN_NAMES = ("Visualization_Data", "Tonic", "Phasic")
     FUNCTION = "process_eda"
     CATEGORY = "Pedro_PIC/🔬 Bio-Processing"
-
-    def process_eda(self, signal_deque, output_type, viz_buffer_size, feature_buffer_size):
-        """
-        Processes EDA signal to extract tonic and phasic components.
-
-        Parameters:
-        - signal_deque: Deque containing (timestamp, value) tuples.
-        - output_type: "tonic", "phasic", or "both" (controls which outputs are filled).
-        - viz_buffer_size: Buffer size for visualization data.
-        - feature_buffer_size: Buffer size for feature extraction.
-
-        Returns:
-        - visualization_data: Array of [timestamp, value, tonic, phasic] rows.
-        - tonic: Tonic component array or None.
-        - phasic: Phasic component array or None.
-        """
-        if not signal_deque or len(signal_deque) < 2:
-            raise ValueError("Insufficient data in deque.")
-
-        data = np.array(signal_deque)
-        timestamps, values = data[:, 0], data[:, 1]
-
-        viz_data = data[-viz_buffer_size:]
-
-        tonic, phasic = EDA.extract_tonic_phasic(values[-feature_buffer_size:], fs=1000)
-        tonic_viz = tonic[-viz_buffer_size:]
-        phasic_viz = phasic[-viz_buffer_size:]
-        visualization_data = np.column_stack((viz_data[:, 0], viz_data[:, 1], tonic_viz, phasic_viz))
-
-        # --- Remove direct registration of SCL_METRIC and SCK_METRIC ---
-        # Instead, store current and last values in metadata for MetricsSignalGenerator
-        # Maintain last values for scl and sck
-        if not hasattr(self, '_last_scl'):
-            self._last_scl = None
-        if not hasattr(self, '_last_sck'):
-            self._last_sck = None
-        last_scl = self._last_scl
-        last_sck = self._last_sck
-        self._last_scl = float(np.mean(tonic_viz)) if len(tonic_viz) > 0 else 0.0
-        self._last_sck = float(np.mean(phasic_viz)) if len(phasic_viz) > 0 else 0.0
-        # Prepare metadata for processed signal
-        metadata = {
-            "scl": self._last_scl,
-            "last_scl": last_scl,
-            "sck": self._last_sck,
-            "last_sck": last_sck,
-            "scl_metric_id": "SCL_METRIC",  # Reference to SCL metric signal
-            "sck_metric_id": "SCK_METRIC"   # Reference to SCK metric signal
-        }
-        # If a registry is available, register the processed signal with metadata
-        try:
-            from ...src.registry.plot_registry import PlotRegistry
-            registry = PlotRegistry.get_instance()
-            processed_signal_id = "EDA_PROCESSED"
+    def IS_CHANGED(cls, *args, **kwargs):
+        return float("NaN")
+    def _background_process(self, input_signal_id, output_type, viz_buffer_size, feature_buffer_size, stop_flag, output_signal_id):
+        from ...src.registry.plot_registry import PlotRegistry
+        registry = PlotRegistry.get_instance()
+        fs = 1000
+        viz_buffer_size = int(viz_buffer_size)
+        feature_buffer_size = int(feature_buffer_size)
+        while not stop_flag[0]:
+            signal_data = registry.get_signal(input_signal_id)
+            if not signal_data or "t" not in signal_data or "v" not in signal_data:
+                time.sleep(0.01)
+                continue
+            timestamps = np.array(signal_data["t"])
+            values = np.array(signal_data["v"])
+            if len(timestamps) < 2 or len(values) < 2:
+                time.sleep(0.01)
+                continue
+            data = np.column_stack((timestamps, values))
+            viz_data = data[-viz_buffer_size:]
+            tonic, phasic = EDA.extract_tonic_phasic(values[-feature_buffer_size:], fs=fs)
+            tonic_viz = tonic[-viz_buffer_size:]
+            phasic_viz = phasic[-viz_buffer_size:]
+            visualization_data = np.column_stack((viz_data[:, 0], viz_data[:, 1], tonic_viz, phasic_viz))
+            # Maintain last values for scl and sck
+            if not hasattr(self, '_last_scl'):
+                self._last_scl = None
+            if not hasattr(self, '_last_sck'):
+                self._last_sck = None
+            last_scl = self._last_scl
+            last_sck = self._last_sck
+            self._last_scl = float(np.mean(tonic_viz)) if len(tonic_viz) > 0 else 0.0
+            self._last_sck = float(np.mean(phasic_viz)) if len(phasic_viz) > 0 else 0.0
+            metadata = {
+                "scl": self._last_scl,
+                "last_scl": last_scl,
+                "sck": self._last_sck,
+                "last_sck": last_sck,
+                "scl_metric_id": "SCL_METRIC",
+                "sck_metric_id": "SCK_METRIC"
+            }
+            processed_signal_id = output_signal_id
             processed_signal_data = {
                 "t": viz_data[:, 0].tolist(),
                 "v": viz_data[:, 1].tolist(),
@@ -96,13 +87,25 @@ class EDANode:
                 "phasic": phasic_viz.tolist()
             }
             registry.register_signal(processed_signal_id, processed_signal_data, metadata)
-        except Exception as e:
-            pass  # Registry may not be available in all contexts
+            time.sleep(0.01)
 
-        tonic_out = tonic if output_type in ("tonic", "both") else None
-        phasic_out = phasic if output_type in ("phasic", "both") else None
-
-        return visualization_data, tonic_out, phasic_out
+    def process_eda(self, input_signal_id="", output_type="both", viz_buffer_size=1000, feature_buffer_size=5000, output_signal_id="EDA_PROCESSED", enabled=True):
+        if not enabled:
+            return None, None, output_signal_id
+        signal_id = output_signal_id
+        if hasattr(self, '_processing_thread') and self._processing_thread.is_alive():
+            # Return last known values (None for now, as EDA is not a metric node)
+            return None, None, None
+        stop_flag = [False]
+        self._stop_flag = stop_flag
+        thread = threading.Thread(
+            target=self._background_process,
+            args=(input_signal_id, output_type, viz_buffer_size, feature_buffer_size, stop_flag, output_signal_id),
+            daemon=True
+        )
+        self._processing_thread = thread
+        thread.start()
+        return None, None, output_signal_id
 
 NODE_CLASS_MAPPINGS = {
     "EDANode": EDANode

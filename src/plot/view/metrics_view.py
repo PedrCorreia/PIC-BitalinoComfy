@@ -14,11 +14,11 @@ class MetricsView:
         # Each config: (label, signal_id, min, max, color_stops)
         self.metric_configs = metric_configs or [
             ("HR", "HR_METRIC", 40, 120, [
-                (40, (0, 120, 255)),   # blue
+                (35, (0, 120, 255)),   # blue
                 (60, (0, 200, 80)),    # green
                 (80, (255, 220, 0)),   # yellow
                 (100, (255, 140, 0)),  # orange
-                (120, (255, 40, 40)),  # red
+                (125, (255, 40, 40)),  # red
             ]),
             ("SCL", "SCL_METRIC", 0, 10, [
                 (0, (0, 120, 255)),
@@ -35,11 +35,11 @@ class MetricsView:
                 (10, (255, 40, 40)),
             ]),
             ("RR", "RR_METRIC", 8, 30, [  # RR = respiration rate (breaths/min)
-                (8, (0, 120, 255)),
+                (5, (0, 120, 255)),
                 (12, (0, 200, 80)),
                 (18, (255, 220, 0)),
                 (24, (255, 140, 0)),
-                (30, (255, 40, 40)),
+                (40, (255, 40, 40)),
             ]),
         ]
 

@@ -27,12 +27,15 @@ class ECGNode:
         - input_signal_id: Signal ID for data from registry.
         - show_peaks: Control peak visualization in registry.
         - output_signal_id: ID for the processed signal in registry.
+        - enabled: Boolean to enable or disable processing.
         """
         return {
             "required": {
                 "input_signal_id": ("STRING", {"default": ""}),
                 "show_peaks": ("BOOLEAN", {"default": True}),
-                "output_signal_id": ("STRING", {"default": "ECG_PROCESSED"})            }
+                "output_signal_id": ("STRING", {"default": "ECG_PROCESSED"}),
+                "enabled": ("BOOLEAN", {"default": True})
+            }
         }
         
     RETURN_TYPES = ("FLOAT", "BOOLEAN", "STRING")
@@ -305,7 +308,7 @@ class ECGNode:
             #print(f"[ECGNode][metrics_registry] {output_signal_id + '_METRICS'}: t={metrics_t[-1] if metrics_t else None}, hr={metrics_hr[-1] if metrics_hr else None}")
             time.sleep(0.01)  # Reduced sleep time for faster updates
 
-    def process_ecg(self, input_signal_id, show_peaks, output_signal_id):
+    def process_ecg(self, input_signal_id, show_peaks, output_signal_id, enabled=True):
         """
         Processes ECG signal from registry to extract heart rate and peak detection.
         Returns the latest average HR and Rpeak calculated by the background thread.

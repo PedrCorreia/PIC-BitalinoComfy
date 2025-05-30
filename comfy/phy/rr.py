@@ -2,6 +2,7 @@ from collections import deque
 import numpy as np
 import threading
 import time
+import scipy.signal
 from ...src.test_src.rr_signal_processing import RR
 from ...src.registry.signal_registry import SignalRegistry
 from ...src.utils.signal_processing import NumpySignalProcessor
@@ -30,7 +31,9 @@ class RRNode:
             "required": {
                 "input_signal_id": ("STRING", {"default": ""}),
                 "show_peaks": ("BOOLEAN", {"default": True}),
-                "output_signal_id": ("STRING", {"default": "RR_PROCESSED"})            }
+                "output_signal_id": ("STRING", {"default": "RR_PROCESSED"}),
+                "enabled": ("BOOLEAN", {"default": True})
+            }
         }
         
 
@@ -38,7 +41,8 @@ class RRNode:
     RETURN_NAMES = ("Respiration_Rate", "Is_Peak", "Signal_ID")
     FUNCTION = "process_rr"
     CATEGORY = "Pedro_PIC/🔬 Bio-Processing"    
-    
+    def IS_CHANGED(cls, *args, **kwargs):
+        return float("NaN")
     def __init__(self):
         self._recent_peak_times = []
         self._last_rr = 0.0
@@ -93,18 +97,21 @@ class RRNode:
                 last_ts = viz_timestamps_deque[-1]
                 new_data_idx = np.searchsorted(timestamps, last_ts, side='right')
                 if new_data_idx < len(timestamps):
+                    # --- Use decimation with anti-aliasing ---
                     if use_decimation:
                         remaining_points = min(len(timestamps), len(values)) - new_data_idx
                         if remaining_points > 0:
                             max_index = new_data_idx + remaining_points
-                            new_indices = np.arange(new_data_idx, max_index, decimation_factor)
-                            max_valid = min(len(timestamps), len(values))
-                            new_indices = new_indices[new_indices < max_valid]
-                            if len(new_indices) > 0:
-                                viz_timestamps_deque.extend(timestamps[new_indices])
-                                viz_values_deque.extend(values[new_indices])
-                                feature_timestamps_deque.extend(timestamps[new_indices])
-                                feature_values_deque.extend(values[new_indices])
+                            new_timestamps = timestamps[new_data_idx:max_index]
+                            new_values = values[new_data_idx:max_index]
+                            # Decimate with anti-aliasing
+                            decimated_values = scipy.signal.decimate(new_values, decimation_factor, ftype='fir', zero_phase=True)
+                            # Decimate timestamps to match length
+                            decimated_timestamps = np.linspace(new_timestamps[0], new_timestamps[-1], num=len(decimated_values)) if len(new_timestamps) > 1 else new_timestamps
+                            viz_timestamps_deque.extend(decimated_timestamps)
+                            viz_values_deque.extend(decimated_values)
+                            feature_timestamps_deque.extend(decimated_timestamps)
+                            feature_values_deque.extend(decimated_values)
                     else:
                         viz_timestamps_deque.extend(timestamps[new_data_idx:])
                         viz_values_deque.extend(values[new_data_idx:])
@@ -112,14 +119,14 @@ class RRNode:
                         feature_values_deque.extend(values[new_data_idx:])
             else:
                 if use_decimation:
-                    if len(timestamps) > 0:
-                        indices = np.arange(0, len(timestamps), decimation_factor)
-                        indices = indices[indices < len(timestamps)]
-                        if len(indices) > 0:
-                            viz_timestamps_deque.extend(timestamps[indices])
-                            viz_values_deque.extend(values[indices])
-                            feature_timestamps_deque.extend(timestamps[indices])
-                            feature_values_deque.extend(values[indices])
+                    if len(timestamps) > 1:
+                        # Decimate with anti-aliasing
+                        decimated_values = scipy.signal.decimate(values, decimation_factor, ftype='fir', zero_phase=True)
+                        decimated_timestamps = np.linspace(timestamps[0], timestamps[-1], num=len(decimated_values))
+                        viz_timestamps_deque.extend(decimated_timestamps)
+                        viz_values_deque.extend(decimated_values)
+                        feature_timestamps_deque.extend(decimated_timestamps)
+                        feature_values_deque.extend(decimated_values)
                 else:
                     viz_timestamps_deque.extend(timestamps)
                     viz_values_deque.extend(values)
@@ -133,16 +140,17 @@ class RRNode:
             effective_fs = fs
             if use_decimation:
                 effective_fs = fs / decimation_factor
-            # Pre-process RR with bandpass filter adapted for RR (0.1-0.5 Hz)
+            # Pre-process RR with bandpass filter adapted for RR (0.1-1 Hz)
             lowcut = 0.1
             highcut = 1
             filtered_rr = NumpySignalProcessor.bandpass_filter(
                 feature_values,
                 lowcut=lowcut,
                 highcut=highcut,
-                fs=fs
-            )            # Calculate RR and maintain recent peak times
-            detected_peaks = NumpySignalProcessor.find_peaks(filtered_rr, fs=fs)
+                fs=effective_fs
+            )
+            # Calculate RR and maintain recent peak times
+            detected_peaks = NumpySignalProcessor.find_peaks(filtered_rr, fs=effective_fs)
             # Validate peaks with lag-based edge avoidance (similar to ECG)
             peaks =  detected_peaks# RR.validate_rr_peaks(filtered_rr, detected_peaks, lag=50, match_window=20)
             avg_rr = 0.0
@@ -231,7 +239,9 @@ class RRNode:
             registry.register_signal(output_signal_id, processed_signal_data, metadata)
             time.sleep(0.01)
 
-    def process_rr(self, input_signal_id="", show_peaks=True, output_signal_id="RR_PROCESSED"):
+    def process_rr(self, input_signal_id="", show_peaks=True, output_signal_id="RR_PROCESSED", enabled=True):
+        if not enabled:
+            return 0.0, False, output_signal_id
         signal_id = output_signal_id
         if signal_id in self._processing_threads and self._processing_threads[signal_id].is_alive():
             avg_rr = getattr(self, '_last_rr', 0.0)

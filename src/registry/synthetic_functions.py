@@ -5,6 +5,7 @@ synthetic_functions.py
 """
 import numpy as np
 from scipy.signal import chirp
+from scipy.signal import sweep_poly
 
 def ecg_waveform(t, sample_index, stress_period=30.0):
     # Heart rate modulation to simulate stress/calm transitions
@@ -39,23 +40,14 @@ def eda_waveform(t, sample_index):
     value = slow_component + random_walk
     return value
 
-def rr_waveform(t, sample_index, noise_level=0.05):
-    # Continuous chirp frequency from 0.1 Hz up to 1 Hz and back down over a 60s period
-    cycle_period = 60.0
-    # Calculate the position within the cycle
-    phase = (t % cycle_period) / cycle_period
-    duration = cycle_period / 2
-    # Use a single chirp function with a sawtooth time base for continuity
-    if phase < 0.5:
-        # Up-chirp: 0.1 Hz to 1.0 Hz
-        t_chirp = phase * cycle_period
-        value = chirp(t_chirp, f0=0.1, f1=1.0, t1=duration, method='linear')
+def rr_waveform(t, sample_index, noise_level=0.05, period=30.0):
+    # Make the waveform continuous by symmetric extension (mirror at period)
+    t_mod = t % (2 * period)
+    if t_mod < period:
+        value = chirp(t_mod, f0=0.1, f1=1.0, t1=period, method='linear')
     else:
-        # Down-chirp: 1.0 Hz to 0.1 Hz
-        t_chirp = (phase - 0.5) * cycle_period
-        value = chirp(t_chirp, f0=1.0, f1=0.1, t1=duration, method='linear')
-    # Make the waveform continuous at the cycle boundaries by matching the start/end values
-    # Optionally, you can use a cosine window to smooth the transitions
+        # Mirror: play the chirp backward for the second half
+        value = chirp(2 * period - t_mod, f0=0.1, f1=1.0, t1=period, method='linear')
     value += np.random.normal(0, noise_level)
     return value
 
