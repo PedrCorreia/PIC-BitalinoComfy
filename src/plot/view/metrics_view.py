@@ -28,15 +28,7 @@ class MetricsView:
                 (15, (255, 140, 0)),    # aroused (orange)
                 (20, (255, 40, 40)),    # stressed (red)
             ]),
-            # SCR = Skin Conductance Response (phasic, rapid changes, in uS)
-            ("SCR", "SCK_METRIC", 0, 20, [
-                (0, (0, 120, 255)),     # sleep (blue)
-                (0.1, (0, 200, 80)),      # relaxed (green)
-                (0.5, (255, 220, 0)),     # normal (yellow)
-                (0.8, (255, 140, 0)),    # aroused (orange)
-                (1, (255, 40, 40)),    # stressed (red)
-            ]),
-            ("SCR Freq", "scr_frequency", 0, 30, [
+            ("SCR Freq", "scr_frequency", 0, 2.5, [
                 (0, (0, 120, 255)),
                 (1, (0, 200, 80)),
                 (1.5, (255, 220, 0)),
@@ -69,7 +61,7 @@ class MetricsView:
         total_cells = n_cols * n_rows
         # Center the grid in the available area
         cell_size = min((width - (n_cols + 1) * margin) // n_cols, (height - (n_rows + 1) * margin) // n_rows)
-        cell_size = cell_size * 2  # Double the cell height (and width, since grid is square)
+        cell_size = cell_size    # Double the cell height (and width, since grid is square)
         grid_w = n_cols * cell_size + (n_cols + 1) * margin
         grid_h = n_rows * cell_size + (n_rows + 1) * margin
         grid_x = x + (width - grid_w) // 2

@@ -36,7 +36,7 @@ class EDA:
         - phasic: Phasic component of the EDA signal.
         """
         # Baseline correction for tonic component
-        tonic = NumpySignalProcessor.lowpass_filter(eda_signal, cutoff=0.05, fs=fs)
+        tonic = NumpySignalProcessor.lowpass_filter(eda_signal, cutoff=0.1, fs=fs)
         
         # Phasic component is the difference between the original signal and tonic
         phasic = eda_signal - tonic
@@ -44,18 +44,20 @@ class EDA:
         return tonic, phasic
 
     @staticmethod
-    def detect_events(phasic_signal, threshold=0.01):
+    def detect_events(phasic_signal, fs, threshold=0.01):
         """
-        Detects events in the phasic component of the EDA signal.
+        Detects events in the phasic component of the EDA signal using robust peak finding.
         
         Parameters:
         - phasic_signal: The phasic component of the EDA signal.
-        - threshold: Threshold for event detection (default: 0.01 μS).
+        - fs: Sampling frequency in Hz.
+        - threshold: Minimum peak amplitude (default: 0.01 μS).
         
         Returns:
-        - events: Indices of detected events.
+        - events: Indices of detected events (peaks).
         """
-        events = np.where(phasic_signal > threshold)[0]
+        # Use NumpySignalProcessor.find_peaks for robust detection
+        events = NumpySignalProcessor.find_peaks(phasic_signal, fs=fs, threshold=threshold)
         return events
 
     @staticmethod

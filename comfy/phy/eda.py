@@ -100,36 +100,58 @@ class EDANode:
                 sck_history.pop(0)
             avg_scl = float(np.mean(scl_history)) if scl_history else 0.0
             avg_sck = float(np.mean(sck_history)) if sck_history else 0.0
-            # Detect SCR events in phasic (using a simple threshold, e.g., 0.01 μS)
-            scr_event_indices = EDA.detect_events(phasic_viz, threshold=0.01)
+            # Detect SCR events in phasic (use validated peaks, not just threshold crossing)
+            scr_event_indices_raw = EDA.detect_events(phasic_viz, fs_eff, threshold=0.01)
+            scr_event_indices, _ = EDA.validate_events(phasic_viz, scr_event_indices_raw, envelope_smooth=15, envelope_threshold=0.5, amplitude_proximity=0.1)
             scr_frequency = (len(scr_event_indices) / (viz_buffer_size / fs_eff)) * 60 if viz_buffer_size > 0 else 0.0  # events per minute
             # Store for node output
             self._last_scl = avg_scl
             self._last_sck = avg_sck
+
             metadata = {
                 "scl": scl,
                 "sck": sck,
                 "avg_scl": avg_scl,
                 "avg_sck": avg_sck,
                 "scr_frequency": scr_frequency,
+                "scr_peak_indices": scr_event_indices.tolist(),
                 "scl_metric_id": "SCL_METRIC",
                 "sck_metric_id": "SCK_METRIC",
                 "tonic_norm": tonic_norm.tolist(),
                 "phasic_norm": phasic_norm.tolist(),
                 "timestamps": viz_data[:, 0].tolist(),
                 "raw_tonic": tonic_viz.tolist(),
-                "raw_phasic": phasic_viz.tolist()
+                "raw_phasic": phasic_viz.tolist(),
+                "over": True,  # Enable overlay by default for EDA components
+                "type": "processed"  # Explicitly mark as processed type
             }
-            processed_signal_id = output_signal_id
+            print(f"[DEBUG] EDA Node: Creating signal with metadata keys: {list(metadata.keys())}")
+            print(f"[DEBUG] EDA Node: over={metadata.get('over')}, has_components={('tonic_norm' in metadata) and ('phasic_norm' in metadata)}")
+            print(f"[DEBUG] EDA Node: Component lengths: t={len(viz_data[:, 0])}, phasic={len(phasic_norm)}, tonic={len(tonic_norm)}")
+            processed_signal_id = output_signal_id            # Make signal data carry both the raw signal and the components to ensure 
+            # they can be visualized as overlays
             processed_signal_data = {
                 "t": viz_data[:, 0].tolist(),
                 "v": viz_data[:, 1].tolist(),
                 "tonic": tonic_viz.tolist(),
                 "phasic": phasic_viz.tolist(),
                 "tonic_norm": tonic_norm.tolist(),
-                "phasic_norm": phasic_norm.tolist()
+                "phasic_norm": phasic_norm.tolist(),
+                # Include ID in the signal data for reference in the drawing code
+                "id": processed_signal_id
             }
+            
+            print(f"[DEBUG] EDA Node: Registering processed signal with registry. Signal ID={processed_signal_id}")
+            print(f"[DEBUG] EDA Node: Signal data keys: {list(processed_signal_data.keys())}")
+            print(f"[DEBUG] EDA Node: Metadata has overlay flag: {metadata.get('over')}")
+            
             registry.register_signal(processed_signal_id, processed_signal_data, metadata)
+            
+            # Check if registration was successful
+            check_data = registry.get_signal(processed_signal_id)
+            check_meta = registry.get_signal_metadata(processed_signal_id)
+            print(f"[DEBUG] EDA Node: After registration: signal exists={check_data is not None}, meta exists={check_meta is not None}")
+            print(f"[DEBUG] EDA Node: Meta overlay flag after registration: {check_meta.get('over') if check_meta else 'None'}")
             time.sleep(0.01)
 
     def process_eda(self, input_signal_id="", show_peaks=True, output_signal_id="EDA_PROCESSED", enabled=True):

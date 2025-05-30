@@ -35,24 +35,36 @@ class PlotRegistry:
         
         # Thread-safety lock for registry operations
         self.registry_lock = threading.Lock()
-    
+
     def register_signal(self, signal_id, signal_data, metadata=None):
         """
         Register a signal in the registry, optimized to avoid unnecessary copies and metadata updates.
         Also, if the signal contains metrics (e.g., HR, RR, SCL, SCK), register/update corresponding metrics signals for MetricsView.
         """
         with self.registry_lock:
+            print(f"[DEBUG] PlotRegistry: Registering signal {signal_id}, metadata keys: {list(metadata.keys()) if metadata else 'None'}")
+            if metadata and 'over' in metadata:
+                print(f"[DEBUG] PlotRegistry: Signal {signal_id} has over={metadata['over']}")
+            if metadata and 'phasic_norm' in metadata and 'tonic_norm' in metadata:
+                print(f"[DEBUG] PlotRegistry: Signal {signal_id} has phasic/tonic components")
+                
             # --- Existing registration logic ---
             # Accept dict with 't' and 'v' as-is (new format)
             if isinstance(signal_data, dict) and 't' in signal_data and 'v' in signal_data:
                 # Only copy if the object is not already the same as last
                 prev = self.signals.get(signal_id)
                 if prev is not signal_data:
+                    print(f"[DEBUG] PlotRegistry: Updating signal data for {signal_id}")
                     self.signals[signal_id] = signal_data
                 # Only update meta if changed
                 if metadata is not None:
                     prev_meta = self.metadata.get(signal_id)
                     if prev_meta != metadata:
+                        print(f"[DEBUG] PlotRegistry: Updating metadata for {signal_id}")
+                        # Make sure we preserve the 'over' flag if it was previously set but not in new metadata
+                        if prev_meta and 'over' in prev_meta and prev_meta['over'] and metadata and 'over' not in metadata:
+                            print(f"[DEBUG] PlotRegistry: Preserving over=True flag from previous metadata")
+                            metadata['over'] = True
                         self.metadata[signal_id] = metadata
             # Existing logic for tuple, array, etc
             elif isinstance(signal_data, tuple) and len(signal_data) == 2:
@@ -130,7 +142,6 @@ class PlotRegistry:
                             'created': t_now
                         }
                     #print(f"[PlotRegistry][metrics] Registered/updated {metric_id}: t={t_now}, val={val}, keys={list(self.signals[metric_id].keys())}")
-            # ...existing code...
     
     def connect_node_to_signal(self, node_id, signal_id):
         """

@@ -8,6 +8,101 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
     v = np.array(v)
     if meta is None:
         meta = {}
+    # Special handling for signals with overlay flag or EDA signals:
+# - Checks for phasic_norm and tonic_norm components
+# - Displays both components as overlays when 'over' flag is True or signal ID starts with 'EDA'
+# - This enables proper visualization of EDA components without duplicate displays    # Check signal ID from both metadata and signal data
+    signal_id = signal.get('id', meta.get('id', 'unknown'))
+    
+    # Check for components in both metadata and signal data
+    phasic_in_meta = 'phasic_norm' in meta and len(meta['phasic_norm']) > 0
+    tonic_in_meta = 'tonic_norm' in meta and len(meta['tonic_norm']) > 0
+    phasic_in_signal = 'phasic_norm' in signal and len(signal['phasic_norm']) > 0
+    tonic_in_signal = 'tonic_norm' in signal and len(signal['tonic_norm']) > 0
+    
+    has_components = (phasic_in_meta and tonic_in_meta) or (phasic_in_signal and tonic_in_signal)
+    
+    # If components are in signal data but not metadata, use signal data
+    use_signal_components = phasic_in_signal and tonic_in_signal
+    
+    # Check length match using appropriate component source
+    if use_signal_components:
+        components_match_size = len(t) == len(signal['phasic_norm']) == len(signal['tonic_norm'])
+    else:
+        components_match_size = has_components and len(t) == len(meta['phasic_norm']) == len(meta['tonic_norm'])
+        
+    # Check overlay mode from metadata or signal type
+    is_overlay_mode = meta.get('over', False) or signal_id.upper().startswith('EDA')
+    
+    print(f"[DEBUG] Drawing: id={signal_id}, has_components={has_components}, components_match={components_match_size}, overlay_mode={is_overlay_mode}")
+    print(f"[DEBUG] Meta keys: {list(meta.keys())}")
+    print(f"[DEBUG] Signal keys: {list(signal.keys())}")
+    print(f"[DEBUG] Components: meta=({phasic_in_meta}, {tonic_in_meta}), signal=({phasic_in_signal}, {tonic_in_signal})")
+    
+    if has_components:
+        if use_signal_components:
+            print(f"[DEBUG] Component lengths (from signal): t={len(t)}, phasic={len(signal['phasic_norm'])}, tonic={len(signal['tonic_norm'])}")
+        else:
+            print(f"[DEBUG] Component lengths (from meta): t={len(t)}, phasic={len(meta['phasic_norm'])}, tonic={len(meta['tonic_norm'])}")
+      # Use components for overlay if we have them and overlay mode is active
+    if (has_components and components_match_size and is_overlay_mode):
+        # Overlay both on same axes, using normalized values
+        # Choose component source based on availability
+        if use_signal_components:
+            print(f"[DEBUG] Using components from signal data for {signal_id}")
+            phasic = np.array(signal['phasic_norm'])
+            tonic = np.array(signal['tonic_norm'])
+        else:
+            print(f"[DEBUG] Using components from metadata for {signal_id}")
+            phasic = np.array(meta['phasic_norm'])
+            tonic = np.array(meta['tonic_norm'])
+        
+        window_min = t[0] if len(t) > 0 else 0
+        window_max = t[-1] if len(t) > 0 else 0
+        if window_sec is not None and len(t) > 1:
+            window_max = t[-1]
+            window_min = window_max - window_sec
+            indices = np.where((t >= window_min) & (t <= window_max))[0]
+            t_overlay = t[indices]
+            phasic = phasic[indices]
+            tonic = tonic[indices]
+        else:
+            t_overlay = t
+        def norm_to_y(val):
+            return y + h - int(val * h)
+        phasic_points = [(x + int((t_overlay[j] - window_min) / (window_max - window_min) * w), norm_to_y(phasic[j])) for j in range(len(t_overlay))] if len(t_overlay) > 1 and window_max > window_min else []
+        tonic_points = [(x + int((t_overlay[j] - window_min) / (window_max - window_min) * w), norm_to_y(tonic[j])) for j in range(len(t_overlay))] if len(t_overlay) > 1 and window_max > window_min else []
+        # Draw overlays: phasic (orange), tonic (green)
+        if len(phasic_points) >= 2:
+            pygame.draw.lines(screen, (255, 170, 0), False, phasic_points, 2)  # Orange
+        if len(tonic_points) >= 2:
+            pygame.draw.lines(screen, (0, 220, 0), False, tonic_points, 2)    # Green
+        # Draw peak markers on phasic only if available
+        if 'scr_peak_indices' in meta and len(meta['scr_peak_indices']) > 0:
+            peak_indices = np.array(meta['scr_peak_indices'])
+            # Only show peaks that are in the current window
+            for idx in peak_indices:
+                if idx < 0 or idx >= len(t_overlay):
+                    continue
+                px = x + int((t_overlay[idx] - window_min) / (window_max - window_min) * w)
+                py = norm_to_y(phasic[idx])
+                pygame.draw.line(screen, (255, 255, 255), (px-6, py-6), (px+6, py+6), 2)
+                pygame.draw.line(screen, (255, 255, 255), (px-6, py+6), (px+6, py-6), 2)
+        # Draw label (signal id) at top left
+        label = meta.get('name', signal.get('id', ''))
+        label_surface = font.render(label, True, TEXT_COLOR)
+        screen.blit(label_surface, (x + 10, y + 10))        # Draw legend for overlays, with more vertical space below label
+        legend_font = font
+        legend_y = y + 10 + label_surface.get_height() + 18  # Add extra space
+        legend_x = x + w - 120
+        phasic_legend = legend_font.render("Phasic", True, (255, 170, 0))
+        tonic_legend = legend_font.render("Tonic", True, (0, 220, 0))
+        overlay_legend = legend_font.render("(Overlay)", True, (180, 180, 200))
+        screen.blit(phasic_legend, (legend_x, legend_y))
+        screen.blit(tonic_legend, (legend_x, legend_y + 18))
+        # Add overlay indicator
+        screen.blit(overlay_legend, (legend_x, legend_y + 36))
+        return
     if len(t) < 2 or len(v) < 2:
         pygame.draw.rect(screen, (80, 80, 80), (x, y, w, h), 2)
         label = meta.get('name', signal.get('id', ''))
@@ -105,28 +200,3 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
         max_label = font.render(f"{max_time:.1f}s", True, (80, 200, 200))
         screen.blit(min_label, (x + 2, y + h - 22))
         screen.blit(max_label, (x + w - max_label.get_width() - 2, y + h - 22))
-    # Overlay EDA phasic/tonic if present in metadata (for processed EDA signals)
-    if 'phasic_norm' in meta and 'tonic_norm' in meta and len(t) == len(meta['phasic_norm']) == len(meta['tonic_norm']):
-        # Overlay both on same axes, using normalized values
-        phasic = np.array(meta['phasic_norm'])
-        tonic = np.array(meta['tonic_norm'])
-        # Use the same t_plot window as main signal
-        if window_sec is not None and len(t) > 1:
-            window_max = t[-1]
-            window_min = window_max - window_sec
-            indices = np.where((t >= window_min) & (t <= window_max))[0]
-            t_overlay = t[indices]
-            phasic = phasic[indices]
-            tonic = tonic[indices]
-        else:
-            t_overlay = t
-        # Map to plot coordinates
-        def norm_to_y(val):
-            return y + h - int(val * h)
-        # Orange for phasic, green for tonic
-        phasic_points = [(x + int((t_overlay[j] - window_min) / (window_max - window_min) * w), norm_to_y(phasic[j])) for j in range(len(t_overlay))] if len(t_overlay) > 1 and window_max > window_min else []
-        tonic_points = [(x + int((t_overlay[j] - window_min) / (window_max - window_min) * w), norm_to_y(tonic[j])) for j in range(len(t_overlay))] if len(t_overlay) > 1 and window_max > window_min else []
-        if len(phasic_points) >= 2:
-            pygame.draw.lines(screen, (255, 170, 0), False, phasic_points, 2)  # Orange
-        if len(tonic_points) >= 2:
-            pygame.draw.lines(screen, (0, 220, 0), False, tonic_points, 2)    # Green
