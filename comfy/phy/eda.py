@@ -3,6 +3,7 @@ import numpy as np
 import threading
 import time
 from ...src.phy.eda_signal_processing import EDA
+from ...src.registry.signal_registry import SignalRegistry
 from ...src.utils.signal_processing import NumpySignalProcessor
 
 class EDANode:
@@ -21,18 +22,17 @@ class EDANode:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "input_signal_id": ("STRING", {"default": ""}),
-                "show_peaks": ("BOOLEAN", {"default": True}),
+                "input_signal_id": ("STRING", {"default": ""}),                "show_peaks": ("BOOLEAN", {"default": True}),
                 "output_signal_id": ("STRING", {"default": "EDA_PROCESSED"}),
                 "enabled": ("BOOLEAN", {"default": True})
             }
         }
 
     RETURN_TYPES = ("FLOAT", "FLOAT", "STRING")
-    RETURN_NAMES = ("SCL", "SCK", "Signal_ID")
+    RETURN_NAMES = ("SCL", "SCR", "Signal_ID")
     FUNCTION = "process_eda"
     CATEGORY = "Pedro_PIC/🔬 Bio-Processing"
-
+    
     @classmethod
     def IS_CHANGED(cls, *args, **kwargs):
         return float("NaN")
@@ -43,9 +43,10 @@ class EDANode:
     def _background_process(self, input_signal_id, show_peaks, stop_flag, output_signal_id):
         from ...src.registry.plot_registry import PlotRegistry
         registry = PlotRegistry.get_instance()
+        metrics_registry = SignalRegistry.get_instance()
         fs = 1000
         nyquist_fs = fs / 2
-        viz_window_sec = 5
+        viz_window_sec = 20
         viz_buffer_size = fs * viz_window_sec
         feature_buffer_size = viz_buffer_size + fs
         feature_values_deque = deque(maxlen=feature_buffer_size)
@@ -53,9 +54,8 @@ class EDANode:
         viz_values_deque = deque(maxlen=viz_buffer_size)
         viz_timestamps_deque = deque(maxlen=viz_buffer_size)
         metrics_buffer_size = 300  # e.g., 5 minutes at 1Hz
-        scl_history = deque(maxlen=metrics_buffer_size)
-        sck_history = deque(maxlen=metrics_buffer_size)
-        max_frequency_interest = 10  # EDA is low freq, but keep for decimation logic
+        metrics_deque = deque(maxlen=metrics_buffer_size)
+        max_frequency_interest = 100  # EDA is low freq, but keep for decimation logic
         decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
         use_decimation = decimation_factor > 1
         last_registry_data_hash = None
@@ -189,57 +189,54 @@ class EDANode:
                 minv, maxv = np.min(arr), np.max(arr)
                 return (arr - minv) / (maxv - minv) if maxv > minv else arr * 0
             tonic_norm = normalize(tonic_viz)
-            phasic_norm = normalize(phasic_viz)
-
-            # SCL/SCK calculation and rolling history
+            phasic_norm = normalize(phasic_viz)            # SCL/SCK calculation and rolling history
             scl = float(np.mean(tonic_viz)) if len(tonic_viz) > 0 else 0.0
             sck = float(np.mean(phasic_viz)) if len(phasic_viz) > 0 else 0.0
-            scl_history.append(scl)
-            sck_history.append(sck)
-            avg_scl = float(np.mean(scl_history)) if scl_history else 0.0
-            avg_sck = float(np.mean(sck_history)) if sck_history else 0.0
-
-            # SCR event (peak) detection and mapping to window (like ECG R-peak logic)
+            
+            # Store for node output
+            setattr(self, '_last_scl', scl)
+            setattr(self, '_last_sck', sck)            # SCR event (peak) detection and mapping to window (like ECG R-peak logic)
             result = self.eda.detect_events(phasic_viz, effective_fs)
+            # Handle tuple return (validated_events, envelope) or just events
             if isinstance(result, tuple) and len(result) == 2:
-                scr_event_indices, _ = result
+                scr_event_indices, _ = result  # Extract just the indices, ignore envelope
             else:
                 scr_event_indices = result
-            if not isinstance(scr_event_indices, (list, np.ndarray)):
-                scr_event_indices = [] if scr_event_indices is None else [scr_event_indices]
-            scr_event_indices = np.array(scr_event_indices, dtype=int) if len(scr_event_indices) > 0 else np.array([], dtype=int)
+            
+            # Ensure we have a clean array of indices
+            if scr_event_indices is None:
+                scr_event_indices = np.array([], dtype=int)
+            else:
+                scr_event_indices = np.array(scr_event_indices, dtype=int)
+            
+            # Only keep indices that are valid for the current window
+            scr_event_indices = scr_event_indices[(scr_event_indices >= 0) & (scr_event_indices < len(viz_timestamps_window))]
             scr_event_times = viz_timestamps_window[scr_event_indices] if len(scr_event_indices) > 0 and len(viz_timestamps_window) > 0 else []
-            scr_frequency = (len(scr_event_indices) / viz_window_sec) * 60 if viz_window_sec > 0 and len(scr_event_indices) > 0 else 0.0  # events per minute
-
-            # Store for node output
-            setattr(self, '_last_scl', avg_scl)
-            setattr(self, '_last_sck', avg_sck)
-
-            # Hash for registry update optimization
+            scr_frequency = (len(scr_event_indices) / viz_window_sec) * 60 if viz_window_sec > 0 and len(scr_event_indices) > 0 else 0.0  # events per minute            # Hash for registry update optimization
             data_hash = hash((
                 tuple(viz_timestamps_window[-5:]),
                 tuple(tonic_norm[-5:]),
-                tuple(phasic_norm[-5:]),
-                tuple(scr_event_times[-3:] if len(scr_event_times) > 0 else []),
-                avg_scl, avg_sck
+                tuple(phasic_norm[-5:]),                tuple(scr_event_times[-3:] if len(scr_event_times) > 0 else []),
+                scl, sck
             ))
             if data_hash == last_registry_data_hash:
                 time.sleep(0.01)
                 continue
             last_registry_data_hash = data_hash
-
+            
             # Metadata and processed signal for registry
             metadata = {
                 "id": output_signal_id,
                 "type": "eda_processed",
                 "scl": scl,
                 "sck": sck,
-                "avg_scl": avg_scl,
-                "avg_sck": avg_sck,
                 "scr_frequency": scr_frequency,
                 "scr_peak_timestamps": list(scr_event_times),
+                "scr_peak_indices": scr_event_indices.tolist(),  # Add indices for visualization
+                "show_peaks": show_peaks,  # Add show_peaks flag for visualization
                 "scl_metric_id": "SCL_METRIC",
                 "sck_metric_id": "SCK_METRIC",
+                "scr_metric_id": "SCR_METRIC",  # Add SCR frequency metric reference
                 "tonic_norm": tonic_norm.tolist(),
                 "phasic_norm": phasic_norm.tolist(),
                 "timestamps": viz_timestamps_window.tolist(),
@@ -253,9 +250,61 @@ class EDANode:
                 "tonic_norm": tonic_norm.tolist(),
                 "phasic_norm": phasic_norm.tolist(),
                 "timestamps": viz_timestamps_window.tolist(),
-                "id": output_signal_id
-            }
+                "id": output_signal_id            }
             registry.register_signal(output_signal_id, processed_signal_data, metadata)
+            
+            # Metrics registry pattern (similar to ECG node)
+            # Get the last timestamp from feature_timestamps (if available)
+            last_timestamp = float(feature_timestamps[-1]) if len(feature_timestamps) > 0 else time.time()
+            
+            # Append to metrics deque (timestamp, scl, sck, scr_frequency)
+            metrics_deque.append((last_timestamp, scl, sck, scr_frequency))
+            
+            # Prepare metrics signals for registry (SCL, SCK, SCR frequency as separate metrics)
+            metrics_t = [x[0] for x in metrics_deque]
+            metrics_scl = [x[1] for x in metrics_deque]
+            metrics_sck = [x[2] for x in metrics_deque]
+            metrics_scr_freq = [x[3] for x in metrics_deque]
+            
+            # Register SCL metric as a time series for MetricsView compatibility
+            scl_metrics_data = {
+                't': metrics_t,
+                'v': metrics_scl
+            }
+            metrics_registry.register_signal('SCL_METRIC', scl_metrics_data, {
+                'id': 'SCL_METRIC',
+                'type': 'eda_metrics',
+                'label': 'Skin Conductance Level (SCL)',
+                'source': output_signal_id,
+                'scope': 'global_metric'
+            })
+            
+            # Register SCK metric (phasic component)
+            sck_metrics_data = {
+                't': metrics_t,
+                'v': metrics_sck
+            }
+            metrics_registry.register_signal('SCK_METRIC', sck_metrics_data, {
+                'id': 'SCK_METRIC',
+                'type': 'eda_metrics',
+                'label': 'Skin Conductance Response (SCK)',
+                'source': output_signal_id,
+                'scope': 'global_metric'
+            })
+            
+            # Register SCR frequency metric
+            scr_freq_metrics_data = {
+                't': metrics_t,
+                'v': metrics_scr_freq
+            }
+            metrics_registry.register_signal('SCR_METRIC', scr_freq_metrics_data, {
+                'id': 'SCR_METRIC',
+                'type': 'eda_metrics',
+                'label': 'SCR Frequency (events/min)',
+                'source': output_signal_id,
+                'scope': 'global_metric'
+            })
+            
             time.sleep(0.01)
 
     def process_eda(self, input_signal_id="", show_peaks=True, output_signal_id="EDA_PROCESSED", enabled=True):
@@ -277,7 +326,9 @@ class EDANode:
         )
         self._processing_threads[signal_id] = thread
         thread.start()
-        return 0.0, 0.0, output_signal_id
+        scl = getattr(self, '_last_scl', 0.0)
+        sck = getattr(self, '_last_sck', 0.0)
+        return scl, sck, output_signal_id
 
     def __del__(self):
         for stop_flag in self._stop_flags.values():

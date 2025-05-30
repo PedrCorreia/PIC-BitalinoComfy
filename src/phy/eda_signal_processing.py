@@ -36,13 +36,13 @@ class EDA:
         - phasic: Phasic component of the EDA signal.
         """
         # Baseline correction for tonic component
-        tonic = NumpySignalProcessor.lowpass_filter(eda_signal, cutoff=0.2, fs=fs)
+        filtered_signal = NumpySignalProcessor.lowpass_filter(eda_signal, cutoff=0.5, fs=fs)
+        tonic = NumpySignalProcessor.lowpass_filter(filtered_signal, cutoff=0.01, fs=fs,order=2)
         
         # Phasic component is the difference between the original signal and tonic
-        phasic = eda_signal - tonic
-        
-        return tonic, phasic
-
+        phasic = filtered_signal - tonic
+        phasic = NumpySignalProcessor.moving_average(phasic, window_size=10)  # Smooth phasic component
+        return tonic, phasic   
     @staticmethod
     def detect_events(phasic_signal, fs, threshold=0.01):
         """
@@ -55,10 +55,15 @@ class EDA:
         
         Returns:
         - events: Indices of detected events (peaks).
+        - envelope: Smoothed envelope used for validation (optional, for compatibility with ECG-style processing).
         """
         # Use NumpySignalProcessor.find_peaks for robust detection
         events = NumpySignalProcessor.find_peaks(phasic_signal, fs=fs, threshold=threshold)
-        return events
+        
+        # Validate events using envelope-based method
+        validated_events, envelope = EDA.validate_events(phasic_signal, events)
+        
+        return validated_events, envelope
 
     @staticmethod
     def validate_events(phasic_signal, events, envelope_smooth=5, envelope_threshold=0.5, amplitude_proximity=0.1):

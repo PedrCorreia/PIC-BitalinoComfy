@@ -40,18 +40,34 @@ def ecg_waveform(t, sample_index, stress_period=30.0):
 
 def eda_waveform(t, sample_index):
     # Very slow baseline drift
-    slow_component = 5 + 5 * np.sin(2 * np.pi * 0.01 * t)
-    # Occasional large Gaussian peaks (simulating EDA responses)
+    slow_component = 5 + 5 * np.sin(2 * np.pi * 0.005 * t)
+    # Occasional EDA responses with realistic rise/decay times
     peak_interval = 8.0  # seconds between possible peaks
-    peak_width = 1     # width of each peak
-    # Generate peaks at regular intervals, but jitter their amplitude and timing a bit
+    amplitude = 3
+    rise_time = 0.5
+    decay_time = 3.0
+    
+    # Generate peaks at regular intervals, but jitter their timing
     value = slow_component
     for i in range(-2, 3):
-        peak_time = (np.floor(t / peak_interval) + i) * peak_interval + np.random.normal(0, 0.3)
-        amplitude = 10 + np.random.normal(0, 0.15)
-        value += amplitude * np.exp(-0.5 * ((t - peak_time) / peak_width) ** 2)
-    # Small noise
-    value += 0.2*np.random.normal(0, 0.02)
+        peak_time = (np.floor(t / peak_interval) + i) * peak_interval 
+        
+        # Create asymmetric peak with specified rise and decay times
+        if t >= peak_time:
+            # Decay phase (exponential decay)
+            time_since_peak = t - peak_time
+            peak_value = amplitude * np.exp(-time_since_peak / decay_time)
+        else:
+            # Rise phase (exponential rise)
+            time_to_peak = peak_time - t
+            if time_to_peak <= rise_time * 3:  # Only include rise within reasonable range
+                peak_value = amplitude * (1 - np.exp(-((rise_time * 3 - time_to_peak) / rise_time)))
+            else:
+                peak_value = 0
+        
+        value += peak_value
+    
+
     return value
 
 def rr_waveform(t, sample_index, noise_level=0.05, period=30.0):

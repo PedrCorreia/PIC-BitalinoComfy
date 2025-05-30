@@ -76,9 +76,9 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
         if len(phasic_points) >= 2:
             pygame.draw.lines(screen, (255, 170, 0), False, phasic_points, 2)  # Orange
         if len(tonic_points) >= 2:
-            pygame.draw.lines(screen, (0, 220, 0), False, tonic_points, 2)    # Green
-        # Draw peak markers on phasic only if available
-        if 'scr_peak_indices' in meta and len(meta['scr_peak_indices']) > 0:
+            pygame.draw.lines(screen, (0, 220, 0), False, tonic_points, 2)    # Green        # Draw peak markers on phasic only if available and enabled
+        if (meta.get('show_peaks', False) and 'scr_peak_indices' in meta and 
+            len(meta['scr_peak_indices']) > 0):
             peak_indices = np.array(meta['scr_peak_indices'])
             # Only show peaks that are in the current window
             for idx in peak_indices:
