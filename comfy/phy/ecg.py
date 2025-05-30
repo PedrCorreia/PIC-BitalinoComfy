@@ -2,8 +2,6 @@ from collections import deque
 import numpy as np
 import threading
 import time
-import uuid
-import scipy.signal
 from ...src.phy.ecg_signal_processing import ECG
 from ...src.registry.signal_registry import SignalRegistry
 from ...src.utils.signal_processing import NumpySignalProcessor

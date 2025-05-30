@@ -40,7 +40,7 @@ def ecg_waveform(t, sample_index, stress_period=30.0):
 
 def eda_waveform(t, sample_index):
     # Very slow baseline drift
-    slow_component = 2.0 + 0.7 * np.sin(2 * np.pi * 0.01 * t)
+    slow_component = 5+ 5 * np.sin(2 * np.pi * 0.01 * t)
     # Occasional large Gaussian peaks (simulating EDA responses)
     peak_interval = 8.0  # seconds between possible peaks
     peak_width = 0.7     # width of each peak
