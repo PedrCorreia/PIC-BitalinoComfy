@@ -15,112 +15,17 @@ This repository provides tools and custom nodes for integrating PLUX/BITalino bi
 - **ComfyUI Node Integration:**  
   Modular nodes for signal filtering, feature extraction, and visualization, designed for seamless use in ComfyUI pipelines.
 
----
+-**Pygame Signal Vizualization UI**
 
-## Main Components
-
-- **`report/bitalino_aq.py`**  
-  Example script for acquiring signals from BITalino devices and saving them as JSON for further processing.
-
-- **`src/signal_processing.py`**  
-  Core utilities for signal filtering, normalization, peak detection, STFT, moving average, and more.
-
-- **`src/rr_signal_processing.py`**  
-  (Previously `respiration_rate_numpy.py`)  
-  Respiration rate extraction and processing, refactored for future ComfyUI integration.
-
-- **`src/ecg_signal_processing.py`**  
-  ECG signal processing: artifact removal, heart rate and HRV extraction, and visualization.
-
-- **`src/eda_signal_processing.py`**  
-  EDA (Electrodermal Activity) processing: ADC conversion, tonic/phasic decomposition, event detection, and arousal metrics.
-
-- **`src/plot.py`**  
-  Real-time plotting utilities primarily using Pygame for efficient visualization, with fallback to PyQtGraph.
-
-- **`src/synthetic_data.py`**  
-  Synthetic data generation for EDA, ECG, and RR signals for testing and demonstration purposes.
-
-- **`src/plot/signal_registry.py` and `src/plot/plot_registry.py`**  
-  Core registry classes that implement a clean, unified architecture for signal management and visualization.
-  `SignalRegistry` stores and manages signals, while `PlotRegistry` manages visualization connections.
-
-- **`comfy/`**  
-  Custom ComfyUI nodes for signal processing tasks:
-  - `Registry/signal_input_node.py` bridges between SignalRegistry and PlotRegistry
-  - `Registry/plot_unit_node.py` visualizes signals from PlotRegistry
-  - `Registry/registry_synthetic_generator.py` generates synthetic signals
-
-- **`Archive/`**  
-  **Legacy nodes and scripts**. Older nodes have been moved here and may not work with the current codebase or ComfyUI. They are retained for reference only.
-
----
-
-## Class Overview
-
-- **NumpySignalProcessor**  
-  Core static methods for filtering, normalization, peak detectio, and more.
-
-- **ECG**  
-  - Artifact removal, QRS/R-peak detection, heart rate and HRV extraction,.
-
-- **EDA**  
-  - ADC to μS conversion, tonic/phasic decomposition, event/arousal detection, metrics.
-
-- **RR**  
-  - Respiration rate extraction, deep breath detection, and visualization.
-
----
-
-## Demos
-
-Each signal processing class includes a demo script for working with recorded signals:
-
-- **ECG Demo:**  
-  Demonstrates artifact removal, QRS/R-peak detection, and heart rate/HRV extraction using a sample ECG recording.
-
-- **EDA Demo:**  
-  Showcases ADC to μS conversion, tonic/phasic decomposition, and arousal event detection with a recorded EDA signal.
-
-- **RR Demo:**  
-  Provides an example of respiration rate extraction and deep breath detection using a sample respiration signal.
-
----
-
-# PlotUnit for ComfyUI
-
-A persistent visualization tool for monitoring signals in ComfyUI workflows.
-
-## Features
-
-- Persistent window for continuous signal monitoring
-- Sidebar UI for toggling between Raw/Filtered signal displays
-- Thread-safe implementation (won't block ComfyUI workflow)
-- Signal statistics (min, max, average values)
-
-## Installation
-
-1. Clone this repository into your ComfyUI custom_nodes folder:
-```bash
-cd ComfyUI/custom_nodes
-git clone https://github.com/yourusername/PIC-2025.git
-```
-
-2. Install the required dependencies:
-```bash
-pip install -r PIC-2025/requirements.txt
-```
-
-3. Restart ComfyUI
 
 ## Usage
 
 1. Add a "Plot Unit" node to your workflow
 2. Connect your signal tensor to the "signal" input
 3. Optionally connect a filtered version to "filtered_signal"
-4. Choose between "raw" or "filtered" modes
-5. Run your workflow to visualize the data
+4. Run your workflow to visualize the data.
 
+**Note:** Metrics will be displayed if available.
 The window will persist between workflow runs, allowing you to monitor signals continuously.
 
 ## Interface
