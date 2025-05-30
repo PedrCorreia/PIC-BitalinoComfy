@@ -153,7 +153,7 @@ for img_blur in blurred_imgs:
     if img_blur is None:
         depth_imgs.append(np.zeros((img_size, img_size, 3), dtype=np.uint8))
         continue
-    depth = midas.predict(img_blur)
+    depth = midas.predict(img_blur, optimize_size=True)
     depth_norm = (depth - np.min(depth)) / (np.max(depth) - np.min(depth) + 1e-8)
     depth_vis = (depth_norm * 255).astype(np.uint8)
     depth_imgs.append(depth_vis)

@@ -103,7 +103,7 @@ def generate_depth_map(image_path, output_path=None, model_type='MiDaS_small', d
         
         # Generate depth map
         print("Generating depth map...")
-        depth_map = midas.predict(image)
+        depth_map = midas.predict(image, optimize_size=True)
         
         # Calculate elapsed time
         elapsed_time = time.time() - start_time

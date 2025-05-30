@@ -100,7 +100,7 @@ class DepthModelLoaderNode:
         midas_instance = None # Initialize to None
         try:
             # Assuming Midas class is imported correctly from ..src.im_process.process
-            midas_instance = Midas(model_type=model_type, device=None, use_half_precision=None)
+            midas_instance = Midas(model_type=model_type, device=None)
             print(f"[DepthModelLoaderNode] Midas instance created: {type(midas_instance)}")
             print(f"[DepthModelLoaderNode] Calling midas_instance.load_model()...")
             midas_instance.load_model() 
@@ -156,7 +156,7 @@ class DepthMapNode:
 
         # Midas.predict returns a 2D NumPy array (H, W), float32, normalized [0,1]
         # It handles internal resizing and matches output to original input image dimensions.
-        depth_map_np = midas_instance.predict(numpy_image, optimize_size=True) # optimize_size is True by default
+        depth_map_np = midas_instance.predict(numpy_image, optimize_size=True)
         print(f"[DepthMapNode] depth_map_np from Midas.predict shape: {depth_map_np.shape}, dtype: {depth_map_np.dtype}")
 
         # Handle potential 1x1 output case to prevent Pillow error downstream
@@ -165,11 +165,35 @@ class DepthMapNode:
             pixel_value = depth_map_np[0, 0] 
             depth_map_np = np.full((2, 2), pixel_value, dtype=np.float32) 
             print(f"[DepthMapNode] Upscaled depth_map_np shape: {depth_map_np.shape}, dtype: {depth_map_np.dtype}")
-        
-        final_numpy_depth = np.ascontiguousarray(depth_map_np) 
-        
-        depth_tensor = torch.from_numpy(final_numpy_depth).unsqueeze(0).unsqueeze(-1)
-        print(f"[DepthMapNode] Returning depth_tensor shape: {depth_tensor.shape}, dtype: {depth_tensor.dtype}")
+        # Ensure output is at least 2x2 and shape [1, H, W, 3] (RGB, float32, 0-1)
+        final_numpy_depth = np.ascontiguousarray(depth_map_np)
+        if final_numpy_depth.ndim == 2:
+            H, W = final_numpy_depth.shape
+            # Normalize to [0,1] (should already be, but ensure)
+            min_val = final_numpy_depth.min()
+            max_val = final_numpy_depth.max()
+            if max_val > min_val:
+                final_numpy_depth = (final_numpy_depth - min_val) / (max_val - min_val)
+            else:
+                final_numpy_depth = np.zeros_like(final_numpy_depth)
+            # Stack to 3 channels (RGB)
+            final_numpy_depth = np.stack([final_numpy_depth]*3, axis=-1)  # (H, W, 3)
+            final_numpy_depth = final_numpy_depth.astype(np.float32)
+            final_numpy_depth = final_numpy_depth.reshape(1, H, W, 3)
+        elif final_numpy_depth.ndim == 3 and final_numpy_depth.shape[-1] == 1:
+            # (H, W, 1) -> (H, W, 3)
+            H, W, _ = final_numpy_depth.shape
+            final_numpy_depth = np.concatenate([final_numpy_depth]*3, axis=-1)
+            final_numpy_depth = final_numpy_depth.reshape(1, H, W, 3)
+        elif final_numpy_depth.ndim == 3 and final_numpy_depth.shape[-1] == 3:
+            H, W, _ = final_numpy_depth.shape
+            final_numpy_depth = final_numpy_depth.reshape(1, H, W, 3)
+        elif final_numpy_depth.ndim == 4 and final_numpy_depth.shape[-1] == 1:
+            # (1, H, W, 1) -> (1, H, W, 3)
+            final_numpy_depth = np.concatenate([final_numpy_depth]*3, axis=-1)
+        # else: assume already (1, H, W, 3)
+        depth_tensor = torch.from_numpy(final_numpy_depth).float()
+        print(f"[DepthMapNode] Returning depth_tensor shape: {depth_tensor.shape}, dtype: {depth_tensor.dtype}, min: {depth_tensor.min():.4f}, max: {depth_tensor.max():.4f}")
         return (depth_tensor,)
 
 class CannyMapNode:

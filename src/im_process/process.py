@@ -169,28 +169,12 @@ class Canny:
         return edges
 
 class Midas:
-<<<<<<< HEAD
-    # Cache of model instances to avoid reloading
-    _model_cache = {}
-    
-    def __init__(self, model_type='MiDaS_small', device=None, optimize_memory=True, use_half_precision=None):
-        """
-        Initialize the MiDaS depth prediction model
-        
-        Args:
-            model_type: Model type to use ('MiDaS_small', 'DPT_Large', etc.)
-            device: Device to use ('cuda', 'cpu', or specific like 'cuda:0')
-            optimize_memory: Whether to optimize memory usage by clearing cache
-            use_half_precision: Use half precision (fp16) for faster inference on supported hardware
-        """
-=======
-    def __init__(self, model_type='MiDaS_small', device=None, force_perspective=False, min_z=-15, max_blur=8):
->>>>>>> 5cb3fffddc73e7d3dc7506b6e523917f68f5733b
+    def __init__(self, model_type='MiDaS_small', device=None, force_perspective=False, min_z=-15, max_blur=8, use_half_precision=None, optimize_memory=False):
         self.model_type = model_type
         
         # Auto-select best available device if not specified
         if device is None:
-            self.device = self._get_optimal_device()
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
             self.device = device
             
@@ -205,140 +189,14 @@ class Midas:
         self.model = None
         self.transform = None
         self._loaded = False
-<<<<<<< HEAD
-        self._cache_key = f"{model_type}_{self.device}_{self.use_half_precision}"
-        
-        # Cache for processed images - MRU cache of size 3
-        self._depth_cache = {}
-        self._cache_keys = []
-        self._max_cache_size = 3
-        
-        # Performance tracking
-        self._inference_times = []
-        self._max_times_tracked = 5
-        
-        logger.info(f"Initialized MiDaS ({model_type}) on {self.device} " +
-                   f"{'with' if self.use_half_precision else 'without'} half precision")
-    
-    def _get_optimal_device(self):
-        """Determine the best available device for inference"""
-        if torch.cuda.is_available():
-            # Check GPU memory to determine the best device
-            device_count = torch.cuda.device_count()
-            if device_count > 1:
-                # Select GPU with most free memory
-                max_free_mem = 0
-                best_device = 0
-                for i in range(device_count):
-                    torch.cuda.set_device(i)
-                    torch.cuda.empty_cache()
-                    free_mem = torch.cuda.memory_reserved(i) - torch.cuda.memory_allocated(i)
-                    if free_mem > max_free_mem:
-                        max_free_mem = free_mem
-                        best_device = i
-                return f"cuda:{best_device}"
-            return "cuda"
-        
-        # Check if MPS is available (Apple Silicon)
-        if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            return "mps"
-            
-        return "cpu"
-    
-=======
         self.force_perspective = force_perspective
         self.min_z = min_z
         self.max_blur = max_blur
 
->>>>>>> 5cb3fffddc73e7d3dc7506b6e523917f68f5733b
     def load_model(self):
         """Load the MiDaS model with caching for better performance"""
         if self._loaded:
             return
-<<<<<<< HEAD
-            
-        # Check if this model configuration is already cached
-        if self._cache_key in self._model_cache:
-            logger.info(f"Using cached model for {self._cache_key}")
-            self.model, self.transform = self._model_cache[self._cache_key]
-            self._loaded = True
-            return
-            
-        start_time = time.time()
-        
-        try:
-            # Before loading model, optimize memory
-            if self.optimize_memory and 'cuda' in self.device:
-                torch.cuda.empty_cache()
-                
-            # Check if custom model path is available in environment
-            custom_model_path = os.environ.get('MIDAS_MODEL_PATH', '')
-            if custom_model_path and os.path.exists(custom_model_path):
-                logger.info(f"Loading custom MiDaS model from {custom_model_path}")
-                try:
-                    self.model = torch.load(custom_model_path, map_location=self.device)
-                    # Try to get transform from common locations
-                    transforms = torch.hub.load('intel-isl/MiDaS', 'transforms', pretrained=False)
-                    if self.model_type == 'MiDaS_small':
-                        self.transform = getattr(transforms, 'small_transform', None)
-                    else:
-                        self.transform = getattr(transforms, 'default_transform', None)
-                    
-                except Exception as e:
-                    logger.warning(f"Failed to load custom model: {e}")
-                    self.model = None  # Will be loaded from torch hub below
-            
-            # If custom model failed or wasn't specified, use torch hub
-            if self.model is None:
-                logger.info(f"Loading MiDaS model {self.model_type} from torch hub")
-                self.model = torch.hub.load('intel-isl/MiDaS', self.model_type)
-                transforms = torch.hub.load('intel-isl/MiDaS', 'transforms')
-                if self.model_type == 'MiDaS_small':
-                    self.transform = getattr(transforms, 'small_transform', None)
-                else:
-                    self.transform = getattr(transforms, 'default_transform', None)
-                    
-            # Move model to appropriate device
-            self.model.to(self.device)
-            
-            # Use half precision if requested and supported
-            if self.use_half_precision:
-                logger.info("Converting model to half precision (fp16)")
-                self.model = self.model.half()
-                
-            # Set model to evaluation mode
-            self.model.eval()
-            
-            # Cache the model for future use
-            self._model_cache[self._cache_key] = (self.model, self.transform)
-            
-            load_time = time.time() - start_time
-            logger.info(f"Model loaded in {load_time:.2f}s")
-            
-            self._loaded = True
-            
-        except Exception as e:
-            logger.error(f"Error loading MiDaS model: {e}")
-            raise RuntimeError(f"Failed to load MiDaS model: {e}")
-    
-    @lru_cache(maxsize=8)
-    def _get_cached_hash(self, image_bytes):
-        """Helper for image caching using hashing - used with the lru_cache decorator"""
-        return hash(image_bytes)
-    
-    def predict(self, img, optimize_size=True):
-        """
-        Predict depth map from an input image (numpy array, BGR or RGB)
-        
-        Args:
-            img: Input image as numpy array
-            optimize_size: Whether to optimize image size for faster processing
-            
-        Returns:
-            Depth map as numpy array
-        """
-        start_time = time.time()
-=======
         self.model = torch.hub.load('intel-isl/MiDaS', self.model_type)  # type: ignore
         self.model.to(self.device)  # type: ignore
         self.model.eval()  # type: ignore
@@ -363,9 +221,8 @@ class Midas:
             img = cv2.GaussianBlur(img, (ksize, ksize), blur_sigma)
         return img
 
-    def predict(self, img, z=None):
+    def predict(self, img, z=None, optimize_size=True):
         """Predict depth map from an input image (numpy array, BGR or RGB). Optionally apply perspective blur if enabled."""
->>>>>>> 5cb3fffddc73e7d3dc7506b6e523917f68f5733b
         self.load_model()
         
         # Simple image caching - avoid reprocessing the exact same image
@@ -385,7 +242,6 @@ class Midas:
         # Optimize image size if requested (resize large images for speed)
         original_size = img_rgb.shape[:2]
         resized = False
-        
         if optimize_size and (original_size[0] > 512 or original_size[1] > 512):
             # Keep aspect ratio
             max_dim = max(original_size)
@@ -398,130 +254,6 @@ class Midas:
         # Check if transform is properly loaded
         if self.transform is None:
             raise RuntimeError('MiDaS transform not loaded')
-<<<<<<< HEAD
-            
-        # Process the image with the transform and run inference
-        try:
-            logger.debug("Running MiDaS inference")
-            
-            # Apply transform
-            input_batch = self.transform(img_rgb)
-            
-            # Convert to half precision if requested
-            if self.use_half_precision:
-                input_batch = input_batch.half()
-                
-            # Move input to device
-            input_batch = input_batch.to(self.device)
-            
-            # Ensure model is loaded
-            if self.model is None:
-                raise RuntimeError('MiDaS model not loaded')
-                
-            # Run inference without gradient calculation
-            with torch.no_grad():
-                # Get model prediction
-                prediction = self.model(input_batch)
-                
-                # If model returns a list/tuple (some MiDaS models), take the first element
-                if isinstance(prediction, (list, tuple)):
-                    prediction = prediction[0]
-                
-                # prediction is likely (B, H_model, W_model). Unsqueeze to (B, 1, H_model, W_model) for interpolate
-                # Interpolate output will be (B, 1, H_out, W_out)
-                interpolated_prediction = torch.nn.functional.interpolate(
-                    prediction.unsqueeze(1),
-                    size=img_rgb.shape[:2], # Target H_out, W_out from (potentially resized) img_rgb
-                    mode='bicubic',
-                    align_corners=False
-                )
-                # Squeeze batch and channel dimensions to get (H_out, W_out)
-                # Assumes B=1 (batch size is 1)
-                output_tensor_2d = interpolated_prediction.squeeze(0).squeeze(0) 
-                
-                # Convert to numpy and normalize
-                output = output_tensor_2d.cpu().numpy()
-                output = (output - output.min()) / (output.max() - output.min() + 1e-8)
-                
-                # Ensure output is a proper float32 format before resizing
-                output = output.astype(np.float32)
-                
-                # Resize back to original size if needed
-                if resized:
-                    # Make sure output is properly normalized and in the right format for resizing
-                    if output.min() < 0 or output.max() > 1:
-                        output = (output - output.min()) / (output.max() - output.min() + 1e-8)
-                        
-                    # Use cv2.resize with proper interpolation
-                    output = cv2.resize(
-                        output, 
-                        (original_size[1], original_size[0]),  # Width, height
-                        interpolation=cv2.INTER_CUBIC
-                    )
-                
-                # Update inference time statistics
-                inference_time = time.time() - start_time
-                self._update_timing(inference_time)
-                
-                # Add result to cache
-                # --- CACHE BYPASSED FOR DEBUGGING (Don't add to cache) ---
-                # self._add_to_cache(img_hash, output)
-                # --- END CACHE BYPASS ---
-                
-                # Clean up GPU memory if optimizing for memory
-                if self.optimize_memory and 'cuda' in self.device:
-                    torch.cuda.empty_cache()
-            
-            logger.debug(f"[Midas.predict] Returning output with shape: {output.shape}, dtype: {output.dtype}")
-            return output
-                
-        except Exception as e:
-            logger.error(f"Error during depth prediction: {e}")
-            raise
-    
-    def _update_timing(self, inference_time):
-        """Update inference timing statistics"""
-        self._inference_times.append(inference_time)
-        if len(self._inference_times) > self._max_times_tracked:
-            self._inference_times.pop(0)
-        avg_time = sum(self._inference_times) / len(self._inference_times)
-        logger.info(f"Depth prediction completed in {inference_time:.3f}s (avg: {avg_time:.3f}s)")
-    
-    def _add_to_cache(self, img_hash, result):
-        """Add result to the MRU cache"""
-        if len(self._cache_keys) >= self._max_cache_size:
-            # Remove least recently used item
-            oldest_key = self._cache_keys.pop(0)
-            if oldest_key in self._depth_cache:
-                del self._depth_cache[oldest_key]
-                
-        # Add new result
-        self._depth_cache[img_hash] = result
-        self._cache_keys.append(img_hash)
-        
-    def get_colored_depth(self, depth_map, colormap=cv2.COLORMAP_INFERNO):
-        """Convert depth map to a colored visualization using the specified colormap"""
-        # Make sure depth_map is properly normalized for colormap
-        if depth_map.min() < 0 or depth_map.max() > 1:
-            depth_map_norm = (depth_map - depth_map.min()) / (depth_map.max() - depth_map.min() + 1e-8)
-        else:
-            depth_map_norm = depth_map
-            
-        # Convert to uint8 for colormap
-        depth_map_uint8 = (depth_map_norm * 255).astype(np.uint8)
-        colored_depth = cv2.applyColorMap(depth_map_uint8, colormap)
-        return colored_depth
-        
-    def __del__(self):
-        """Clean up resources when the object is destroyed"""
-        # Clean up GPU memory
-        if hasattr(self, 'optimize_memory') and self.optimize_memory and \
-           hasattr(self, 'device') and 'cuda' in self.device:
-            try:
-                torch.cuda.empty_cache()
-            except:
-                pass
-=======
         input_tensor = self.transform(img_rgb).to(self.device)  # type: ignore
         if self.model is None:
             raise RuntimeError('MiDaS model not loaded')
@@ -538,4 +270,3 @@ class Midas:
         if self.force_perspective and z is not None:
             output = self.apply_perspective_blur(output, z)
         return output
->>>>>>> 5cb3fffddc73e7d3dc7506b6e523917f68f5733b

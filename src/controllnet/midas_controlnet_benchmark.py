@@ -38,7 +38,7 @@ def midas_controlnet_benchmark(
     print("Generating MiDaS depth map...")
     midas = Midas()
     img_array = np.array(original_image)
-    depth_map = midas.predict(img_array)
+    depth_map = midas.predict(img_array, optimize_size=True)
     depth_map_norm = (depth_map - depth_map.min()) / (depth_map.max() - depth_map.min() + 1e-8)
     depth_map_uint8 = (depth_map_norm * 255).astype(np.uint8)
     depth_map_img = Image.fromarray(depth_map_uint8)

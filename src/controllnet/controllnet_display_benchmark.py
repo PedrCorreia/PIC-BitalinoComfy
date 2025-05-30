@@ -144,7 +144,7 @@ def multi_prompt_benchmark(input_image_path=None, use_checkpoint=True, save_chec
     print("Generating MiDaS depth map...")
     midas = Midas()
     img_array = np.array(original_image)
-    depth_map = midas.predict(img_array)
+    depth_map = midas.predict(img_array, optimize_size=True)
     # Normalize and convert to 8-bit for visualization and ControlNet
     depth_map_norm = (depth_map - depth_map.min()) / (depth_map.max() - depth_map.min() + 1e-8)
     depth_map_uint8 = (depth_map_norm * 255).astype(np.uint8)

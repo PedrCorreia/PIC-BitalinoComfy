@@ -70,7 +70,7 @@ class ECGNode:
         last_process_time = time.time()
         processing_interval = 0.033
         # --- define decimation_factor and use_decimation ---
-        max_frequency_interest = 250  # Hz for QRS complex
+        max_frequency_interest = 400  # Hz for QRS complex
         decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
         use_decimation = decimation_factor > 1
         start_time = None
@@ -160,7 +160,8 @@ class ECGNode:
                 feature_values, 
                 lowcut=lowcut, 
                 highcut=highcut, 
-                fs=effective_fs
+                fs=effective_fs,
+                order=4,
             )
             # Use ECG class for peak and HR calculation with separate methods
             avg_hr = self.ecg.calculate_hr(

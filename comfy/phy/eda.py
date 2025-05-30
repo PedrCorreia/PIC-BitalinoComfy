@@ -172,7 +172,7 @@ class EDANode:
             filtered_phasic = phasic_viz
             raw_range = np.max(raw_window) - np.min(raw_window) if len(raw_window) > 0 else 1.0
             tonic_range = np.max(filtered_tonic) - np.min(filtered_tonic) if len(filtered_tonic) > 0 else 1.0
-            phasic_range = np.max(filtered_phasic) - np.min(filtered_phasic) if len(filtered_phasic) > 0 else 1.0
+            phasic_range = np.max(filtered_phasic) - np.min(filtered_phasic) if len(filtered_phagic) > 0 else 1.0
             # If filtered amplitude is much lower than raw, amplify
             min_ratio = 0.2  # If filtered is less than 20% of raw, amplify
             amp_factor = 1.0
@@ -195,7 +195,8 @@ class EDANode:
             
             # Store for node output
             setattr(self, '_last_scl', scl)
-            setattr(self, '_last_sck', sck)            # SCR event (peak) detection and mapping to window (like ECG R-peak logic)
+            setattr(self, '_last_sck', sck)
+            # SCR event (peak) detection and mapping to window (like ECG R-peak logic)
             result = self.eda.detect_events(phasic_viz, effective_fs)
             # Handle tuple return (validated_events, envelope) or just events
             if isinstance(result, tuple) and len(result) == 2:
@@ -212,11 +213,30 @@ class EDANode:
             # Only keep indices that are valid for the current window
             scr_event_indices = scr_event_indices[(scr_event_indices >= 0) & (scr_event_indices < len(viz_timestamps_window))]
             scr_event_times = viz_timestamps_window[scr_event_indices] if len(scr_event_indices) > 0 and len(viz_timestamps_window) > 0 else []
-            scr_frequency = (len(scr_event_indices) / viz_window_sec) * 60 if viz_window_sec > 0 and len(scr_event_indices) > 0 else 0.0  # events per minute            # Hash for registry update optimization
+            scr_frequency = (len(scr_event_indices) / viz_window_sec) * 60 if viz_window_sec > 0 and len(scr_event_indices) > 0 else 0.0  # events per minute
+
+            # --- Vectorized mapping of SCR event indices to timestamps in window (like RR node) ---
+            peak_timestamps_in_window = []
+            if show_peaks and len(scr_event_indices) > 0 and len(viz_timestamps_window) > 0:
+                scr_event_times = viz_timestamps_window[scr_event_indices]
+                window_min = viz_timestamps_window[0]
+                window_max = viz_timestamps_window[-1]
+                in_window_mask = (scr_event_times >= window_min) & (scr_event_times <= window_max)
+                peak_timestamps_in_window = scr_event_times[in_window_mask].tolist()
+            else:
+                peak_timestamps_in_window = []
+            scr_frequency = (len(peak_timestamps_in_window) / viz_window_sec) * 60 if viz_window_sec > 0 and len(peak_timestamps_in_window) > 0 else 0.0  # events per minute
+
+            # --- RR-style peak metadata for visualization ---
+            peak_marker = "o"
+            peak_color = "#FF55AA"  # Choose a distinct color for EDA peaks
+
+            # Hash for registry update optimization
             data_hash = hash((
                 tuple(viz_timestamps_window[-5:]),
                 tuple(tonic_norm[-5:]),
-                tuple(phasic_norm[-5:]),                tuple(scr_event_times[-3:] if len(scr_event_times) > 0 else []),
+                tuple(phasic_norm[-5:]),
+                tuple(peak_timestamps_in_window[-3:] if len(peak_timestamps_in_window) > 0 else []),
                 scl, sck
             ))
             if data_hash == last_registry_data_hash:
@@ -231,7 +251,12 @@ class EDANode:
                 "scl": scl,
                 "sck": sck,
                 "scr_frequency": scr_frequency,
-                "scr_peak_timestamps": list(scr_event_times),
+                # --- RR-style peak overlay fields for visualization ---
+                "peak_timestamps": peak_timestamps_in_window,
+                "peak_marker": "o",
+                "color": "#FF55AA",  # Magenta for EDA peaks
+                # --- End RR-style fields ---
+                "scr_peak_timestamps": peak_timestamps_in_window,
                 "scr_peak_indices": scr_event_indices.tolist(),  # Add indices for visualization
                 "show_peaks": show_peaks,  # Add show_peaks flag for visualization
                 "scl_metric_id": "SCL_METRIC",

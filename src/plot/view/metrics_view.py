@@ -167,14 +167,18 @@ class MetricsView:
             last_val = None
             try:
                 if sig and isinstance(sig, dict):
+                    print(f"[HR BAR DEBUG] sig dict for {label}: keys={list(sig.keys())}")
                     if "last" in sig and isinstance(sig["last"], (float, int, np.floating, np.integer)):
                         last_val = float(sig["last"])
+                        print(f"[HR BAR DEBUG] last_val from sig['last']: {last_val}")
                     elif "last" in sig and isinstance(sig["last"], (list, np.ndarray)) and len(sig["last"]):
                         last_val = float(sig["last"][-1])
+                        print(f"[HR BAR DEBUG] last_val from sig['last'][-1]: {last_val}")
                     elif "v" in sig and isinstance(sig["v"], (list, np.ndarray)) and len(sig["v"]):
                         last_val = float(sig["v"][-1])
-            except Exception:
-                pass
+                        print(f"[HR BAR DEBUG] last_val from sig['v'][-1]: {last_val}")
+            except Exception as e:
+                print(f"[HR BAR DEBUG] Exception extracting last_val for {label}: {e}")
             # Clamp and normalize last_val for bar
             if last_val is not None and np.isfinite(last_val):
                 norm = (last_val - min_v) / (max_v - min_v) if (max_v - min_v) != 0 else 0.0

@@ -21,7 +21,7 @@ try:
     from process import Midas
     midas = Midas()
     print(f"Running MiDaS on {img_path}...")
-    depth = midas.predict(img)
+    depth = midas.predict(img, optimize_size=True)
     depth_vis = cv2.normalize(depth, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)  # type: ignore
     depth_vis = cv2.applyColorMap(depth_vis, cv2.COLORMAP_INFERNO)
 except Exception as e:

@@ -36,15 +36,15 @@ class EDA:
         - phasic: Phasic component of the EDA signal.
         """
         # Baseline correction for tonic component
-        filtered_signal = NumpySignalProcessor.lowpass_filter(eda_signal, cutoff=0.5, fs=fs)
-        tonic = NumpySignalProcessor.lowpass_filter(filtered_signal, cutoff=0.01, fs=fs,order=2)
+        filtered_signal = NumpySignalProcessor.bandpass_filter(eda_signal, lowcut=0.1, highcut=0.8, fs=fs)
+        tonic = NumpySignalProcessor.lowpass_filter(filtered_signal, cutoff=0.1, fs=fs,order=4)
         
         # Phasic component is the difference between the original signal and tonic
         phasic = filtered_signal - tonic
         phasic = NumpySignalProcessor.moving_average(phasic, window_size=10)  # Smooth phasic component
         return tonic, phasic   
     @staticmethod
-    def detect_events(phasic_signal, fs, threshold=0.01):
+    def detect_events(phasic_signal, fs, threshold=0.01, min_peak_distance_sec=1.5):
         """
         Detects events in the phasic component of the EDA signal using robust peak finding.
         
@@ -52,18 +52,17 @@ class EDA:
         - phasic_signal: The phasic component of the EDA signal.
         - fs: Sampling frequency in Hz.
         - threshold: Minimum peak amplitude (default: 0.01 μS).
+        - min_peak_distance_sec: Minimum distance between peaks in seconds (default: 1.5s for EDA).
         
         Returns:
         - events: Indices of detected events (peaks).
-        - envelope: Smoothed envelope used for validation (optional, for compatibility with ECG-style processing).
         """
-        # Use NumpySignalProcessor.find_peaks for robust detection
-        events = NumpySignalProcessor.find_peaks(phasic_signal, fs=fs, threshold=threshold)
+        window = int(fs * min_peak_distance_sec*2)
+        events = NumpySignalProcessor.find_peaks(phasic_signal, fs=fs, threshold=threshold, window=window)
+        # Validate events using envelope-based method (optional)
+        validated_events = events  #, envelope = EDA.validate_events(phasic_signal, events)
         
-        # Validate events using envelope-based method
-        validated_events, envelope = EDA.validate_events(phasic_signal, events)
-        
-        return validated_events, envelope
+        return validated_events
 
     @staticmethod
     def validate_events(phasic_signal, events, envelope_smooth=5, envelope_threshold=0.5, amplitude_proximity=0.1):
