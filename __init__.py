@@ -65,16 +65,21 @@ except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Bio-Processing Nodes: {type(e).__name__} - {e}")
 
 try:
-    from .comfy.tools import PrintToolNode
+    from .comfy.tools import PrintToolNode, DepthModelLoaderNode, DepthMapNode
     NODE_CLASS_MAPPINGS["PrintToolNode"] = PrintToolNode
     NODE_DISPLAY_NAME_MAPPINGS["PrintToolNode"] = "🛠️ Print Tool Node"
     NODE_CATEGORY_MAPPINGS["PrintToolNode"] = "Pedro_PIC/🛠️ Tools"
-    print("Print Tool Node loaded successfully")
+    NODE_CLASS_MAPPINGS["DepthModelLoaderNode"] = DepthModelLoaderNode
+    NODE_DISPLAY_NAME_MAPPINGS["DepthModelLoaderNode"] = "🧰 Depth Model Loader Node"
+    NODE_CATEGORY_MAPPINGS["DepthModelLoaderNode"] = "Pedro_PIC/🧰 Tools"
+    NODE_CLASS_MAPPINGS["DepthMapNode"] = DepthMapNode
+    NODE_DISPLAY_NAME_MAPPINGS["DepthMapNode"] = "🧰 Depth Map Node"
+    NODE_CATEGORY_MAPPINGS["DepthMapNode"] = "Pedro_PIC/🧰 Tools"
+    print("Print Tool Node and Depth Nodes loaded successfully")
 except ImportError as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Print Tool Node: ImportError - {e}")
+    print(f"{IMPORT_ERROR_MESSAGE} Print Tool/Depth Nodes: ImportError - {e}")
 except Exception as e:
-    print(f"{IMPORT_ERROR_MESSAGE} Print Tool Node: {type(e).__name__} - {e}")
-
+    print(f"{IMPORT_ERROR_MESSAGE} Print Tool/Depth Nodes: {type(e).__name__} - {e}")
 
 try:
     from .comfy.Registry.comfy_signal_generator_node import ComfySignalGeneratorNode
@@ -106,6 +111,3 @@ except Exception as e:
 # Add a final message confirming initialization
 print("[DEBUG-INIT] PIC-2025 nodes loaded successfully")
 
-# Uncomment to reset the registry on import (useful for debugging)
-# from .comfy.mock_signal_node import SignalRegistry
-# SignalRegistry.reset()
