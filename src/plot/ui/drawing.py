@@ -105,3 +105,28 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
         max_label = font.render(f"{max_time:.1f}s", True, (80, 200, 200))
         screen.blit(min_label, (x + 2, y + h - 22))
         screen.blit(max_label, (x + w - max_label.get_width() - 2, y + h - 22))
+    # Overlay EDA phasic/tonic if present in metadata (for processed EDA signals)
+    if 'phasic_norm' in meta and 'tonic_norm' in meta and len(t) == len(meta['phasic_norm']) == len(meta['tonic_norm']):
+        # Overlay both on same axes, using normalized values
+        phasic = np.array(meta['phasic_norm'])
+        tonic = np.array(meta['tonic_norm'])
+        # Use the same t_plot window as main signal
+        if window_sec is not None and len(t) > 1:
+            window_max = t[-1]
+            window_min = window_max - window_sec
+            indices = np.where((t >= window_min) & (t <= window_max))[0]
+            t_overlay = t[indices]
+            phasic = phasic[indices]
+            tonic = tonic[indices]
+        else:
+            t_overlay = t
+        # Map to plot coordinates
+        def norm_to_y(val):
+            return y + h - int(val * h)
+        # Orange for phasic, green for tonic
+        phasic_points = [(x + int((t_overlay[j] - window_min) / (window_max - window_min) * w), norm_to_y(phasic[j])) for j in range(len(t_overlay))] if len(t_overlay) > 1 and window_max > window_min else []
+        tonic_points = [(x + int((t_overlay[j] - window_min) / (window_max - window_min) * w), norm_to_y(tonic[j])) for j in range(len(t_overlay))] if len(t_overlay) > 1 and window_max > window_min else []
+        if len(phasic_points) >= 2:
+            pygame.draw.lines(screen, (255, 170, 0), False, phasic_points, 2)  # Orange
+        if len(tonic_points) >= 2:
+            pygame.draw.lines(screen, (0, 220, 0), False, tonic_points, 2)    # Green

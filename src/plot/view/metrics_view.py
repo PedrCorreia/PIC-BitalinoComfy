@@ -18,21 +18,30 @@ class MetricsView:
                 (60, (0, 200, 80)),    # green
                 (80, (255, 220, 0)),   # yellow
                 (100, (255, 140, 0)),  # orange
-                (125, (255, 40, 40)),  # red
+                (120, (255, 140, 0)) # red
             ]),
-            ("SCL", "SCL_METRIC", 0, 10, [
-                (0, (0, 120, 255)),
-                (2, (0, 200, 80)),
-                (5, (255, 220, 0)),
-                (8, (255, 140, 0)),
-                (10, (255, 40, 40)),
+            # SCL = Skin Conductance Level (tonic, slow-changing baseline, in uS)
+            ("SCL", "SCL_METRIC", 0, 40, [
+                (0, (0, 120, 255)),     # sleep (blue)
+                (2, (0, 200, 80)),      # relaxed (green)
+                (10, (255, 220, 0)),     # normal (yellow)
+                (15, (255, 140, 0)),    # aroused (orange)
+                (20, (255, 40, 40)),    # stressed (red)
             ]),
-            ("SCK", "SCK_METRIC", 0, 10, [
+            # SCR = Skin Conductance Response (phasic, rapid changes, in uS)
+            ("SCR", "SCK_METRIC", 0, 20, [
+                (0, (0, 120, 255)),     # sleep (blue)
+                (0.1, (0, 200, 80)),      # relaxed (green)
+                (0.5, (255, 220, 0)),     # normal (yellow)
+                (0.8, (255, 140, 0)),    # aroused (orange)
+                (1, (255, 40, 40)),    # stressed (red)
+            ]),
+            ("SCR Freq", "scr_frequency", 0, 30, [
                 (0, (0, 120, 255)),
-                (2, (0, 200, 80)),
-                (5, (255, 220, 0)),
-                (8, (255, 140, 0)),
-                (10, (255, 40, 40)),
+                (1, (0, 200, 80)),
+                (1.5, (255, 220, 0)),
+                (2, (255, 140, 0)),
+                (2.5, (255, 40, 40)),
             ]),
             ("RR", "RR_METRIC", 8, 40, [  # RR = respiration rate (breaths/min)
                 (5, (0, 120, 255)),
@@ -60,6 +69,7 @@ class MetricsView:
         total_cells = n_cols * n_rows
         # Center the grid in the available area
         cell_size = min((width - (n_cols + 1) * margin) // n_cols, (height - (n_rows + 1) * margin) // n_rows)
+        cell_size = cell_size * 2  # Double the cell height (and width, since grid is square)
         grid_w = n_cols * cell_size + (n_cols + 1) * margin
         grid_h = n_rows * cell_size + (n_rows + 1) * margin
         grid_x = x + (width - grid_w) // 2

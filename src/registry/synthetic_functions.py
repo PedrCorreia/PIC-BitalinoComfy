@@ -39,9 +39,19 @@ def ecg_waveform(t, sample_index, stress_period=30.0):
     return value
 
 def eda_waveform(t, sample_index):
-    slow_component = 2.0 + 0.5 * np.sin(2 * np.pi * 0.05 * t)
-    random_walk = np.sin(0.5 * t) * np.random.normal(0, 0.02)
-    value = slow_component + random_walk
+    # Very slow baseline drift
+    slow_component = 2.0 + 0.7 * np.sin(2 * np.pi * 0.01 * t)
+    # Occasional large Gaussian peaks (simulating EDA responses)
+    peak_interval = 8.0  # seconds between possible peaks
+    peak_width = 0.7     # width of each peak
+    # Generate peaks at regular intervals, but jitter their amplitude and timing a bit
+    value = slow_component
+    for i in range(-2, 3):
+        peak_time = (np.floor(t / peak_interval) + i) * peak_interval + np.random.normal(0, 0.3)
+        amplitude = 0.8 + np.random.normal(0, 0.15)
+        value += amplitude * np.exp(-0.5 * ((t - peak_time) / peak_width) ** 2)
+    # Small noise
+    value += 0.3*np.random.normal(0, 0.02)
     return value
 
 def rr_waveform(t, sample_index, noise_level=0.05, period=30.0):
