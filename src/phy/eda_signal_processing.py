@@ -36,7 +36,7 @@ class EDA:
         - phasic: Phasic component of the EDA signal.
         """
         # Baseline correction for tonic component
-        tonic = NumpySignalProcessor.lowpass_filter(eda_signal, cutoff=0.1, fs=fs)
+        tonic = NumpySignalProcessor.lowpass_filter(eda_signal, cutoff=0.2, fs=fs)
         
         # Phasic component is the difference between the original signal and tonic
         phasic = eda_signal - tonic

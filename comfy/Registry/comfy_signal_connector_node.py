@@ -60,51 +60,52 @@ class ComfySignalConnectorNode:
             
             # Handle EDA signals and other components with overlay
             is_eda_processed = signal_id.upper().startswith('EDA') and signal_type == 'processed'
-              # Debug prints to track overlay decision-making
-            print(f"[DEBUG] ConnectorNode: signal={signal_id}, type={signal_type}, over={over}, is_eda={is_eda_processed}")
-            print(f"[DEBUG] Signal meta before registry update: {meta}")
+            
+            # Remove debug prints for production
+            # print(f"[DEBUG] ConnectorNode: signal={signal_id}, type={signal_type}, over={over}, is_eda={is_eda_processed}")
+            # print(f"[DEBUG] Signal meta before registry update: {meta}")
             
             if sig is not None:
-                print(f"[DEBUG] Signal structure: {list(sig.keys()) if isinstance(sig, dict) else 'non-dict'}")
-                if isinstance(sig, dict) and 'phasic_norm' in sig:
-                    print(f"[DEBUG] Signal has phasic_norm directly in signal data")
+                # print(f"[DEBUG] Signal structure: {list(sig.keys()) if isinstance(sig, dict) else 'non-dict'}")
+                # if isinstance(sig, dict) and 'phasic_norm' in sig:
+                #     print(f"[DEBUG] Signal has phasic_norm directly in signal data")
                 
                 gen_registry.register_signal(signal_id, sig, meta)  # update registry meta
                 already = plot_registry.get_signal_metadata(signal_id)
-                print(f"[DEBUG] Already in registry: {signal_id} = {already}")
-                print(f"[DEBUG] Existing metadata keys: {list(already.keys()) if already else 'None'}")
+                # print(f"[DEBUG] Already in registry: {signal_id} = {already}")
+                # print(f"[DEBUG] Existing metadata keys: {list(already.keys()) if already else 'None'}")
                   # Modify signal registration behavior to support proper overlay
                 if is_eda_processed:
                     # Always set over=True for EDA processed signals to ensure they get overlaid
                     meta['over'] = True
                     
-                    print(f"[DEBUG] Registering EDA signal: signal_id={signal_id}, over={meta['over']}")
+                    # print(f"[DEBUG] Registering EDA signal: signal_id={signal_id}, over={meta['over']}")
                     
                     # Check if the signal data has the necessary components for overlay
                     has_components = False
                     if isinstance(sig, dict):
                         if 'phasic_norm' in sig and 'tonic_norm' in sig:
-                            print(f"[DEBUG] EDA signal has components in signal data")
+                            # print(f"[DEBUG] EDA signal has components in signal data")
                             has_components = True
                         elif 'tonic_norm' in meta and 'phasic_norm' in meta:
-                            print(f"[DEBUG] EDA signal has components in metadata")
+                            # print(f"[DEBUG] EDA signal has components in metadata")
                             has_components = True
                     
                     # Make sure important component data is in metadata for the drawing function
                     if isinstance(sig, dict) and 'phasic_norm' in sig and 'phasic_norm' not in meta:
                         meta['phasic_norm'] = sig['phasic_norm']
                         meta['tonic_norm'] = sig['tonic_norm']
-                        print(f"[DEBUG] Copied component data from signal to metadata")
+                        # print(f"[DEBUG] Copied component data from signal to metadata")
                     
                     # Always register EDA signals with overlay flag
                     plot_registry.register_signal(signal_id, sig, meta)
                     
                     # Double-check if overlay flag was properly registered
                     check_meta = plot_registry.get_signal_metadata(signal_id)
-                    print(f"[DEBUG] After EDA registration, over={check_meta.get('over')}, has_components={('phasic_norm' in check_meta) and ('tonic_norm' in check_meta)}")
+                    # print(f"[DEBUG] After EDA registration, over={check_meta.get('over')}, has_components={('phasic_norm' in check_meta) and ('tonic_norm' in check_meta)}")
                 else:
                     # For non-EDA signals, always register
-                    print(f"[DEBUG] Registering regular signal: {signal_id}")
+                    # print(f"[DEBUG] Registering regular signal: {signal_id}")
                     plot_registry.register_signal(signal_id, sig, meta)
             time.sleep(0.05)  # Increased frequency
 

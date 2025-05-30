@@ -34,26 +34,26 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
     # Check overlay mode from metadata or signal type
     is_overlay_mode = meta.get('over', False) or signal_id.upper().startswith('EDA')
     
-    print(f"[DEBUG] Drawing: id={signal_id}, has_components={has_components}, components_match={components_match_size}, overlay_mode={is_overlay_mode}")
-    print(f"[DEBUG] Meta keys: {list(meta.keys())}")
-    print(f"[DEBUG] Signal keys: {list(signal.keys())}")
-    print(f"[DEBUG] Components: meta=({phasic_in_meta}, {tonic_in_meta}), signal=({phasic_in_signal}, {tonic_in_signal})")
+    # Remove debug prints for production
+    # print(f"[DEBUG] Drawing: id={signal_id}, has_components={has_components}, components_match={components_match_size}, overlay_mode={is_overlay_mode}")
+    # print(f"[DEBUG] Meta keys: {list(meta.keys())}")
+    # print(f"[DEBUG] Signal keys: {list(signal.keys())}")
+    # print(f"[DEBUG] Components: meta=({phasic_in_meta}, {tonic_in_meta}), signal=({phasic_in_signal}, {tonic_in_signal})")
     
     if has_components:
         if use_signal_components:
-            print(f"[DEBUG] Component lengths (from signal): t={len(t)}, phasic={len(signal['phasic_norm'])}, tonic={len(signal['tonic_norm'])}")
+            # print(f"[DEBUG] Component lengths (from signal): t={len(t)}, phasic={len(signal['phasic_norm'])}, tonic={len(signal['tonic_norm'])}")
+            pass
         else:
-            print(f"[DEBUG] Component lengths (from meta): t={len(t)}, phasic={len(meta['phasic_norm'])}, tonic={len(meta['tonic_norm'])}")
-      # Use components for overlay if we have them and overlay mode is active
+            # print(f"[DEBUG] Component lengths (from meta): t={len(t)}, phasic={len(meta['phasic_norm'])}, tonic={len(meta['tonic_norm'])}")
+            pass    # Use components for overlay if we have them and overlay mode is active
     if (has_components and components_match_size and is_overlay_mode):
         # Overlay both on same axes, using normalized values
-        # Choose component source based on availability
+        # Choose component source based on availability and extract components
         if use_signal_components:
-            print(f"[DEBUG] Using components from signal data for {signal_id}")
             phasic = np.array(signal['phasic_norm'])
             tonic = np.array(signal['tonic_norm'])
         else:
-            print(f"[DEBUG] Using components from metadata for {signal_id}")
             phasic = np.array(meta['phasic_norm'])
             tonic = np.array(meta['tonic_norm'])
         

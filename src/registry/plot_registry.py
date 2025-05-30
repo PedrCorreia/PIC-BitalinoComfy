@@ -42,28 +42,28 @@ class PlotRegistry:
         Also, if the signal contains metrics (e.g., HR, RR, SCL, SCK), register/update corresponding metrics signals for MetricsView.
         """
         with self.registry_lock:
-            print(f"[DEBUG] PlotRegistry: Registering signal {signal_id}, metadata keys: {list(metadata.keys()) if metadata else 'None'}")
-            if metadata and 'over' in metadata:
-                print(f"[DEBUG] PlotRegistry: Signal {signal_id} has over={metadata['over']}")
-            if metadata and 'phasic_norm' in metadata and 'tonic_norm' in metadata:
-                print(f"[DEBUG] PlotRegistry: Signal {signal_id} has phasic/tonic components")
-                
+            # Remove debug prints for production
+            # print(f"[DEBUG] PlotRegistry: Registering signal {signal_id}, metadata keys: {list(metadata.keys()) if metadata else 'None'}")
+            # if metadata and 'over' in metadata:
+            #     print(f"[DEBUG] PlotRegistry: Signal {signal_id} has over={metadata['over']}")
+            # if metadata and 'phasic_norm' in metadata and 'tonic_norm' in metadata:
+            #     print(f"[DEBUG] PlotRegistry: Signal {signal_id} has phasic/tonic components")
             # --- Existing registration logic ---
             # Accept dict with 't' and 'v' as-is (new format)
             if isinstance(signal_data, dict) and 't' in signal_data and 'v' in signal_data:
                 # Only copy if the object is not already the same as last
                 prev = self.signals.get(signal_id)
                 if prev is not signal_data:
-                    print(f"[DEBUG] PlotRegistry: Updating signal data for {signal_id}")
+                    #print(f"[DEBUG] PlotRegistry: Updating signal data for {signal_id}")
                     self.signals[signal_id] = signal_data
                 # Only update meta if changed
                 if metadata is not None:
                     prev_meta = self.metadata.get(signal_id)
                     if prev_meta != metadata:
-                        print(f"[DEBUG] PlotRegistry: Updating metadata for {signal_id}")
+                        #print(f"[DEBUG] PlotRegistry: Updating metadata for {signal_id}")
                         # Make sure we preserve the 'over' flag if it was previously set but not in new metadata
                         if prev_meta and 'over' in prev_meta and prev_meta['over'] and metadata and 'over' not in metadata:
-                            print(f"[DEBUG] PlotRegistry: Preserving over=True flag from previous metadata")
+                            #print(f"[DEBUG] PlotRegistry: Preserving over=True flag from previous metadata")
                             metadata['over'] = True
                         self.metadata[signal_id] = metadata
             # Existing logic for tuple, array, etc
@@ -264,8 +264,7 @@ class PlotRegistry:
         [{ 'id': ..., 't': ..., 'v': ..., 'meta': ... }, ...]
         """
         import numpy as np
-        all_signal_ids = self.get_all_signal_ids()
-        # --- Improved type detection: use metadata if available, fallback to ID heuristics ---
+        all_signal_ids = self.get_all_signal_ids()        # --- Improved type detection: use metadata if available, fallback to ID heuristics ---
         ids = []
         for sid in all_signal_ids:
             meta = self.get_signal_metadata(sid)
@@ -275,7 +274,9 @@ class PlotRegistry:
                     (meta_type is None and ('RAW' in sid or 'ECG' in sid or 'EDA' in sid))):
                     ids.append(sid)
             elif signal_type == 'processed':
-                if (meta_type == 'processed' or
+                # Handle both generic 'processed' and specific processed types like 'eda_processed', 'ecg_processed'
+                if (meta_type == 'processed' or 
+                    (meta_type and meta_type.endswith('_processed')) or
                     (meta_type is None and ('PROC' in sid or 'PROCESSED' in sid or 'WAVE' in sid))):
                     ids.append(sid)
         signals = []

@@ -40,7 +40,7 @@ class NumpySignalProcessor:
         return filtered_signal
 
     @staticmethod
-    def lowpass_filter(signal, cutoff, fs, order=1):
+    def lowpass_filter(signal, cutoff, fs, order=2):
         """
         Applies a lowpass filter to the signal using a Butterworth filter.
         """
