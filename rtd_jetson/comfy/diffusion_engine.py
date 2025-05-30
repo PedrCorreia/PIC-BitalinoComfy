@@ -15,6 +15,7 @@ class LRDiffusionEngineLoader:
     DEFAULT_HEIGHT = 512
     DEFAULT_WIDTH = 512
     DEFAULT_IMG2IMG = True
+    DEFAULT_CONTROLNET_DEPTH = False
 
     def __init__(self):
         self.de = None
@@ -43,19 +44,25 @@ class LRDiffusionEngineLoader:
                 "img2img": ("BOOLEAN", {
                     "default": cls.DEFAULT_IMG2IMG, 
                 }),
+                "controlnet_depth": ("BOOLEAN", {
+                    "default": cls.DEFAULT_CONTROLNET_DEPTH, 
+                }),
             },
             "optional": {
                 "do_stereo_image": ("BOOLEAN", {"default": False}),
                 }
         }
 
-    def load(self, height_diffusion, width_diffusion, do_compile, img2img, do_stereo_image=False):
+    def load(self, height_diffusion, width_diffusion, do_compile, img2img, do_stereo_image=False, auto_controlnet_depth=True, controlnet_depth=False):
         if not do_stereo_image:
-            de = DiffusionEngine(use_image2image=img2img, height_diffusion_desired=height_diffusion, width_diffusion_desired=width_diffusion, do_compile=do_compile)
+            de = DiffusionEngine(use_image2image=img2img, height_diffusion_desired=height_diffusion, width_diffusion_desired=width_diffusion, do_compile=do_compile, use_controllnet=controlnet_depth)
         else:
-            de = StereoDiffusionEngine(use_image2image=img2img, height_diffusion_desired=height_diffusion, width_diffusion_desired=width_diffusion, do_compile=do_compile)
+            de = StereoDiffusionEngine(use_image2image=img2img, height_diffusion_desired=height_diffusion, width_diffusion_desired=width_diffusion, do_compile=do_compile, use_controllnet=controlnet_depth)
             if do_stereo_image is not None:
                 de.set_stereo_image(do_stereo_image)
+        
+        # Store the auto_controlnet_depth setting on the engine
+        de.auto_controlnet_depth = auto_controlnet_depth
         
         return ([de])
     
@@ -144,9 +151,11 @@ class LRDiffusionEngineAcid:
                 "do_apply_humansegm_mask": ("BOOLEAN", {"default": False}),
                 "human_segmentation_mask": ("IMAGE", {}),
                 "do_flip_invariance": ("BOOLEAN", {"default": False}),
-                "controlnet_params": ("CONTROLNET_PARAMS", {}),
-            },
-        }
+                "controlnet_scale": ("FLOAT", {"default": 0.5},)
+                  
+                }
+            }
+        
 
     RETURN_TYPES = ("IMAGE", )  
     RETURN_NAMES = ("image", )  
@@ -173,13 +182,14 @@ class LRDiffusionEngineAcid:
         do_apply_humansegm_mask=None,
         human_segmentation_mask=None,
         do_flip_invariance=None,
-        controlnet_params=None,
+        controlnet_scale=None
     ):
         
         if self.ap is None:
             self.ap = AcidProcessor(device=diffusion_engine.device,
                            width_diffusion=diffusion_engine.width_diffusion,
-                           height_diffusion=diffusion_engine.height_diffusion)
+                           height_diffusion=diffusion_engine.height_diffusion
+                           )
 
         # Process acid first
         if acid_strength is not None:
@@ -213,7 +223,7 @@ class LRDiffusionEngineAcid:
             input_image = self.ap.process(input_image)
         else: # if no input image is provided, we take the first noise init_image that was automatically generated.
             input_image = self.ap.process(np.array(diffusion_engine.image_init))
-
+        
 
         # Process DiffusionEngine
         diffusion_engine.set_embeddings(embeds)
@@ -225,20 +235,8 @@ class LRDiffusionEngineAcid:
             diffusion_engine.set_decoder_embeddings(decoder_embeds)
         if num_inference_steps is not None:
             diffusion_engine.set_num_inference_steps(int(num_inference_steps))
-        
-        # If controlnet_params is provided, set up ControlNet
-        if controlnet_params is not None:
-            model = controlnet_params.get("model")
-            control_image = controlnet_params.get("control_image")
-            scale = controlnet_params.get("scale", 1.0)
-            # Example: set these on the diffusion engine if supported
-            if hasattr(diffusion_engine, "set_controlnet"):
-                diffusion_engine.set_controlnet(model, control_image, scale)
-            elif hasattr(diffusion_engine, "controlnet"):
-                diffusion_engine.controlnet = model
-                diffusion_engine.controlnet_image = control_image
-                diffusion_engine.controlnet_scale = scale
-                
+        if controlnet_scale is not None:
+            diffusion_engine.set_controllnet_scale(float(controlnet_scale))
         img = np.asarray(diffusion_engine.generate())
         
         # Update last image in acid processor

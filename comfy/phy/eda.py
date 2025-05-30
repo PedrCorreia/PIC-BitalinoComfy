@@ -172,7 +172,7 @@ class EDANode:
             filtered_phasic = phasic_viz
             raw_range = np.max(raw_window) - np.min(raw_window) if len(raw_window) > 0 else 1.0
             tonic_range = np.max(filtered_tonic) - np.min(filtered_tonic) if len(filtered_tonic) > 0 else 1.0
-            phasic_range = np.max(filtered_phasic) - np.min(filtered_phasic) if len(filtered_phagic) > 0 else 1.0
+            phasic_range = np.max(filtered_phasic) - np.min(filtered_phasic) if len(filtered_phasic) > 0 else 1.0
             # If filtered amplitude is much lower than raw, amplify
             min_ratio = 0.2  # If filtered is less than 20% of raw, amplify
             amp_factor = 1.0

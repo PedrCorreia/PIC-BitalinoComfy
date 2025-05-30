@@ -143,6 +143,8 @@ class DepthMapNode:
     RETURN_NAMES = ("depth_map", )
     FUNCTION = "run_depth_prediction"
     CATEGORY = "Pedro_PIC/🧰 Tools"
+    def IS_CHANGED(self, image, midas_instance):
+        return float("NaN")
 
     def run_depth_prediction(self, image: torch.Tensor, midas_instance: Midas):
         if not isinstance(midas_instance, Midas):

@@ -1,6 +1,6 @@
 import pyvista as pv
 import numpy as np
-from geom import Geometry3D, Cube
+from .geom import Geometry3D, Cube
 
 def euler_matrix(rx, ry, rz):
     # Angles in degrees
@@ -12,7 +12,7 @@ def euler_matrix(rx, ry, rz):
 
 class Render3D:
     def __init__(self, img_size=512, background='white'):
-        self.img_size = img_size
+        self.img_size = (img_size, img_size) if isinstance(img_size, int) else img_size
         self.background = background
         self.geometries = []
 
@@ -21,7 +21,9 @@ class Render3D:
 
     def render(self, output="render3d.png", camera_position=None, show_edges=True, perspective_blur_z=None, perspective_blur_params=None, **kwargs):
         import cv2
-        plotter = pv.Plotter(window_size=(self.img_size, self.img_size), off_screen=True)
+        # Ensure img_size is a tuple for Plotter
+        plotter_img_size = self.img_size if isinstance(self.img_size, tuple) else (self.img_size, self.img_size)
+        plotter = pv.Plotter(window_size=plotter_img_size, off_screen=True)
         for geom, color, edge_color, opacity in self.geometries:
             if isinstance(geom, Geometry3D):
                 # Example: handle Sphere and Cube
@@ -95,14 +97,75 @@ class Render3D:
             if blur_sigma > 0.2:
                 ksize = int(2 * round(blur_sigma) + 1)
                 img = cv2.GaussianBlur(img, (ksize, ksize), blur_sigma)
-        if output and img is not None:
+        if output and img is not None: # Check if img is not None before saving
             cv2.imwrite(output, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-        print(f"3D Render saved to {output}")
+            print(f"3D Render saved to {output if output else 'memory'}") # Clarify if not saved to file
         return img
 
     def _res(self, geom):
         # Map quality to resolution
-        return {'low': 8, 'medium': 32, 'high': 100}.get(geom.quality, 32)
+        quality_map = {'low': 8, 'medium': 16, 'high': 32}
+        return quality_map.get(geom.quality, 16)
+
+    def render_depth(self, camera_position=None, **kwargs):
+        """
+        Renders the depth map of the scene.
+        """
+        plotter_img_size = self.img_size if isinstance(self.img_size, tuple) else (self.img_size, self.img_size)
+        plotter = pv.Plotter(window_size=plotter_img_size, off_screen=True)
+        
+        for geom, color, edge_color, opacity in self.geometries:
+            if isinstance(geom, Geometry3D):
+                mesh = None
+                if 'radius' in geom.params: # Sphere
+                    mesh = pv.Sphere(center=geom.center, radius=geom.params['radius'],
+                                     theta_resolution=self._res(geom), phi_resolution=self._res(geom))
+                elif 'width' in geom.params and isinstance(geom, Cube): # Cube
+                    w = geom.params['width'] / 2.0
+                    verts = np.array([
+                        [-w, -w, -w], [w, -w, -w], [w, w, -w], [-w, w, -w],
+                        [-w, -w, w], [w, -w, w], [w, w, w], [-w, w, w]
+                    ])
+                    R = euler_matrix(*geom.rotation)
+                    verts = verts @ R.T
+                    verts = verts + geom.center
+                    faces = [
+                        [4, 0, 1, 2, 3], [4, 4, 5, 6, 7], [4, 0, 1, 5, 4],
+                        [4, 1, 2, 6, 5], [4, 2, 3, 7, 6], [4, 3, 0, 4, 7]
+                    ]
+                    faces_flat = np.hstack(faces)
+                    mesh = pv.PolyData(verts, faces_flat)
+                elif 'width' in geom.params: # Fallback unrotated cube
+                     mesh = pv.Cube(center=geom.center, x_length=geom.params['width'],
+                                   y_length=geom.params['width'], z_length=geom.params['width'])
+                
+                if mesh:
+                    plotter.add_mesh(mesh, color=color, opacity=opacity) # Color/opacity don't affect depth but good to keep consistent
+
+        plotter.set_background(self.background) 
+        if camera_position:
+            plotter.camera_position = camera_position
+        
+        # Force the rendering pass by taking a "screenshot" to memory
+        plotter.screenshot(filename=None) # This ensures the scene is rendered
+
+        # Get the depth image
+        depth_buffer = plotter.get_image_depth()
+        plotter.close()
+
+        if depth_buffer is not None:
+            min_depth = np.min(depth_buffer)
+            max_depth = np.max(depth_buffer)
+            if max_depth > min_depth: # Avoid division by zero
+                depth_normalized = (depth_buffer - min_depth) / (max_depth - min_depth)
+            else:
+                depth_normalized = np.zeros_like(depth_buffer) # Or np.ones_like if far plane is 1 and all is far
+
+            # PyVista's depth is typically 0 (near) to 1 (far).
+            # If your node expects inverted depth (white=near), you might do:
+            # depth_normalized = 1.0 - depth_normalized
+            return depth_normalized 
+        return None
 
 class Render2D: #not working yet
     def __init__(self, img_size=512, background='white'):
