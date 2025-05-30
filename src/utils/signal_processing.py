@@ -13,6 +13,7 @@ try:
 except ImportError:
     cp = None
 from scipy.signal import detrend
+import scipy.signal
 
 
 class NumpySignalProcessor:
@@ -293,6 +294,31 @@ class NumpySignalProcessor:
         Efficiently converts a deque to a NumPy array (static method).
         """
         return np.fromiter(deq, dtype=float, count=len(deq))
+
+    @staticmethod
+    def robust_decimate(arr, factor):
+        """
+        Robust decimation for large factors: applies scipy.signal.decimate in steps <=13 (e.g., 10),
+        using a boolean loop for clarity and robustness. Handles all array types.
+        """
+        steps = []
+        f = factor
+        while f > 13:
+            steps.append(10)
+            f = f // 10
+        if f > 1:
+            steps.append(f)
+        out = arr
+        i = 0
+        keep_going = True
+        while i < len(steps) and keep_going:
+            s = steps[i]
+            if len(out) < s:
+                keep_going = False
+            else:
+                out = scipy.signal.decimate(out, s, ftype='fir', zero_phase=True)
+            i += 1
+        return out
 
 
 class TorchSignalProcessor:

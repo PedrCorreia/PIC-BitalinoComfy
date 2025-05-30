@@ -13,7 +13,7 @@ class MetricsView:
         self.plot_registry = plot_registry
         # Each config: (label, signal_id, min, max, color_stops)
         self.metric_configs = metric_configs or [
-            ("HR", "HR_METRIC", 40, 120, [
+            ("HR", "HR_METRIC", 35, 125, [
                 (35, (0, 120, 255)),   # blue
                 (60, (0, 200, 80)),    # green
                 (80, (255, 220, 0)),   # yellow
@@ -34,11 +34,11 @@ class MetricsView:
                 (8, (255, 140, 0)),
                 (10, (255, 40, 40)),
             ]),
-            ("RR", "RR_METRIC", 8, 30, [  # RR = respiration rate (breaths/min)
+            ("RR", "RR_METRIC", 8, 40, [  # RR = respiration rate (breaths/min)
                 (5, (0, 120, 255)),
-                (12, (0, 200, 80)),
-                (18, (255, 220, 0)),
-                (24, (255, 140, 0)),
+                (10, (0, 200, 80)),
+                (20, (255, 220, 0)),
+                (25, (255, 140, 0)),
                 (40, (255, 40, 40)),
             ]),
         ]

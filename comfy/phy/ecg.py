@@ -3,6 +3,7 @@ import numpy as np
 import threading
 import time
 import uuid
+import scipy.signal
 from ...src.phy.ecg_signal_processing import ECG
 from ...src.registry.signal_registry import SignalRegistry
 from ...src.utils.signal_processing import NumpySignalProcessor
@@ -42,7 +43,6 @@ class ECGNode:
     RETURN_NAMES = ("Heart_Rate", "Rpeak", "Signal_ID")
     FUNCTION = "process_ecg"
     CATEGORY = "Pedro_PIC/🔬 Bio-Processing"
-    OUTPUT_NODE = False
     
     @classmethod
     def IS_CHANGED(cls, *args, **kwargs):
@@ -68,8 +68,6 @@ class ECGNode:
         viz_values_deque = deque(maxlen=viz_buffer_size)
         viz_timestamps_deque = deque(maxlen=viz_buffer_size)
         max_peaks_to_average = 10
-        recent_peak_times = []
-        last_peak_index = -1
         last_registry_data_hash = None
         last_process_time = time.time()
         processing_interval = 0.033
@@ -111,43 +109,34 @@ class ECGNode:
             if len(viz_timestamps_deque) > 0 and len(timestamps) > 0:
                 last_ts = viz_timestamps_deque[-1]
                 new_data_idx = np.searchsorted(timestamps, last_ts, side='right')
-                
                 if new_data_idx < len(timestamps):
-                    # Apply decimation if needed
                     if use_decimation:
                         remaining_points = min(len(timestamps), len(values)) - new_data_idx
                         if remaining_points > 0:
                             max_index = new_data_idx + remaining_points
-                            new_indices = np.arange(new_data_idx, max_index, decimation_factor)
-                            # Ensure indices are within bounds of BOTH arrays
-                            max_valid = min(len(timestamps), len(values))
-                            new_indices = new_indices[new_indices < max_valid]
-                            if len(new_indices) > 0:
-                                viz_timestamps_deque.extend(timestamps[new_indices])
-                                viz_values_deque.extend(values[new_indices])
-                                feature_timestamps_deque.extend(timestamps[new_indices])
-                                feature_values_deque.extend(values[new_indices])
+                            new_timestamps = timestamps[new_data_idx:max_index]
+                            new_values = values[new_data_idx:max_index]
+                            decimated_values = NumpySignalProcessor.robust_decimate(new_values, decimation_factor)
+                            decimated_timestamps = np.linspace(new_timestamps[0], new_timestamps[-1], num=len(decimated_values)) if len(new_timestamps) > 1 else new_timestamps
+                            viz_timestamps_deque.extend(decimated_timestamps)
+                            viz_values_deque.extend(decimated_values)
+                            feature_timestamps_deque.extend(decimated_timestamps)
+                            feature_values_deque.extend(decimated_values)
                     else:
-                        # Use all samples (unchanged code)
                         viz_timestamps_deque.extend(timestamps[new_data_idx:])
                         viz_values_deque.extend(values[new_data_idx:])
                         feature_timestamps_deque.extend(timestamps[new_data_idx:])
                         feature_values_deque.extend(values[new_data_idx:])
             else:
-                # First time initialization with optional decimation
                 if use_decimation:
-                    # Safely generate indices with decimation
-                    if len(timestamps) > 0:
-                        indices = np.arange(0, len(timestamps), decimation_factor)
-                        # Safety check - ensure indices are within bounds
-                        indices = indices[indices < len(timestamps)]
-                        if len(indices) > 0:
-                            viz_timestamps_deque.extend(timestamps[indices])
-                            viz_values_deque.extend(values[indices])
-                            feature_timestamps_deque.extend(timestamps[indices])
-                            feature_values_deque.extend(values[indices])
+                    if len(timestamps) > 1:
+                        decimated_values = NumpySignalProcessor.robust_decimate(values, decimation_factor)
+                        decimated_timestamps = np.linspace(timestamps[0], timestamps[-1], num=len(decimated_values))
+                        viz_timestamps_deque.extend(decimated_timestamps)
+                        viz_values_deque.extend(decimated_values)
+                        feature_timestamps_deque.extend(decimated_timestamps)
+                        feature_values_deque.extend(decimated_values)
                 else:
-                    # Use all samples (unchanged)
                     viz_timestamps_deque.extend(timestamps)
                     viz_values_deque.extend(values)
                     feature_timestamps_deque.extend(timestamps)

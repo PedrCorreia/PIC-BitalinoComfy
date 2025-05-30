@@ -41,6 +41,7 @@ class RRNode:
     RETURN_NAMES = ("Respiration_Rate", "Is_Peak", "Signal_ID")
     FUNCTION = "process_rr"
     CATEGORY = "Pedro_PIC/🔬 Bio-Processing"    
+    @classmethod
     def IS_CHANGED(cls, *args, **kwargs):
         return float("NaN")
     def __init__(self):
@@ -97,16 +98,13 @@ class RRNode:
                 last_ts = viz_timestamps_deque[-1]
                 new_data_idx = np.searchsorted(timestamps, last_ts, side='right')
                 if new_data_idx < len(timestamps):
-                    # --- Use decimation with anti-aliasing ---
                     if use_decimation:
                         remaining_points = min(len(timestamps), len(values)) - new_data_idx
                         if remaining_points > 0:
                             max_index = new_data_idx + remaining_points
                             new_timestamps = timestamps[new_data_idx:max_index]
                             new_values = values[new_data_idx:max_index]
-                            # Decimate with anti-aliasing
-                            decimated_values = scipy.signal.decimate(new_values, decimation_factor, ftype='fir', zero_phase=True)
-                            # Decimate timestamps to match length
+                            decimated_values = NumpySignalProcessor.robust_decimate(new_values, decimation_factor)
                             decimated_timestamps = np.linspace(new_timestamps[0], new_timestamps[-1], num=len(decimated_values)) if len(new_timestamps) > 1 else new_timestamps
                             viz_timestamps_deque.extend(decimated_timestamps)
                             viz_values_deque.extend(decimated_values)
@@ -120,8 +118,7 @@ class RRNode:
             else:
                 if use_decimation:
                     if len(timestamps) > 1:
-                        # Decimate with anti-aliasing
-                        decimated_values = scipy.signal.decimate(values, decimation_factor, ftype='fir', zero_phase=True)
+                        decimated_values = NumpySignalProcessor.robust_decimate(values, decimation_factor)
                         decimated_timestamps = np.linspace(timestamps[0], timestamps[-1], num=len(decimated_values))
                         viz_timestamps_deque.extend(decimated_timestamps)
                         viz_values_deque.extend(decimated_values)
