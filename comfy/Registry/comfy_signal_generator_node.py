@@ -57,6 +57,8 @@ class ComfySignalGeneratorNode:
                 v_new = synthetic_functions.ecg_waveform(np.array([t_new]), np.array([sample_index]))[0]
             elif signal_type == "eda_waveform":
                 v_new = synthetic_functions.eda_waveform(np.array([t_new]), np.array([sample_index]))[0]
+            elif signal_type == "rr_waveform":
+                v_new = synthetic_functions.rr_waveform(np.array([t_new]), np.array([sample_index]))[0]
             else:
                 raise ValueError(f"Unknown signal_type: {signal_type}")
             v_deque.append(v_new)

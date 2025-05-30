@@ -157,7 +157,7 @@ class RR:
             is_new_peak = True
             if used_peaks is not None:
                 is_new_peak = not any(abs(latest_peak_time - t) < 1e-4 for t in used_peaks)
-            print(f"[RR.is_peak] start_time: {start_time}, now: {now}, latest_peak_time: {latest_peak_time}, RR: {rr_used:.2f}, epsilon: {epsilon:.3f}, is_in_time_neighborhood: {is_in_time_neighborhood}, is_new_peak: {is_new_peak}")
+            # print(f"[RR.is_peak] start_time: {start_time}, now: {now}, latest_peak_time: {latest_peak_time}, RR: {rr_used:.2f}, epsilon: {epsilon:.3f}, is_in_time_neighborhood: {is_in_time_neighborhood}, is_new_peak: {is_new_peak}")
             return (is_in_time_neighborhood and is_new_peak), latest_peak_time
         return False, None@staticmethod
     def validate_rr_peaks(filtered_signal, detected_peaks, lag=50, match_window=20):

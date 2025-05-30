@@ -4,12 +4,13 @@ synthetic_functions.py
 - Add your own functions here and import as needed.
 """
 import numpy as np
+from scipy.signal import chirp
 
 def ecg_waveform(t, sample_index, stress_period=30.0):
     # Heart rate modulation to simulate stress/calm transitions
     # Baseline: 65 bpm, Stress: up to 95 bpm
-    base_hr = 65.0
-    stress_hr = 95.0
+    base_hr = 50.0
+    stress_hr =80
     stress_factor = 0.5 + 0.5 * np.sin(2 * np.pi * t / stress_period)
     current_hr = base_hr + (stress_hr - base_hr) * stress_factor
     
@@ -38,7 +39,28 @@ def eda_waveform(t, sample_index):
     value = slow_component + random_walk
     return value
 
-def sine_waveform(t, sample_index, frequency=1.0, noise_level=0.1):
+def rr_waveform(t, sample_index, noise_level=0.05):
+    # Continuous chirp frequency from 0.1 Hz up to 1 Hz and back down over a 60s period
+    cycle_period = 60.0
+    # Calculate the position within the cycle
+    phase = (t % cycle_period) / cycle_period
+    duration = cycle_period / 2
+    # Use a single chirp function with a sawtooth time base for continuity
+    if phase < 0.5:
+        # Up-chirp: 0.1 Hz to 1.0 Hz
+        t_chirp = phase * cycle_period
+        value = chirp(t_chirp, f0=0.1, f1=1.0, t1=duration, method='linear')
+    else:
+        # Down-chirp: 1.0 Hz to 0.1 Hz
+        t_chirp = (phase - 0.5) * cycle_period
+        value = chirp(t_chirp, f0=1.0, f1=0.1, t1=duration, method='linear')
+    # Make the waveform continuous at the cycle boundaries by matching the start/end values
+    # Optionally, you can use a cosine window to smooth the transitions
+    value += np.random.normal(0, noise_level)
+    return value
+
+
+def sine_waveform(t, sample_index, frequency=0.5, noise_level=0.1):
     value = np.sin(2 * np.pi * frequency * t)
     value = value * 0.9 + np.random.normal(0, noise_level)
     return value

@@ -135,16 +135,16 @@ class RRNode:
                 effective_fs = fs / decimation_factor
             # Pre-process RR with bandpass filter adapted for RR (0.1-0.5 Hz)
             lowcut = 0.1
-            highcut = min(0.5, effective_fs * 0.4)
+            highcut = 1
             filtered_rr = NumpySignalProcessor.bandpass_filter(
                 feature_values,
                 lowcut=lowcut,
                 highcut=highcut,
-                fs=effective_fs
+                fs=fs
             )            # Calculate RR and maintain recent peak times
             detected_peaks = NumpySignalProcessor.find_peaks(filtered_rr, fs=fs)
             # Validate peaks with lag-based edge avoidance (similar to ECG)
-            peaks = RR.validate_rr_peaks(filtered_rr, detected_peaks, lag=50, match_window=20)
+            peaks =  detected_peaks# RR.validate_rr_peaks(filtered_rr, detected_peaks, lag=50, match_window=20)
             avg_rr = 0.0
             if isinstance(peaks, np.ndarray) and len(peaks) > 0 and len(feature_timestamps) > 0:
                 peak_times = feature_timestamps[peaks]

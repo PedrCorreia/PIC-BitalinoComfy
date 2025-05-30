@@ -164,7 +164,7 @@ class ECGNode:
             # Pre-process ECG using more efficient filter settings
             # Adjust filter bands based on decimation
             lowcut = 8  # Hz
-            highcut = min(18, effective_fs * 0.4)  # Stay well below Nyquist after decimation
+            highcut = min(18, 20)  # Stay well below Nyquist after decimation
             
             filtered_ecg = NumpySignalProcessor.bandpass_filter(
                 feature_values, 
