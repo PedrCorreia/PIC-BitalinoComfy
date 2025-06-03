@@ -36,6 +36,9 @@ class GeometryRenderNode:
                 "z_distance": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 20.0}),
                 "img_size": ("INT", {"default": 512, "min": 512, "max": 1024}),
                 "color": ("STRING", {"default": "#FFD700"}),
+                "background": ("STRING", {"default": "white"}),
+                "show_edges": ("BOOLEAN", {"default": True}),
+                "use_cuda": ("BOOLEAN", {"default": True}),
             }
         }
 
@@ -44,7 +47,7 @@ class GeometryRenderNode:
     FUNCTION = "render"
     CATEGORY = "geometry"
 
-    def render(self, object_type, center_x, center_y, center_z, size, rotation_deg_x, rotation_deg_y, rotation_deg_z, z_distance, img_size, color):
+    def render(self, object_type, center_x, center_y, center_z, size, rotation_deg_x, rotation_deg_y, rotation_deg_z, z_distance, img_size, color, background, show_edges, use_cuda):
         # Camera setup: looking at origin from +z
         camera_position = [(0, 0, z_distance), (0, 0, 0), (0, 1, 0)]
         # Use isolated subprocess rendering for color only
@@ -52,14 +55,14 @@ class GeometryRenderNode:
             return self._render_with_renderer(
                 None, object_type, center_x, center_y, center_z, size,
                 rotation_deg_x, rotation_deg_y, rotation_deg_z, camera_position, color,
-                img_size=img_size, background='white', show_edges=True
+                img_size=img_size, background=background, show_edges=show_edges, use_cuda=use_cuda
             )
         except Exception as e:
             print(f"Subprocess rendering failed: {e}")
             return self._create_fallback_tensors(img_size)
     
     def _render_with_renderer(self, renderer, object_type, center_x, center_y, center_z, size, 
-                            rotation_deg_x, rotation_deg_y, rotation_deg_z, camera_position, color, img_size=None, background=None, show_edges=True):
+                            rotation_deg_x, rotation_deg_y, rotation_deg_z, camera_position, color, img_size=None, background=None, show_edges=True, use_cuda=True):
         """Shared rendering logic for both GPU and CPU, now responsive to all node inputs"""
         # Create geometry object
         if object_type == "sphere":
@@ -80,7 +83,8 @@ class GeometryRenderNode:
             img_size=img_size if img_size is not None else 512,
             background=background if background is not None else 'white',
             show_edges=show_edges,
-            camera_position=camera_position
+            camera_position=camera_position,
+            use_cuda=use_cuda
         )
         depth_img = None  # Depth is not supported in isolated mode
         return self._process_outputs(color_img, depth_img)
