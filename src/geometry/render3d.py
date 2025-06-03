@@ -1,198 +1,317 @@
 import pyvista as pv
 import numpy as np
+import torch
+import cv2
+import hashlib
 from .geom import Geometry3D, Cube
 
-def euler_matrix(rx, ry, rz):
-    # Angles in degrees
-    rx, ry, rz = np.deg2rad([rx, ry, rz])
-    Rx = np.array([[1, 0, 0], [0, np.cos(rx), -np.sin(rx)], [0, np.sin(rx), np.cos(rx)]] )
-    Ry = np.array([[np.cos(ry), 0, np.sin(ry)], [0, 1, 0], [-np.sin(ry), 0, np.cos(ry)]] )
-    Rz = np.array([[np.cos(rz), -np.sin(rz), 0], [np.sin(rz), np.cos(rz), 0], [0, 0, 1]])
-    return Rz @ Ry @ Rx
+# Configure PyVista for headless/off-screen rendering
+pv.OFF_SCREEN = True
+pv.set_plot_theme("document")
 
 class Render3D:
-    def __init__(self, img_size=512, background='white'):
+    """Simple 3D renderer - uses GPU by default in the simplest way possible"""
+    
+    def __init__(self, img_size=512, background='white', safe_mode=False):
         self.img_size = (img_size, img_size) if isinstance(img_size, int) else img_size
         self.background = background
         self.geometries = []
-
+        
+        # Simple CUDA usage - just basic device selection, no interference with other scripts
+        self.use_gpu = not safe_mode and torch.cuda.is_available()
+        
+        if self.use_gpu:
+            self.device = torch.device('cuda')
+            print(f"Render3D: Using GPU acceleration on {torch.cuda.get_device_name()}")
+            self._setup_gpu_matrices()
+        else:
+            self.device = torch.device('cpu')
+            print("Render3D: Using CPU rendering")
+            self._setup_cpu_matrices()
+    
+    def _setup_gpu_matrices(self):
+        """Pre-create reusable matrices and tensors on GPU"""
+        # Base cube vertices (centered at origin)
+        self.base_cube_verts = torch.tensor([
+            [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5],
+            [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]
+        ], device=self.device, dtype=torch.float32)
+        
+        # Pre-create identity matrices for reuse
+        self.identity_3x3 = torch.eye(3, device=self.device, dtype=torch.float32)
+        self.identity_4x4 = torch.eye(4, device=self.device, dtype=torch.float32)
+        
+        # Pre-create commonly used values
+        self.zeros_3 = torch.zeros(3, device=self.device, dtype=torch.float32)
+        self.ones_3 = torch.ones(3, device=self.device, dtype=torch.float32)
+        
+        # Cube faces (reusable)
+        self.cube_faces = np.array([
+            [4, 0, 1, 2, 3], [4, 4, 5, 6, 7], [4, 0, 1, 5, 4],
+            [4, 1, 2, 6, 5], [4, 2, 3, 7, 6], [4, 3, 0, 4, 7]
+        ])
+        self.cube_faces_flat = np.hstack(self.cube_faces)
+    
+    def _setup_cpu_matrices(self):
+        """Pre-create reusable matrices for CPU"""
+        self.base_cube_verts_cpu = np.array([
+            [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5],
+            [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]
+        ], dtype=np.float32)
+        
+        self.identity_3x3_cpu = np.eye(3, dtype=np.float32)
+        
+        # Cube faces (reusable)
+        self.cube_faces = np.array([
+            [4, 0, 1, 2, 3], [4, 4, 5, 6, 7], [4, 0, 1, 5, 4],
+            [4, 1, 2, 6, 5], [4, 2, 3, 7, 6], [4, 3, 0, 4, 7]
+        ])
+        self.cube_faces_flat = np.hstack(self.cube_faces)
+    
+    def euler_matrix_gpu(self, rx, ry, rz):
+        """Create Euler rotation matrix using pre-allocated GPU tensors"""
+        # Convert to radians using pre-allocated tensors
+        rx_rad = torch.deg2rad(torch.tensor(rx, device=self.device, dtype=torch.float32))
+        ry_rad = torch.deg2rad(torch.tensor(ry, device=self.device, dtype=torch.float32))
+        rz_rad = torch.deg2rad(torch.tensor(rz, device=self.device, dtype=torch.float32))
+        
+        # Pre-compute trig functions
+        cos_rx, sin_rx = torch.cos(rx_rad), torch.sin(rx_rad)
+        cos_ry, sin_ry = torch.cos(ry_rad), torch.sin(ry_rad)
+        cos_rz, sin_rz = torch.cos(rz_rad), torch.sin(rz_rad)
+        
+        # Build rotation matrices using pre-allocated identity
+        Rx = self.identity_3x3.clone()
+        Rx[1, 1] = cos_rx; Rx[1, 2] = -sin_rx
+        Rx[2, 1] = sin_rx; Rx[2, 2] = cos_rx
+        
+        Ry = self.identity_3x3.clone()
+        Ry[0, 0] = cos_ry; Ry[0, 2] = sin_ry
+        Ry[2, 0] = -sin_ry; Ry[2, 2] = cos_ry
+        
+        Rz = self.identity_3x3.clone()
+        Rz[0, 0] = cos_rz; Rz[0, 1] = -sin_rz
+        Rz[1, 0] = sin_rz; Rz[1, 1] = cos_rz
+        
+        # Efficient matrix multiplication chain
+        return torch.matmul(torch.matmul(Rz, Ry), Rx)
+    
+    def euler_matrix_cpu(self, rx, ry, rz):
+        """Create Euler rotation matrix using pre-allocated CPU arrays"""
+        rx, ry, rz = np.deg2rad([rx, ry, rz])
+        
+        # Pre-compute trig functions
+        cos_rx, sin_rx = np.cos(rx), np.sin(rx)
+        cos_ry, sin_ry = np.cos(ry), np.sin(ry)
+        cos_rz, sin_rz = np.cos(rz), np.sin(rz)
+        
+        # Build matrices efficiently
+        Rx = self.identity_3x3_cpu.copy()
+        Rx[1, 1] = cos_rx; Rx[1, 2] = -sin_rx
+        Rx[2, 1] = sin_rx; Rx[2, 2] = cos_rx
+        
+        Ry = self.identity_3x3_cpu.copy()
+        Ry[0, 0] = cos_ry; Ry[0, 2] = sin_ry
+        Ry[2, 0] = -sin_ry; Ry[2, 2] = cos_ry
+        
+        Rz = self.identity_3x3_cpu.copy()
+        Rz[0, 0] = cos_rz; Rz[0, 1] = -sin_rz
+        Rz[1, 0] = sin_rz; Rz[1, 1] = cos_rz
+        
+        return Rz @ Ry @ Rx
+    
     def add_geometry(self, geom: Geometry3D, color='white', edge_color='black', opacity=1.0):
         self.geometries.append((geom, color, edge_color, opacity))
-
-    def render(self, output="render3d.png", camera_position=None, show_edges=True, perspective_blur_z=None, perspective_blur_params=None, **kwargs):
-        import cv2
-        # Ensure img_size is a tuple for Plotter
-        plotter_img_size = self.img_size if isinstance(self.img_size, tuple) else (self.img_size, self.img_size)
-        plotter = pv.Plotter(window_size=plotter_img_size, off_screen=True)
+    
+    def _create_sphere_mesh(self, geom):
+        """Optimized sphere creation"""
+        quality_map = {'low': 8, 'medium': 16, 'high': 32}
+        resolution = quality_map.get(getattr(geom, 'quality', 'medium'), 16)
+        
+        return pv.Sphere(
+            center=geom.center, 
+            radius=geom.params['radius'],
+            theta_resolution=resolution, 
+            phi_resolution=resolution
+        )
+    
+    def _create_cube_mesh_gpu(self, geom):
+        """Optimized GPU cube creation using pre-allocated matrices"""
+        width = geom.params['width']
+        
+        # Scale base vertices efficiently
+        scaled_verts = self.base_cube_verts * width
+        
+        # Apply rotation using optimized matrix
+        if not np.allclose(geom.rotation, [0, 0, 0]):
+            R = self.euler_matrix_gpu(*geom.rotation)
+            rotated_verts = torch.matmul(scaled_verts, R.T)
+        else:
+            rotated_verts = scaled_verts
+        
+        # Apply translation efficiently
+        center_tensor = torch.tensor(geom.center, device=self.device, dtype=torch.float32)
+        final_verts = rotated_verts + center_tensor
+        
+        # Convert to numpy for PyVista (optimized)
+        verts_np = final_verts.detach().cpu().numpy()
+        return pv.PolyData(verts_np, self.cube_faces_flat)
+    
+    def _create_cube_mesh_cpu(self, geom):
+        """Optimized CPU cube creation using pre-allocated matrices"""
+        width = geom.params['width']
+        
+        # Scale base vertices efficiently
+        scaled_verts = self.base_cube_verts_cpu * width
+        
+        # Apply rotation using optimized matrix
+        if not np.allclose(geom.rotation, [0, 0, 0]):
+            R = self.euler_matrix_cpu(*geom.rotation)
+            rotated_verts = scaled_verts @ R.T
+        else:
+            rotated_verts = scaled_verts
+        
+        # Apply translation efficiently
+        final_verts = rotated_verts + np.array(geom.center)
+        
+        return pv.PolyData(final_verts, self.cube_faces_flat)
+    
+    def _process_geometries(self):
+        """Optimized geometry processing"""
+        meshes_data = []
+        
         for geom, color, edge_color, opacity in self.geometries:
-            if isinstance(geom, Geometry3D):
-                # Example: handle Sphere and Cube
-                if 'radius' in geom.params:
-                    mesh = pv.Sphere(center=geom.center, radius=geom.params['radius'],
-                                     theta_resolution=self._res(geom), phi_resolution=self._res(geom))
-                elif 'width' in geom.params and isinstance(geom, Cube):
-                    # Create cube vertices, apply rotation, then make mesh
-                    w = geom.params['width'] / 2.0
-                    # Cube vertices centered at origin
-                    verts = np.array([
-                        [-w, -w, -w], [w, -w, -w], [w, w, -w], [-w, w, -w],
-                        [-w, -w, w], [w, -w, w], [w, w, w], [-w, w, w]
-                    ])
-                    # Apply rotation
-                    R = euler_matrix(*geom.rotation)
-                    verts = verts @ R.T
-                    # Move to center
-                    verts = verts + geom.center
-                    # Cube faces (PyVista expects 0-based indices)
-                    faces = [
-                        [4, 0, 1, 2, 3],  # bottom
-                        [4, 4, 5, 6, 7],  # top
-                        [4, 0, 1, 5, 4],  # side
-                        [4, 1, 2, 6, 5],  # side
-                        [4, 2, 3, 7, 6],  # side
-                        [4, 3, 0, 4, 7],  # side
-                    ]
-                    faces_flat = np.hstack(faces)
-                    mesh = pv.PolyData(verts, faces_flat)
-                elif 'width' in geom.params:
-                    # fallback: unrotated cube
-                    mesh = pv.Cube(center=geom.center, x_length=geom.params['width'],
-                                   y_length=geom.params['width'], z_length=geom.params['width'])
+            if not isinstance(geom, Geometry3D):
+                continue
+                
+            if 'radius' in geom.params:  # Sphere
+                mesh = self._create_sphere_mesh(geom)
+            elif 'width' in geom.params:  # Cube
+                if self.use_gpu:
+                    mesh = self._create_cube_mesh_gpu(geom)
                 else:
-                    continue  # Extend for other shapes
-                plotter.add_mesh(
-                    mesh,
-                    color=color,
-                    show_edges=show_edges,
-                    edge_color=edge_color,
-                    opacity=opacity,
-                    specular=1.0,         # maximum specular reflection for shininess
-                    specular_power=100.0, # high value for sharp highlights
-                    smooth_shading=True   # enable smooth shading for a shiny look
-                )
+                    mesh = self._create_cube_mesh_cpu(geom)
+            else:
+                continue
+                
+            meshes_data.append({
+                'mesh': mesh, 'color': color, 'edge_color': edge_color, 'opacity': opacity
+            })
+        
+        return meshes_data
+    
+    def render(self, output=None, camera_position=None, show_edges=True, **kwargs):
+        """Simple rendering method (color only, depth ignored)"""
+        plotter_img_size = self.img_size if isinstance(self.img_size, tuple) else (self.img_size, self.img_size)
+        pv.OFF_SCREEN = True
+        plotter = pv.Plotter(window_size=plotter_img_size, off_screen=True)
+        
+        meshes_data = self._process_geometries()
+        
+        for mesh_info in meshes_data:
+            plotter.add_mesh(
+                mesh_info['mesh'],
+                color=mesh_info['color'],
+                show_edges=show_edges,
+                edge_color=mesh_info['edge_color'],
+                opacity=mesh_info['opacity'],
+                specular=1.0,
+                specular_power=100.0,
+                smooth_shading=True
+            )
+        
         plotter.set_background(self.background)
         if camera_position:
             plotter.camera_position = camera_position
+        
+        plotter.show(auto_close=False)
         img = plotter.screenshot(None, transparent_background=True)
         plotter.close()
-        # Convert img to uint8 if needed
-        if img is not None and img.dtype != np.uint8:
-            img = (img * 255).clip(0,255).astype(np.uint8)
-        # Remove alpha channel if present
-        if img is not None and img.shape[-1] == 4:
-            img = img[..., :3]
-        # --- Perspective blur if requested ---
-        if perspective_blur_z is not None and img is not None:
-            params = perspective_blur_params or {}
-            min_z = params.get('min_z', -15)
-            max_blur = params.get('max_blur', 8)
-            z = perspective_blur_z
-            if z < 0:
-                if z <= min_z:
-                    blur_sigma = max_blur
-                else:
-                    blur_sigma = max_blur * (np.log1p(abs(z)) / np.log1p(abs(min_z)))
-            else:
-                blur_sigma = 0
-            if blur_sigma > 0.2:
-                ksize = int(2 * round(blur_sigma) + 1)
-                img = cv2.GaussianBlur(img, (ksize, ksize), blur_sigma)
-        if output and img is not None: # Check if img is not None before saving
+        
+        if img is not None:
+            img = self._process_image(img)
+        
+        if output and img is not None:
             cv2.imwrite(output, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-            print(f"3D Render saved to {output if output else 'memory'}") # Clarify if not saved to file
+            print(f"3D Render saved to {output}")
+        
         return img
-
-    def _res(self, geom):
-        # Map quality to resolution
-        quality_map = {'low': 8, 'medium': 16, 'high': 32}
-        return quality_map.get(geom.quality, 16)
-
+    
     def render_depth(self, camera_position=None, **kwargs):
-        """
-        Renders the depth map of the scene.
-        """
-        plotter_img_size = self.img_size if isinstance(self.img_size, tuple) else (self.img_size, self.img_size)
-        plotter = pv.Plotter(window_size=plotter_img_size, off_screen=True)
-        
-        for geom, color, edge_color, opacity in self.geometries:
-            if isinstance(geom, Geometry3D):
-                mesh = None
-                if 'radius' in geom.params: # Sphere
-                    mesh = pv.Sphere(center=geom.center, radius=geom.params['radius'],
-                                     theta_resolution=self._res(geom), phi_resolution=self._res(geom))
-                elif 'width' in geom.params and isinstance(geom, Cube): # Cube
-                    w = geom.params['width'] / 2.0
-                    verts = np.array([
-                        [-w, -w, -w], [w, -w, -w], [w, w, -w], [-w, w, -w],
-                        [-w, -w, w], [w, -w, w], [w, w, w], [-w, w, w]
-                    ])
-                    R = euler_matrix(*geom.rotation)
-                    verts = verts @ R.T
-                    verts = verts + geom.center
-                    faces = [
-                        [4, 0, 1, 2, 3], [4, 4, 5, 6, 7], [4, 0, 1, 5, 4],
-                        [4, 1, 2, 6, 5], [4, 2, 3, 7, 6], [4, 3, 0, 4, 7]
-                    ]
-                    faces_flat = np.hstack(faces)
-                    mesh = pv.PolyData(verts, faces_flat)
-                elif 'width' in geom.params: # Fallback unrotated cube
-                     mesh = pv.Cube(center=geom.center, x_length=geom.params['width'],
-                                   y_length=geom.params['width'], z_length=geom.params['width'])
-                
-                if mesh:
-                    plotter.add_mesh(mesh, color=color, opacity=opacity) # Color/opacity don't affect depth but good to keep consistent
-
-        plotter.set_background(self.background) 
-        if camera_position:
-            plotter.camera_position = camera_position
-        
-        # Force the rendering pass by taking a "screenshot" to memory
-        plotter.screenshot(filename=None) # This ensures the scene is rendered
-
-        # Get the depth image
-        depth_buffer = plotter.get_image_depth()
-        plotter.close()
-
-        if depth_buffer is not None:
-            min_depth = np.min(depth_buffer)
-            max_depth = np.max(depth_buffer)
-            if max_depth > min_depth: # Avoid division by zero
-                depth_normalized = (depth_buffer - min_depth) / (max_depth - min_depth)
-            else:
-                depth_normalized = np.zeros_like(depth_buffer) # Or np.ones_like if far plane is 1 and all is far
-
-            # PyVista's depth is typically 0 (near) to 1 (far).
-            # If your node expects inverted depth (white=near), you might do:
-            # depth_normalized = 1.0 - depth_normalized
-            return depth_normalized 
+        """Depth rendering disabled (returns None)"""
         return None
+    
+    def render_both(self, camera_position=None, show_edges=True, **kwargs):
+        """Render both color and depth (returns color, None)"""
+        color = self.render(camera_position=camera_position, show_edges=show_edges, **kwargs)
+        return color, None
+    
+    def _process_image(self, img):
+        """Optimized image processing"""
+        if img.dtype != np.uint8:
+            img = (img * 255).clip(0, 255).astype(np.uint8)
+        
+        if img.shape[-1] == 4:
+            img = img[..., :3]
+        
+        return img
+    
+    def _process_depth(self, depth_buffer):
+        """Optimized depth processing"""
+        if self.use_gpu:
+            return self._process_depth_gpu(depth_buffer)
+        else:
+            return self._process_depth_cpu(depth_buffer)
+    
+    def _process_depth_gpu(self, depth_buffer):
+        """GPU-optimized depth processing"""
+        try:
+            # Convert to tensor efficiently
+            depth_tensor = torch.from_numpy(depth_buffer).to(self.device, dtype=torch.float32)
+            
+            # Handle invalid values
+            mask = torch.isfinite(depth_tensor)
+            if mask.any():
+                valid_values = depth_tensor[mask]
+                min_depth = torch.min(valid_values)
+                max_depth = torch.max(valid_values)
+                
+                if max_depth > min_depth:
+                    # Normalize in-place
+                    depth_tensor.sub_(min_depth).div_(max_depth - min_depth)
+                    depth_tensor[~mask] = 0
+                else:
+                    depth_tensor.zero_()
+            else:
+                depth_tensor.zero_()
+            
+            return depth_tensor.cpu().numpy()
+            
+        except Exception as e:
+            print(f"GPU depth processing failed: {e}, falling back to CPU")
+            return self._process_depth_cpu(depth_buffer)
+    
+    def _process_depth_cpu(self, depth_buffer):
+        """CPU depth processing"""
+        valid_mask = np.isfinite(depth_buffer)
+        if valid_mask.any():
+            valid_depths = depth_buffer[valid_mask]
+            min_depth = np.min(valid_depths)
+            max_depth = np.max(valid_depths)
+            
+            if max_depth > min_depth:
+                normalized = (depth_buffer - min_depth) / (max_depth - min_depth)
+                normalized[~valid_mask] = 0
+                return normalized
+        
+        return np.zeros_like(depth_buffer)
+    
+    def __enter__(self):
+        """Context manager entry"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - simple cleanup"""
+        return False
 
-class Render2D: #not working yet
-    def __init__(self, img_size=512, background='white'):
-        self.img_size = img_size
-        self.background = background
-        self.geometries = []
-
-    def add_geometry(self, geom: Geometry3D, color='black', linewidth=2):
-        self.geometries.append((geom, color, linewidth))
-
-    def render(self, output="render2d.png", projection_axis='z', **kwargs):
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(figsize=(self.img_size/100, self.img_size/100), dpi=100)
-        ax.set_facecolor(self.background)
-        for geom, color, linewidth in self.geometries:
-            # Example: project vertices to 2D
-            verts = np.array([v for v in getattr(geom, 'vertices', [])])
-            if verts.size > 0:
-                if projection_axis == 'z':
-                    ax.plot(verts[:,0], verts[:,1], 'o-', color=color, linewidth=linewidth)
-                elif projection_axis == 'y':
-                    ax.plot(verts[:,0], verts[:,2], 'o-', color=color, linewidth=linewidth)
-                elif projection_axis == 'x':
-                    ax.plot(verts[:,1], verts[:,2], 'o-', color=color, linewidth=linewidth)
-        ax.axis('equal')
-        ax.axis('off')
-        plt.tight_layout(pad=0)
-        plt.savefig(output, bbox_inches='tight', pad_inches=0)
-        plt.close(fig)
-        print(f"2D Render saved to {output}")
+# End of file

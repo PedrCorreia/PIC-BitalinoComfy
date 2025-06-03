@@ -8,3 +8,17 @@ env/
 
 # Ignore test_nodes.py
 TestNodes/test_nodes.py
+test_advanced_optimizations.py
+test_comprehensive_performance.py
+test_optimized_rendering.py
+test_quick_benchmark.py
+src/geometry/render3d.py.backup
+test_cuda_isolation.py
+test_minimal.py
+test_pyvista.py
+comfy/geom/geometry_node_backup.py
+comfy/geom/geometry_node_fixed.py
+comfy/geom/geometry_node_realtime.py
+src/geometry/render3d_backup.py
+src/geometry/render3d_optimized.py
+src/geometry/render3d_realtime.py

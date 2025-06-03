@@ -76,25 +76,26 @@ except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} EDA Node: {type(e).__name__} - {e}")
 
 try:
-    from .comfy.tools import PrintToolNode, DepthModelLoaderNode, DepthMapNode
-    from .comfy.tools import PrintToolNode, PrintMultiToolNode, EnhancedPrintToolNode
+    from .comfy.tools import PrintToolNode, PrintMultiToolNode, EnhancedPrintToolNode, DepthModelLoaderNode, DepthMapNode
     NODE_CLASS_MAPPINGS["PrintToolNode"] = PrintToolNode
     NODE_CLASS_MAPPINGS["PrintMultiToolNode"] = PrintMultiToolNode
     NODE_CLASS_MAPPINGS["EnhancedPrintToolNode"] = EnhancedPrintToolNode
+    NODE_CLASS_MAPPINGS["DepthModelLoaderNode"] = DepthModelLoaderNode
+    NODE_CLASS_MAPPINGS["DepthMapNode"] = DepthMapNode
+
     NODE_DISPLAY_NAME_MAPPINGS["PrintToolNode"] = "🛠️ Print Tool Node"
     NODE_DISPLAY_NAME_MAPPINGS["PrintMultiToolNode"] = "🛠️ Multi Print Tool"
     NODE_DISPLAY_NAME_MAPPINGS["EnhancedPrintToolNode"] = "🛠️ Enhanced Print Tool"
-    NODE_CATEGORY_MAPPINGS["PrintToolNode"] = "Pedro_PIC/🛠️ Tools"
-    NODE_CLASS_MAPPINGS["DepthModelLoaderNode"] = DepthModelLoaderNode
     NODE_DISPLAY_NAME_MAPPINGS["DepthModelLoaderNode"] = "🧰 Depth Model Loader Node"
-    NODE_CATEGORY_MAPPINGS["DepthModelLoaderNode"] = "Pedro_PIC/🧰 Tools"
-    NODE_CLASS_MAPPINGS["DepthMapNode"] = DepthMapNode
     NODE_DISPLAY_NAME_MAPPINGS["DepthMapNode"] = "🧰 Depth Map Node"
-    NODE_CATEGORY_MAPPINGS["DepthMapNode"] = "Pedro_PIC/🧰 Tools"
-    print("Print Tool Node and Depth Nodes loaded successfully")
+
+    NODE_CATEGORY_MAPPINGS["PrintToolNode"] = "Pedro_PIC/🛠️ Tools"
     NODE_CATEGORY_MAPPINGS["PrintMultiToolNode"] = "Pedro_PIC/🛠️ Tools"
     NODE_CATEGORY_MAPPINGS["EnhancedPrintToolNode"] = "Pedro_PIC/🛠️ Tools"
-    print("Print Tool Nodes loaded successfully")
+    NODE_CATEGORY_MAPPINGS["DepthModelLoaderNode"] = "Pedro_PIC/🧰 Tools"
+    NODE_CATEGORY_MAPPINGS["DepthMapNode"] = "Pedro_PIC/🧰 Tools"
+
+    print("Print Tool Node and Depth Nodes loaded successfully")
 except ImportError as e:
     print(f"{IMPORT_ERROR_MESSAGE} Print Tool/Depth Nodes: ImportError - {e}")
 except Exception as e:
@@ -129,4 +130,16 @@ except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Comfy Bitalino Signal Generator: {type(e).__name__} - {e}")
 # Add a final message confirming initialization
 print("[DEBUG-INIT] PIC-2025 nodes loaded successfully")
+
+try:
+    from .comfy.geom.geometry_node import GeometryRenderNode
+    NODE_CLASS_MAPPINGS["GeometryRenderNode"] = GeometryRenderNode
+    NODE_DISPLAY_NAME_MAPPINGS["GeometryRenderNode"] = "🧱 Geometry Render (3D)"
+    NODE_CATEGORY_MAPPINGS["GeometryRenderNode"] = "Pedro_PIC/🧰 Tools"
+    print("Geometry Render Node loaded successfully")
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Geometry Render Node: ImportError - {e}")
+except Exception as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Geometry Render Node: {type(e).__name__} - {e}")
+
 

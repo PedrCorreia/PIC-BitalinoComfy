@@ -3,7 +3,17 @@ import cv2
 import torch
 from torchvision import transforms
 from PIL import Image
-from ..src.im_process.process import Midas, ImgUtils 
+
+# Try absolute import first, fallback to relative import for ComfyUI
+try:
+    from src.im_process.process import Midas, ImgUtils
+except ImportError:
+    try:
+        from ..src.im_process.process import Midas, ImgUtils
+    except ImportError:
+        # If both fail, we'll handle it in the class
+        Midas = None
+        ImgUtils = None 
 
 class PrintToolNode:
     """
@@ -97,6 +107,10 @@ class DepthModelLoaderNode:
 
     def load_midas_model(self, model_type):
         print(f"[DepthModelLoaderNode] Attempting to load MiDaS model: {model_type}")
+        
+        if Midas is None:
+            raise ImportError("Midas class not available. Please check the import path.")
+        
         midas_instance = None # Initialize to None
         try:
             # Assuming Midas class is imported correctly from ..src.im_process.process
@@ -143,12 +157,20 @@ class DepthMapNode:
     RETURN_NAMES = ("depth_map", )
     FUNCTION = "run_depth_prediction"
     CATEGORY = "Pedro_PIC/🧰 Tools"
-    def IS_CHANGED(self, image, midas_instance):
+    
+    @classmethod
+    def IS_CHANGED(cls, image, midas_instance):
         return float("NaN")
 
-    def run_depth_prediction(self, image: torch.Tensor, midas_instance: Midas):
+    def run_depth_prediction(self, image: torch.Tensor, midas_instance):
+        if Midas is None:
+            raise ImportError("Midas class not available. Please check the import path.")
+            
         if not isinstance(midas_instance, Midas):
             raise TypeError("midas_instance must be an instance of the Midas class.")
+
+        if ImgUtils is None:
+            raise ImportError("ImgUtils class not available. Please check the import path.")
 
         # Convert ComfyUI IMAGE tensor (B, H, W, C) [0,1] to NumPy array (H, W, C) [0,255] uint8
         # Midas.predict expects a NumPy array (BGR or RGB).
@@ -195,7 +217,7 @@ class DepthMapNode:
             final_numpy_depth = np.concatenate([final_numpy_depth]*3, axis=-1)
         # else: assume already (1, H, W, 3)
         depth_tensor = torch.from_numpy(final_numpy_depth).float()
-        print(f"[DepthMapNode] Returning depth_tensor shape: {depth_tensor.shape}, dtype: {depth_tensor.dtype}, min: {depth_tensor.min():.4f}, max: {depth_tensor.max():.4f}")
+        #print(f"[DepthMapNode] Returning depth_tensor shape: {depth_tensor.shape}, dtype: {depth_tensor.dtype}, min: {depth_tensor.min():.4f}, max: {depth_tensor.max():.4f}")
         return (depth_tensor,)
 
 class CannyMapNode:
