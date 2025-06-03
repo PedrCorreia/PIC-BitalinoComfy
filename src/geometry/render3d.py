@@ -5,12 +5,20 @@ import cv2
 import hashlib
 from .geom import Geometry3D, Cube
 
-# Configure PyVista for headless/off-screen rendering
+# Configure PyVista for headless/off-screen rendering and performance
 pv.OFF_SCREEN = True
 pv.set_plot_theme("document")
+# Optimize PyVista settings for speed
+if hasattr(pv, 'global_theme'):
+    pv.global_theme.multi_samples = 1  # Reduce anti-aliasing for speed
+    pv.global_theme.smooth_shading = False  # Disable smooth shading for speed
+    pv.global_theme.depth_peeling.enable = False  # Disable depth peeling
+
+# Cache computed meshes for reuse (speeds up repeated renders)
+_mesh_cache = {}
 
 class Render3D:
-    """Simple 3D renderer - uses GPU by default in the simplest way possible"""
+    """Simple 3D renderer with optimized performance"""
     
     def __init__(self, img_size=512, background='white', safe_mode=False):
         self.img_size = (img_size, img_size) if isinstance(img_size, int) else img_size
@@ -28,6 +36,9 @@ class Render3D:
             self.device = torch.device('cpu')
             print("Render3D: Using CPU rendering")
             self._setup_cpu_matrices()
+        
+        # Cache the plotter for reuse - creates major speedup
+        self._plotter = None
     
     def _setup_gpu_matrices(self):
         """Pre-create reusable matrices and tensors on GPU"""
@@ -54,11 +65,13 @@ class Render3D:
     
     def _setup_cpu_matrices(self):
         """Pre-create reusable matrices for CPU"""
+        # Base cube vertices (centered at origin)
         self.base_cube_verts_cpu = np.array([
             [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5],
             [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5]
         ], dtype=np.float32)
         
+        # Pre-create identity matrices for reuse
         self.identity_3x3_cpu = np.eye(3, dtype=np.float32)
         
         # Cube faces (reusable)
@@ -121,22 +134,63 @@ class Render3D:
         return Rz @ Ry @ Rx
     
     def add_geometry(self, geom: Geometry3D, color='white', edge_color='black', opacity=1.0):
-        self.geometries.append((geom, color, edge_color, opacity))
+        # Check cache key to avoid redundant geometry creation
+        key = self._get_geometry_hash(geom, color)
+        self.geometries.append((geom, color, edge_color, opacity, key))
     
-    def _create_sphere_mesh(self, geom):
-        """Optimized sphere creation"""
-        quality_map = {'low': 8, 'medium': 16, 'high': 32}
-        resolution = quality_map.get(getattr(geom, 'quality', 'medium'), 16)
+    def _get_geometry_hash(self, geom, color):
+        """Create a hash key for geometry caching"""
+        if hasattr(geom, 'params'):
+            # Create hash from essential properties
+            key_parts = [
+                str(geom.__class__.__name__),
+                str(hash(str(geom.center))), 
+                str(geom.params), 
+                str(geom.rotation), 
+                str(color)
+            ]
+            return hashlib.md5("_".join(key_parts).encode()).hexdigest()
+        return None
+    
+    def _create_sphere_mesh(self, geom, cache_key=None):
+        """Optimized sphere creation with caching"""
+        global _mesh_cache
         
-        return pv.Sphere(
+        # Check if mesh is in cache
+        if cache_key and cache_key in _mesh_cache:
+            return _mesh_cache[cache_key]
+            
+        # Adjust quality for performance
+        quality_map = {'low': 6, 'medium': 10, 'high': 20}
+        resolution = quality_map.get(getattr(geom, 'quality', 'medium'), 10)
+        
+        mesh = pv.Sphere(
             center=geom.center, 
             radius=geom.params['radius'],
             theta_resolution=resolution, 
             phi_resolution=resolution
         )
+        
+        # Cache the result
+        if cache_key:
+            _mesh_cache[cache_key] = mesh
+            
+            # Limit cache size
+            if len(_mesh_cache) > 100:
+                # Remove random items when cache gets too large
+                for _ in range(10):
+                    _mesh_cache.pop(next(iter(_mesh_cache)), None)
+                
+        return mesh
     
-    def _create_cube_mesh_gpu(self, geom):
-        """Optimized GPU cube creation using pre-allocated matrices"""
+    def _create_cube_mesh_gpu(self, geom, cache_key=None):
+        """Optimized GPU cube creation with caching"""
+        global _mesh_cache
+        
+        # Check if mesh is in cache
+        if cache_key and cache_key in _mesh_cache:
+            return _mesh_cache[cache_key]
+            
         width = geom.params['width']
         
         # Scale base vertices efficiently
@@ -155,10 +209,28 @@ class Render3D:
         
         # Convert to numpy for PyVista (optimized)
         verts_np = final_verts.detach().cpu().numpy()
-        return pv.PolyData(verts_np, self.cube_faces_flat)
+        mesh = pv.PolyData(verts_np, self.cube_faces_flat)
+        
+        # Cache the result
+        if cache_key:
+            _mesh_cache[cache_key] = mesh
+            
+            # Limit cache size
+            if len(_mesh_cache) > 100:
+                # Remove random items when cache gets too large
+                for _ in range(10):
+                    _mesh_cache.pop(next(iter(_mesh_cache)), None)
+        
+        return mesh
     
-    def _create_cube_mesh_cpu(self, geom):
-        """Optimized CPU cube creation using pre-allocated matrices"""
+    def _create_cube_mesh_cpu(self, geom, cache_key=None):
+        """Optimized CPU cube creation with caching"""
+        global _mesh_cache
+        
+        # Check if mesh is in cache
+        if cache_key and cache_key in _mesh_cache:
+            return _mesh_cache[cache_key]
+            
         width = geom.params['width']
         
         # Scale base vertices efficiently
@@ -174,23 +246,35 @@ class Render3D:
         # Apply translation efficiently
         final_verts = rotated_verts + np.array(geom.center)
         
-        return pv.PolyData(final_verts, self.cube_faces_flat)
+        mesh = pv.PolyData(final_verts, self.cube_faces_flat)
+        
+        # Cache the result
+        if cache_key:
+            _mesh_cache[cache_key] = mesh
+            
+            # Limit cache size
+            if len(_mesh_cache) > 100:
+                # Remove random items when cache gets too large
+                for _ in range(10):
+                    _mesh_cache.pop(next(iter(_mesh_cache)), None)
+        
+        return mesh
     
     def _process_geometries(self):
-        """Optimized geometry processing"""
+        """Optimized geometry processing with caching"""
         meshes_data = []
         
-        for geom, color, edge_color, opacity in self.geometries:
+        for geom, color, edge_color, opacity, cache_key in self.geometries:
             if not isinstance(geom, Geometry3D):
                 continue
-                
+            
             if 'radius' in geom.params:  # Sphere
-                mesh = self._create_sphere_mesh(geom)
+                mesh = self._create_sphere_mesh(geom, cache_key)
             elif 'width' in geom.params:  # Cube
                 if self.use_gpu:
-                    mesh = self._create_cube_mesh_gpu(geom)
+                    mesh = self._create_cube_mesh_gpu(geom, cache_key)
                 else:
-                    mesh = self._create_cube_mesh_cpu(geom)
+                    mesh = self._create_cube_mesh_cpu(geom, cache_key)
             else:
                 continue
                 
@@ -201,12 +285,25 @@ class Render3D:
         return meshes_data
     
     def render(self, output=None, camera_position=None, show_edges=True, **kwargs):
-        """Simple rendering method (color only, depth ignored)"""
+        """Optimized rendering method"""
         plotter_img_size = self.img_size if isinstance(self.img_size, tuple) else (self.img_size, self.img_size)
-        pv.OFF_SCREEN = True
-        plotter = pv.Plotter(window_size=plotter_img_size, off_screen=True)
         
+        # Reuse plotter if possible
+        if self._plotter is None:
+            pv.OFF_SCREEN = True
+            self._plotter = pv.Plotter(window_size=plotter_img_size, off_screen=True)
+        else:
+            self._plotter.clear() 
+        
+        plotter = self._plotter
+        plotter.set_background(self.background)
+        
+        # Process geometries with caching
         meshes_data = self._process_geometries()
+        
+        # Simplified rendering settings for better performance
+        specular = 0.5  # Lower for faster rendering
+        specular_power = 50  # Lower for faster rendering
         
         for mesh_info in meshes_data:
             plotter.add_mesh(
@@ -215,18 +312,19 @@ class Render3D:
                 show_edges=show_edges,
                 edge_color=mesh_info['edge_color'],
                 opacity=mesh_info['opacity'],
-                specular=1.0,
-                specular_power=100.0,
-                smooth_shading=True
+                specular=specular,
+                specular_power=specular_power,
+                smooth_shading=False  # Disable for performance
             )
         
-        plotter.set_background(self.background)
         if camera_position:
             plotter.camera_position = camera_position
         
         plotter.show(auto_close=False)
         img = plotter.screenshot(None, transparent_background=True)
-        plotter.close()
+        
+        # Don't close the plotter, reuse it for next time
+        # plotter.close()
         
         if img is not None:
             img = self._process_image(img)
@@ -311,7 +409,10 @@ class Render3D:
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit - simple cleanup"""
+        """Clean up plotter when done"""
+        if self._plotter is not None:
+            self._plotter.close()
+            self._plotter = None
         return False
 
 # End of file

@@ -2,6 +2,14 @@ import sys
 import numpy as np
 import os
 import json
+import time
+
+# Global caches for performance
+_renderer_cache = None
+_sphere_resolution_cache = {'low': 8, 'medium': 12, 'high': 20}  # reduced resolutions
+_last_img_size = None
+_last_background = None
+_last_use_cuda = None
 
 if __name__ == "__main__":
     # Arguments: <input_json> <output_npy>
@@ -14,6 +22,7 @@ if __name__ == "__main__":
     
     # Default image size in case we can't read it from input
     default_img_size = 512
+    start_time = time.time()
     
     try:
         # Load JSON data first to get img_size for potential fallback
@@ -42,8 +51,27 @@ if __name__ == "__main__":
         camera_position = data['camera_position']
         use_cuda = bool(data['use_cuda'])
         
-        # Create renderer
-        renderer = Render3D(img_size=img_size, background=background, safe_mode=not use_cuda)
+        # Access global variables
+        global _renderer_cache, _last_img_size, _last_background, _last_use_cuda
+        
+        # Reuse renderer if possible (saves initialization time)
+        if (_renderer_cache is None or 
+            _last_img_size != img_size or 
+            _last_background != background or
+            _last_use_cuda != use_cuda):
+            # Create new renderer
+            _renderer_cache = Render3D(img_size=img_size, background=background, safe_mode=not use_cuda)
+            _last_img_size = img_size
+            _last_background = background
+            _last_use_cuda = use_cuda
+        else:
+            # Clear existing geometries
+            _renderer_cache.geometries = []
+        
+        renderer = _renderer_cache
+        
+        load_time = time.time() - start_time
+        geom_time_start = time.time()
         
         # Recreate geometry objects from serialized data
         for geom_data in data['geom_args']:
@@ -75,14 +103,24 @@ if __name__ == "__main__":
             # Add to renderer
             renderer.add_geometry(geom, color=color, edge_color=edge_color, opacity=opacity)
         
+        geom_time = time.time() - geom_time_start
+        render_time_start = time.time()
+        
         # Render
         img = renderer.render(output=None, camera_position=camera_position, show_edges=show_edges)
+        render_time = time.time() - render_time_start
         
         # Save result
         if img is not None:
             np.save(output_npy, img)
         else:
             np.save(output_npy, np.zeros((img_size, img_size, 3), dtype=np.uint8))
+        
+        save_time = time.time() - render_time_start - render_time
+        total_time = time.time() - start_time
+        
+        print(f"Worker perf: load={load_time:.2f}s, geom={geom_time:.2f}s, "
+              f"render={render_time:.2f}s, save={save_time:.2f}s, total={total_time:.2f}s")
             
     except Exception as e:
         import traceback
