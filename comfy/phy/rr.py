@@ -183,7 +183,6 @@ class RRNode:
             self._last_is_peak = is_peak
             # Update arousal based on RR
             self.arousal = Arousal.rr_arousal(avg_rr) if avg_rr > 0 else 0.5
-            #print(f"RR: {avg_rr:.2f} breaths/min, Arousal: {self.arousal:.2f}, Peaks: {len(peaks)}, Is Peak: {is_peak}")
             # Visualization window
             if len(viz_timestamps) > 0:
                 window_max = viz_timestamps[-1]
@@ -267,7 +266,8 @@ class RRNode:
                 "type": "arousal_metrics",
                 "label": "RR Arousal",
                 "source": output_signal_id,
-                "scope": "global_metric"
+                "scope": "global_metric",
+                "arousal_value": float(arousal_value)  # Explicitly add arousal value as a float in metadata
             })
             time.sleep(0.01)
 #================================================================================================================================== Processing Output ============================================================================================================================
@@ -291,7 +291,6 @@ class RRNode:
         )
         self._processing_threads[signal_id] = thread
         thread.start()
-        print(f"Arousal: {self.arousal}")
         return self._last_rr, self._last_is_peak, output_signal_id, self.arousal
         
     def __del__(self):

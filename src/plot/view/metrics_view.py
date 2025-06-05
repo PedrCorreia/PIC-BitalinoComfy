@@ -46,7 +46,7 @@ class MetricsView:
         
         # Arousal metrics configurations
         self.arousal_metrics = [
-            ("RR Arousal", "RR_AROUSAL_METRIC"),
+            ("RR Arousal ", "RR_AROUSAL_METRIC"),
             ("ECG Arousal", "ECG_AROUSAL_METRIC"),
             ("EDA Arousal", "EDA_AROUSAL_METRIC"),
             ("Overall", "OVERALL_AROUSAL_METRIC")
@@ -55,10 +55,13 @@ class MetricsView:
     def _find_matching_signal(self, pattern):
         # Match any signal id in the registry that contains the pattern (case-insensitive, allows suffixes/prefixes)
         all_ids = self.plot_registry.get_all_signal_ids() if hasattr(self.plot_registry, 'get_all_signal_ids') else []
+        print(f"[MetricsView] Searching for signal '{pattern}' among {len(all_ids)} registered signals")
         regex = re.compile(re.escape(pattern), re.IGNORECASE)
         for sid in all_ids:
             if regex.search(str(sid)):
+                print(f"[MetricsView] Found match for '{pattern}': {sid}")
                 return self.plot_registry.get_signal(sid)
+        print(f"[MetricsView] No matching signal found for '{pattern}'")
         return None
 
     def draw(self, screen, x, y, width, height, window_sec=30):
@@ -257,7 +260,7 @@ class MetricsView:
         # Draw table title
         title = "Arousal"
         title_surface = font.render(title, True, (255, 255, 255))
-        screen.blit(title_surface, (table_rect.centerx - title_surface.get_width()//2, 
+        screen.blit(title_surface, (table_rect.centerx +10- title_surface.get_width()//2, 
                        table_rect.y + 10))
 
         # Draw subtitle below the title
@@ -274,7 +277,7 @@ class MetricsView:
         source_header = small_font.render("Source", True, (200, 200, 200))
         value_header = small_font.render("Value", True, (200, 200, 200))
         col1_x = table_rect.x + 20
-        col2_x = table_rect.right - 80
+        col2_x = table_rect.right - 120  # Move column further from right edge for more spacing
         header_y = table_rect.y + header_height + 5
         screen.blit(source_header, (col1_x, header_y))
         screen.blit(value_header, (col2_x, header_y))
@@ -311,11 +314,30 @@ class MetricsView:
             # Get the arousal value if available
             arousal_value = None
             sig = self._find_matching_signal(signal_id)
+            
+            # Try to get the arousal value from signal or its metadata
             if sig and isinstance(sig, dict):
+                # First check if it's directly in the signal
                 if "last" in sig:
                     arousal_value = sig["last"]
+                    print(f"[MetricsView] {label}: Using 'last' value: {arousal_value}")
                 elif "v" in sig and len(sig["v"]) > 0:
                     arousal_value = sig["v"][-1]
+                    print(f"[MetricsView] {label}: Using 'v[-1]' value: {arousal_value}")
+                # If not found, try to get it from metadata
+                elif "meta" in sig and isinstance(sig["meta"], dict) and "arousal_value" in sig["meta"]:
+                    arousal_value = sig["meta"]["arousal_value"]
+                    print(f"[MetricsView] {label}: Using metadata 'arousal_value': {arousal_value}")
+                    
+                # Try to get metadata directly from registry if available
+                if arousal_value is None and hasattr(self.plot_registry, 'get_signal_metadata'):
+                    try:
+                        meta = self.plot_registry.get_signal_metadata(signal_id)
+                        if meta and "arousal_value" in meta:
+                            arousal_value = meta["arousal_value"]
+                            print(f"[MetricsView] {label}: Using registry metadata 'arousal_value': {arousal_value}")
+                    except Exception as e:
+                        print(f"[MetricsView] Error getting metadata for {signal_id}: {e}")
                     
             # Draw the arousal value
             if arousal_value is not None and isinstance(arousal_value, (float, int)) and np.isfinite(arousal_value):
@@ -333,15 +355,16 @@ class MetricsView:
                 else:
                     color = (255, 40, 40)    # Red - stressed
                     
+                # Format value to always show 2 decimal places for consistency
                 value_text = f"{level:.2f}"
                 value_surface = small_font.render(value_text, True, color)
                 # Center the value in its column
-                text_x = col2_x + (50 - value_surface.get_width()) // 2
+                text_x = col2_x + (80 - value_surface.get_width()) // 2
                 screen.blit(value_surface, (text_x, row_y))
                 
                 # Draw a colored indicator dot
                 dot_radius = 5
-                dot_x = col2_x - 15
+                dot_x = col2_x - 20  # Move dot further away from text for better spacing
                 dot_y = row_y + small_font.get_height() // 2
                 pygame.draw.circle(screen, color, (dot_x, dot_y), dot_radius)
             else:
@@ -349,5 +372,5 @@ class MetricsView:
                 na_text = "N/A"
                 na_surface = small_font.render(na_text, True, (150, 150, 150))
                 # Center the text
-                text_x = col2_x + (65 - na_surface.get_width()) // 2
+                text_x = col2_x + (205 - na_surface.get_width()) // 2  # Updated to match value text positioning (80)
                 screen.blit(na_surface, (text_x, row_y))
