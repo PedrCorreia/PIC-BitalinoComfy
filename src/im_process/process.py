@@ -134,20 +134,22 @@ class ImgUtils:
     @staticmethod
     def tensor_to_numpy(tensor_image: torch.Tensor) -> np.ndarray:
         """Converts a PyTorch tensor (B, H, W, C) or (H, W, C) [0, 1] to a NumPy array (H, W, C) [0, 255]."""
-        print(f"[ImgUtils.tensor_to_numpy] Input tensor_image shape: {tensor_image.shape}, dtype: {tensor_image.dtype}, min: {tensor_image.min():.4f}, max: {tensor_image.max():.4f}")
+        #print(f"[ImgUtils.tensor_to_numpy] Input tensor_image shape: {tensor_image.shape}, dtype: {tensor_image.dtype}, min: {tensor_image.min():.4f}, max: {tensor_image.max():.4f}")
         if tensor_image.ndim == 4: # (B, H, W, C)
             tensor_image = tensor_image.squeeze(0) # Remove batch dimension if present
         
         numpy_array = tensor_image.cpu().numpy()
         # Determine if scaling is needed based on range
         if numpy_array.min() >= 0 and numpy_array.max() <= 1.0 and (numpy_array.max() - numpy_array.min()) > 1e-5 : # Check if it's likely in [0,1] range and not flat
-             print(f"[ImgUtils.tensor_to_numpy] Scaling from [0,1] to [0,255]")
+             #print(f"[ImgUtils.tensor_to_numpy] Scaling from [0,1] to [0,255]")
              numpy_array = (numpy_array * 255)
         else:
-             print(f"[ImgUtils.tensor_to_numpy] Assuming already in [0,255] or not a standard [0,1] float image, just casting dtype.")
+             #print(f"[ImgUtils.tensor_to_numpy] Assuming already in [0,255] or not a standard [0,1] float image, just casting dtype.")
+             pass
         
         numpy_array = numpy_array.astype(np.uint8)
-        print(f"[ImgUtils.tensor_to_numpy] Output numpy_array shape: {numpy_array.shape}, dtype: {numpy_array.dtype}, min: {numpy_array.min()}, max: {numpy_array.max()}")
+        
+        #print(f"[ImgUtils.tensor_to_numpy] Output numpy_array shape: {numpy_array.shape}, dtype: {numpy_array.dtype}, min: {numpy_array.min()}, max: {numpy_array.max()}")
         return numpy_array
 
     @staticmethod

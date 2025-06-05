@@ -2,10 +2,10 @@ from collections import deque
 import numpy as np
 import threading
 import time
-import scipy.signal
 from ...src.test_src.rr_signal_processing import RR
 from ...src.registry.signal_registry import SignalRegistry
 from ...src.utils.signal_processing import NumpySignalProcessor
+from ...src.utils.utils import Arousal
 
 class RRNode:
     """
@@ -17,7 +17,7 @@ class RRNode:
     # Track background processing threads
     _processing_threads = {}
     _stop_flags = {}
-
+#================================================================================================================================== Input Types ============================================================================================================================
     @classmethod
     def INPUT_TYPES(cls):
         """
@@ -37,19 +37,23 @@ class RRNode:
         }
         
 
-    RETURN_TYPES = ("FLOAT", "BOOLEAN", "STRING")
-    RETURN_NAMES = ("Respiration_Rate", "Is_Peak", "Signal_ID")
+    RETURN_TYPES = ("FLOAT", "BOOLEAN", "STRING", "FLOAT")
+    RETURN_NAMES = ("Respiration_Rate", "Is_Peak", "Signal_ID","Arousal")
     FUNCTION = "process_rr"
     CATEGORY = "Pedro_PIC/🔬 Bio-Processing"    
+    
     @classmethod
-    def IS_CHANGED(cls, *args, **kwargs):
+    def IS_CHANGED(elf, input_signal_id, show_peaks, output_signal_id, enabled):
         return float("NaN")
+
     def __init__(self):
         self._recent_peak_times = []
         self._last_rr = 0.0
         self._last_is_peak = False
-
+        self.arousal= 0.5
+#================================================================================================================================== Background Processing ============================================================================================================================
     def _background_process(self, input_signal_id, show_peaks, stop_flag, output_signal_id):
+        #--- Initialize signal registry and buffers ---
         registry = SignalRegistry.get_instance()
         fs = 1000  # RR typical sampling frequency
         viz_window_sec = 10
@@ -62,7 +66,7 @@ class RRNode:
         max_peaks_to_average = 10
         last_registry_data_hash = None
         last_process_time = time.time()
-        processing_interval = 0.033
+        processing_interval = 0.033 # 30 Hz processing rate
         start_time = None
         # --- Filtering parameters for RR, adapted for decimation if needed ---
         nyquist_fs = fs / 2
@@ -177,6 +181,9 @@ class RRNode:
             )
             self._last_rr = avg_rr
             self._last_is_peak = is_peak
+            # Update arousal based on RR
+            self.arousal = Arousal.rr_arousal(avg_rr) if avg_rr > 0 else 0.5
+            #print(f"RR: {avg_rr:.2f} breaths/min, Arousal: {self.arousal:.2f}, Peaks: {len(peaks)}, Is Peak: {is_peak}")
             # Visualization window
             if len(viz_timestamps) > 0:
                 window_max = viz_timestamps[-1]
@@ -224,6 +231,7 @@ class RRNode:
                 "type": "rr_processed",
                 "rr": avg_rr,  # For compatibility, but this is breaths/min
                 "rr_metric_id": "RR_METRIC",  # Add reference to RR metric signal
+                "arousal": self.arousal,  # Add arousal value for metrics view
                 "color": "#55F4FF",
                 "show_peaks": show_peaks,
                 "peak_marker": "o",
@@ -234,16 +242,44 @@ class RRNode:
                 "v": filtered_viz_rr.tolist()
             }
             registry.register_signal(output_signal_id, processed_signal_data, metadata)
+            
+            # Register arousal as a separate metric for the metrics view
+            metrics_registry = registry  # Use the same registry
+            
+            # Ensure we have a valid arousal value
+            arousal_value = 0.5  # Default middle value
+            if self.arousal is not None and isinstance(self.arousal, (float, int)) and np.isfinite(self.arousal):
+                arousal_value = float(self.arousal)
+                
+            # Create timestamp - use the latest timestamp from the visualization window or current time
+            current_timestamp = viz_timestamps_window[-1] if len(viz_timestamps_window) > 0 else time.time()
+            
+            # Prepare arousal metric data with both timeseries and 'last' value for easy access
+            arousal_metrics_data = {
+                "t": [current_timestamp],
+                "v": [arousal_value],
+                "last": arousal_value  # Add last value for easy access in metrics view
+            }
+            
+            # Register with the metrics registry
+            metrics_registry.register_signal("RR_AROUSAL_METRIC", arousal_metrics_data, {
+                "id": "RR_AROUSAL_METRIC",
+                "type": "arousal_metrics",
+                "label": "RR Arousal",
+                "source": output_signal_id,
+                "scope": "global_metric"
+            })
             time.sleep(0.01)
-
+#================================================================================================================================== Processing Output ============================================================================================================================
     def process_rr(self, input_signal_id="", show_peaks=True, output_signal_id="RR_PROCESSED", enabled=True):
         if not enabled:
-            return 0.0, False, output_signal_id
+            return 0.0, False, output_signal_id, 0.5  # Include default arousal value of 0.5
         signal_id = output_signal_id
         if signal_id in self._processing_threads and self._processing_threads[signal_id].is_alive():
             avg_rr = getattr(self, '_last_rr', 0.0)
             is_peak = getattr(self, '_last_is_peak', False)
-            return avg_rr, is_peak, output_signal_id
+            arousal = getattr(self, 'arousal', 0.5)  # Get current arousal value or default to 0.5
+            return avg_rr, is_peak, output_signal_id, arousal
         if signal_id in self._stop_flags:
             self._stop_flags[signal_id][0] = True
         stop_flag = [False]
@@ -255,7 +291,8 @@ class RRNode:
         )
         self._processing_threads[signal_id] = thread
         thread.start()
-        return 0.0, False, output_signal_id
+        print(f"Arousal: {self.arousal}")
+        return self._last_rr, self._last_is_peak, output_signal_id, self.arousal
         
     def __del__(self):
         """Clean up background threads when node is deleted"""

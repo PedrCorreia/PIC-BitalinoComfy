@@ -43,6 +43,14 @@ class MetricsView:
                 (40, (255, 40, 40)),
             ]),
         ]
+        
+        # Arousal metrics configurations
+        self.arousal_metrics = [
+            ("RR Arousal", "RR_AROUSAL_METRIC"),
+            ("ECG Arousal", "ECG_AROUSAL_METRIC"),
+            ("EDA Arousal", "EDA_AROUSAL_METRIC"),
+            ("Overall", "OVERALL_AROUSAL_METRIC")
+        ]
 
     def _find_matching_signal(self, pattern):
         # Match any signal id in the registry that contains the pattern (case-insensitive, allows suffixes/prefixes)
@@ -59,12 +67,16 @@ class MetricsView:
         n_rows = 2
         margin = SECTION_MARGIN  # Use SECTION_MARGIN for consistency
         total_cells = n_cols * n_rows
-        # Center the grid in the available area
-        cell_size = min((width - (n_cols + 1) * margin) // n_cols, (height - (n_rows + 1) * margin) // n_rows)
+        # Allocate space for the arousal table on the right (25% of width)
+        table_width = width * 0.25
+        main_width = width - table_width
+        
+        # Center the grid in the available area (75% of width)
+        cell_size = min((main_width - (n_cols + 1) * margin) // n_cols, (height - (n_rows + 1) * margin) // n_rows)
         cell_size = cell_size    # Double the cell height (and width, since grid is square)
         grid_w = n_cols * cell_size + (n_cols + 1) * margin
         grid_h = n_rows * cell_size + (n_rows + 1) * margin
-        grid_x = x + (width - grid_w) // 2
+        grid_x = x + (main_width - grid_w) // 2
         grid_y = y + (height - grid_h) // 2
         plot_h = int(cell_size * 0.7)
         bar_h = int(cell_size * 0.22)
@@ -167,16 +179,16 @@ class MetricsView:
             last_val = None
             try:
                 if sig and isinstance(sig, dict):
-                    print(f"[HR BAR DEBUG] sig dict for {label}: keys={list(sig.keys())}")
+                    #print(f"[HR BAR DEBUG] sig dict for {label}: keys={list(sig.keys())}")
                     if "last" in sig and isinstance(sig["last"], (float, int, np.floating, np.integer)):
                         last_val = float(sig["last"])
-                        print(f"[HR BAR DEBUG] last_val from sig['last']: {last_val}")
+                       # print(f"[HR BAR DEBUG] last_val from sig['last']: {last_val}")
                     elif "last" in sig and isinstance(sig["last"], (list, np.ndarray)) and len(sig["last"]):
                         last_val = float(sig["last"][-1])
-                        print(f"[HR BAR DEBUG] last_val from sig['last'][-1]: {last_val}")
+                        #print(f"[HR BAR DEBUG] last_val from sig['last'][-1]: {last_val}")
                     elif "v" in sig and isinstance(sig["v"], (list, np.ndarray)) and len(sig["v"]):
                         last_val = float(sig["v"][-1])
-                        print(f"[HR BAR DEBUG] last_val from sig['v'][-1]: {last_val}")
+                        #print(f"[HR BAR DEBUG] last_val from sig['v'][-1]: {last_val}")
             except Exception as e:
                 print(f"[HR BAR DEBUG] Exception extracting last_val for {label}: {e}")
             # Clamp and normalize last_val for bar
@@ -224,3 +236,118 @@ class MetricsView:
                     screen.blit(na_type_surface, (bar_x + 60, bar_y + 2))
             # Defensive: always continue to next metric, never crash
             continue
+        
+        # Draw the arousal metrics table on the right side
+        self._draw_arousal_table(screen, x + main_width, y, table_width, height, font, small_font)
+
+    def _draw_arousal_table(self, screen, x, y, width, height, font, small_font):
+        """
+        Draw a table of current arousal values from different biosignals
+        """
+        # Draw table header
+        header_height = 40
+        row_height = 32
+        table_margin = 10
+        
+        # Draw table background
+        table_rect = pygame.Rect(x + table_margin, y + table_margin, 
+                               width - (2 * table_margin), height - (2 * table_margin))
+        pygame.draw.rect(screen, (30, 30, 30), table_rect, border_radius=8)
+        
+        # Draw table title
+        title = "Arousal"
+        title_surface = font.render(title, True, (255, 255, 255))
+        screen.blit(title_surface, (table_rect.centerx - title_surface.get_width()//2, 
+                       table_rect.y + 10))
+
+        # Draw subtitle below the title
+        subtitle = "Values"
+        subtitle_surface = small_font.render(subtitle, True, (200, 200, 200))
+        screen.blit(subtitle_surface, (table_rect.centerx - subtitle_surface.get_width()//2,
+                           table_rect.y + 10 + title_surface.get_height() + 2))
+        # Draw header line
+        pygame.draw.line(screen, (100, 100, 100), 
+                       (table_rect.x + 10, table_rect.y + header_height - 5),
+                       (table_rect.right - 10, table_rect.y + header_height - 5), 2)
+        
+        # Draw column headers with better spacing
+        source_header = small_font.render("Source", True, (200, 200, 200))
+        value_header = small_font.render("Value", True, (200, 200, 200))
+        col1_x = table_rect.x + 20
+        col2_x = table_rect.right - 80
+        header_y = table_rect.y + header_height + 5
+        screen.blit(source_header, (col1_x, header_y))
+        screen.blit(value_header, (col2_x, header_y))
+        
+        # Draw legend for color mapping
+        legend_y = table_rect.bottom - 100
+        legend_spacing = 15
+        legend_text = small_font.render("Color Key:", True, (200, 200, 200))
+        screen.blit(legend_text, (col1_x, legend_y))
+        
+        # Draw color legend squares with labels
+        legend_colors = [
+            ((0, 120, 255), "Sleep (0.0-0.2)"),
+            ((0, 200, 80), "Relaxed (0.2-0.4)"),
+            ((255, 220, 0), "Normal (0.4-0.6)"),
+            ((255, 140, 0), "Aroused (0.6-0.8)"),
+            ((255, 40, 40), "Stressed (0.8-1.0)")
+        ]
+        
+        for i, (color, label) in enumerate(legend_colors):
+            y_pos = legend_y + 20 + i * legend_spacing
+            pygame.draw.rect(screen, color, (col1_x, y_pos, 10, 10))
+            label_surf = small_font.render(label, True, (180, 180, 180))
+            screen.blit(label_surf, (col1_x + 15, y_pos - 2))
+
+        # Draw each arousal row
+        for i, (label, signal_id) in enumerate(self.arousal_metrics):
+            row_y = header_y + ((i + 1) * row_height)
+            
+            # Draw the row label
+            label_surface = small_font.render(label, True, (180, 180, 180))
+            screen.blit(label_surface, (col1_x, row_y))
+            
+            # Get the arousal value if available
+            arousal_value = None
+            sig = self._find_matching_signal(signal_id)
+            if sig and isinstance(sig, dict):
+                if "last" in sig:
+                    arousal_value = sig["last"]
+                elif "v" in sig and len(sig["v"]) > 0:
+                    arousal_value = sig["v"][-1]
+                    
+            # Draw the arousal value
+            if arousal_value is not None and isinstance(arousal_value, (float, int)) and np.isfinite(arousal_value):
+                # Color based on arousal level (use consistent colors from metric_configs)
+                level = float(arousal_value)
+                # Map the arousal value (0-1) to the color scheme used in metrics
+                if level < 0.2:
+                    color = (0, 120, 255)    # Blue - sleep
+                elif level < 0.4:
+                    color = (0, 200, 80)     # Green - relaxed
+                elif level < 0.6:
+                    color = (255, 220, 0)    # Yellow - normal
+                elif level < 0.8:
+                    color = (255, 140, 0)    # Orange - aroused
+                else:
+                    color = (255, 40, 40)    # Red - stressed
+                    
+                value_text = f"{level:.2f}"
+                value_surface = small_font.render(value_text, True, color)
+                # Center the value in its column
+                text_x = col2_x + (50 - value_surface.get_width()) // 2
+                screen.blit(value_surface, (text_x, row_y))
+                
+                # Draw a colored indicator dot
+                dot_radius = 5
+                dot_x = col2_x - 15
+                dot_y = row_y + small_font.get_height() // 2
+                pygame.draw.circle(screen, color, (dot_x, dot_y), dot_radius)
+            else:
+                # N/A if no value
+                na_text = "N/A"
+                na_surface = small_font.render(na_text, True, (150, 150, 150))
+                # Center the text
+                text_x = col2_x + (65 - na_surface.get_width()) // 2
+                screen.blit(na_surface, (text_x, row_y))

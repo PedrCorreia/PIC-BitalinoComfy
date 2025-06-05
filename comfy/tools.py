@@ -181,14 +181,14 @@ class DepthMapNode:
         # Midas.predict returns a 2D NumPy array (H, W), float32, normalized [0,1]
         # It handles internal resizing and matches output to original input image dimensions.
         depth_map_np = midas_instance.predict(numpy_image, optimize_size=True)
-        print(f"[DepthMapNode] depth_map_np from Midas.predict shape: {depth_map_np.shape}, dtype: {depth_map_np.dtype}")
+        #print(f"[DepthMapNode] depth_map_np from Midas.predict shape: {depth_map_np.shape}, dtype: {depth_map_np.dtype}")
 
         # Handle potential 1x1 output case to prevent Pillow error downstream
         if depth_map_np.shape == (1, 1):
-            print(f"[DepthMapNode] Detected 1x1 depth_map_np. Upscaling to 2x2.")
+            #print(f"[DepthMapNode] Detected 1x1 depth_map_np. Upscaling to 2x2.")
             pixel_value = depth_map_np[0, 0] 
             depth_map_np = np.full((2, 2), pixel_value, dtype=np.float32) 
-            print(f"[DepthMapNode] Upscaled depth_map_np shape: {depth_map_np.shape}, dtype: {depth_map_np.dtype}")
+           # print(f"[DepthMapNode] Upscaled depth_map_np shape: {depth_map_np.shape}, dtype: {depth_map_np.dtype}")
         # Ensure output is at least 2x2 and shape [1, H, W, 3] (RGB, float32, 0-1)
         final_numpy_depth = np.ascontiguousarray(depth_map_np)
         if final_numpy_depth.ndim == 2:
