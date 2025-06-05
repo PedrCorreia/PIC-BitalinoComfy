@@ -132,7 +132,18 @@ except Exception as e:
 print("[DEBUG-INIT] PIC-2025 nodes loaded successfully")
 
 try:
-    from .comfy.geom.geometry_node import GeometryRenderNode
+    from .comfy.geom.geometry_node_realtime  import GeometryRenderNodeRealtime
+    NODE_CLASS_MAPPINGS["GeometryRenderNodeRT"] = GeometryRenderNodeRealtime
+    NODE_DISPLAY_NAME_MAPPINGS["GeometryRenderNode"] = "🧱 Geometry Render RT (3D)"
+    NODE_CATEGORY_MAPPINGS["GeometryRenderNode"] = "Pedro_PIC/🧰 Tools"
+    print("Geometry Render Node loaded successfully")
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Geometry Render Node: ImportError - {e}")
+except Exception as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Geometry Render Node: {type(e).__name__} - {e}")
+
+try:
+    from .comfy.geom.geometry_node  import GeometryRenderNode
     NODE_CLASS_MAPPINGS["GeometryRenderNode"] = GeometryRenderNode
     NODE_DISPLAY_NAME_MAPPINGS["GeometryRenderNode"] = "🧱 Geometry Render (3D)"
     NODE_CATEGORY_MAPPINGS["GeometryRenderNode"] = "Pedro_PIC/🧰 Tools"
@@ -141,5 +152,4 @@ except ImportError as e:
     print(f"{IMPORT_ERROR_MESSAGE} Geometry Render Node: ImportError - {e}")
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Geometry Render Node: {type(e).__name__} - {e}")
-
 

@@ -12,7 +12,7 @@ pv.set_plot_theme("document")
 class Render3D:
     """Simple 3D renderer - uses GPU by default in the simplest way possible"""
     
-    def __init__(self, img_size=512, background='white', safe_mode=False):
+    def __init__(self, img_size=512, background='white', safe_mode=True):
         self.img_size = (img_size, img_size) if isinstance(img_size, int) else img_size
         self.background = background
         self.geometries = []
