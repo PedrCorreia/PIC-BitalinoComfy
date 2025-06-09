@@ -424,10 +424,9 @@ class Render3D:
                 except:
                     break
                     
-            # Print confirmation of render command
-            print(f"Sending render command to worker (geometries: {len(geometries_data)})")
-                
             # Send render command to worker process
+            # Send command to worker
+            # print(f"Sending render command to worker (geometries: {len(geometries_data)})") # Commented out
             self._cmd_queue.put({
                 'action': 'render',
                 'img_size': self.img_size,
@@ -437,148 +436,58 @@ class Render3D:
                 'show_edges': show_edges
             })
             
-            # Wait for result with timeout but process UI events periodically
-            result = None
-            start_time = time.time()
-            timeout = 5  # Reduced timeout to 5 seconds for better UI responsiveness
-            
+            # Wait for result from worker with a timeout
+            # print("Waiting for worker result...") # Commented out
             try:
-                print("Waiting for worker result...")
-                # Use a non-blocking approach with shorter timeouts to allow UI updates
-                while time.time() - start_time < timeout:
-                    try:
-                        # Try to get result with a shorter timeout
-                        result = self._result_queue.get(timeout=0.01)  # Shorter timeout for more UI updates
-                        print(f"Got worker result: success={result.get('success', False)}")
-                        break
-                    except queue.Empty:
-                        # If queue is empty, yield control back to UI thread
-                        time.sleep(0.005)  # Very short sleep for more responsive UI
-                        
-                        # Check worker process health every half second
-                        if time.time() - start_time > 0.5 and (time.time() - start_time) % 0.5 < 0.01:
-                            if not self._worker_process.is_alive():
-                                print("Worker process died while waiting for results")
-                                raise RuntimeError("Worker process died unexpectedly")
-                        continue
-                    except Exception as e:
-                        print(f"Error getting result: {e}")
-                        raise
-                
-                # If we got here without a result, we timed out
-                if result is None:
-                    print("Timeout waiting for worker result - restarting worker process")
-                    # Force reset the worker process
-                    self._stop_worker_process()
-                    self._start_worker_process()
-                    raise TimeoutError("Timeout waiting for worker result")
-                    
+                result = self._result_queue.get(timeout=10.0)  # Increased timeout to 10s
             except Exception as e:
-                print(f"Error waiting for render result: {e}")
-                # If result is not received in time, restart worker
-                self._stop_worker_process()
-                self._start_worker_process()
-                return None
+                print(f"Error getting result from worker: {e}")
+                result = None  # Indicate failure for this render
+
+            # print(f"Got worker result: success={result.get('success')}") # Commented out
             
-            if not result.get('success', False):
-                print(f"Worker render failed: {result.get('error', 'Unknown error')}")
-                return None
-            
-            # Get image from shared memory
-            shm_name = result.get('shm_name')
-            shape = result.get('shape')
-            dtype_str = result.get('dtype')
-            
-            if shm_name and shape and dtype_str:
-                shm = None
+            if result.get('success'):
+                shm_name = result['shm_name']
+                shape = result['shape']
+                dtype_str = result['dtype']
+                
+                dtype = np.dtype(dtype_str)
+                
+                # print(f"Accessing shared memory: {shm_name}") # Commented out
                 try:
-                    # Clean up any previous shared memory first to avoid resource leaks
-                    self._cleanup_shared_memory()
-                    
-                    # Access the shared memory segment with a timeout approach
-                    print(f"Accessing shared memory: {shm_name}")
-                    
-                    # Try to access shared memory with retries for robustness
-                    start_access_time = time.time()
-                    max_retries = 3
-                    retry_count = 0
-                    
-                    while retry_count < max_retries:
-                        try:
-                            shm = shared_memory.SharedMemory(name=shm_name)
-                            break  # Success, exit retry loop
-                        except Exception as e:
-                            retry_count += 1
-                            if retry_count >= max_retries:
-                                print(f"Failed to access shared memory after {max_retries} attempts: {e}")
-                                raise
-                            print(f"Retry {retry_count}/{max_retries} accessing shared memory: {e}")
-                            time.sleep(0.1)  # Short delay before retry
-                    
-                    self._active_shm = shm  # Save reference for cleanup later
+                    # Connect to the existing shared memory
+                    shm = shared_memory.SharedMemory(name=shm_name)
+                    self._active_shm = shm  # Keep reference to close it later
                     
                     # Create numpy array using the shared memory buffer
-                    dtype = np.dtype(dtype_str.replace("'", ""))
-                    img = np.ndarray(shape, dtype=dtype, buffer=shm.buf)
+                    img_array = np.ndarray(shape, dtype=dtype, buffer=shm.buf)
                     
                     # Create a copy IMMEDIATELY to avoid issues when shared memory is released
-                    img = np.copy(img)
+                    img_copy = img_array.copy()
                     
-                    # Save to output file if requested
-                    if output and img is not None:
-                        cv2.imwrite(output, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-                        print(f"3D Render saved to {output}")
+                    # print(f"Closing shared memory: {shm_name}") # Commented out
+                    self._active_shm.close() # Close our handle to it
                     
-                    # Send a cleanup command to the worker to explicitly unlink the shared memory
-                    # Do this immediately after copying the data
-                    try:
-                        self._cmd_queue.put({
-                            'action': 'cleanup_shared_memory',
-                            'shm_name': shm_name
-                        })
-                    except Exception as cleanup_e:
-                        print(f"Failed to send cleanup command: {cleanup_e}")
-                    
-                    # Close our handle immediately
-                    if shm is not None:
-                        try:
-                            print(f"Closing shared memory: {shm_name}")
-                            shm.close()
-                            self._active_shm = None  # Clear reference
-                        except Exception as close_e:
-                            print(f"Error closing shared memory: {close_e}")
-                    
-                    # Explicitly force garbage collection to ensure resources are freed
-                    gc.collect()
-                    
-                    return img
-                    
+                    # Request worker to unlink the shared memory
+                    # print(f"Requesting worker to unlink shared memory: {shm_name}") # Commented out
+                    self._cmd_queue.put({'action': 'cleanup_shared_memory', 'shm_name': shm_name})
+                    self._active_shm = None # Mark as handled
                 except Exception as e:
                     print(f"Error accessing shared memory: {e}")
-                    
-                    # Try to clean up any partially initialized resources
-                    if shm is not None:
-                        try:
-                            shm.close()
-                        except:
-                            pass
-                    
-                    # Force garbage collection on error
-                    self._active_shm = None
-                    gc.collect()
-                    
-                    # Return None to indicate failure
-                    return None
-                finally:
-                    # Final cleanup in case anything was missed
-                    if shm is not None:
-                        try:
-                            shm.close()
-                            self._active_shm = None
-                        except:
-                            pass
-            
-            return None
+                    img_copy = None
+                
+                # Save to output file if requested
+                if output and img_copy is not None:
+                    cv2.imwrite(output, cv2.cvtColor(img_copy, cv2.COLOR_RGB2BGR))
+                    print(f"3D Render saved to {output}")
+                
+                # Explicitly force garbage collection to ensure resources are freed
+                gc.collect()
+                
+                return img_copy
+            else:
+                print(f"Worker render failed: {result.get('error', 'Unknown error')}")
+                return None
         except Exception as e:
             print(f"Error in worker process rendering: {e}")
             return None

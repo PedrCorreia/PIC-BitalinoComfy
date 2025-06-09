@@ -5,6 +5,9 @@ import importlib.util
 import atexit
 import numpy as np
 import torch
+import cProfile
+import pstats
+import io
 
 # More robustly determine project paths
 current_file_path = os.path.abspath(inspect.getfile(inspect.currentframe()))
@@ -92,6 +95,8 @@ class GeometryRenderNode:
     def __init__(self):
         # Register cleanup on node destruction
         self._destroyed = False
+        self._profiler = None # Initialize _profiler here
+        self._profiler_active = False # Initialize _profiler_active here
     
     def __del__(self):
         if not self._destroyed:
@@ -102,6 +107,22 @@ class GeometryRenderNode:
         self._destroyed = True
         # Ensure renderer is cleaned up properly
         try:
+            # If profiling, ensure profiler is closed if it exists
+            if hasattr(self, '_profiler') and self._profiler and self._profiler_active: # Check if active
+                self._profiler.disable()
+                # Save profile data with a timestamp to avoid overwriting
+                import time
+                timestamp = time.strftime("%Y%m%d-%H%M%S")
+                # Ensure the profile path is correct, relative to the custom_nodes directory
+                profile_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_file_path))) # PIC-BitalinoComfy
+                profile_path = os.path.join(profile_dir, f"geometry_node_profile_{timestamp}.prof")
+                
+                # Create the directory if it doesn't exist
+                # os.makedirs(os.path.dirname(profile_path), exist_ok=True) # Not needed if saving in PIC-BitalinoComfy root
+
+                self._profiler.dump_stats(profile_path)
+                print(f"[GeometryRenderNode] Profiling data saved to {profile_path}")
+                self._profiler_active = False # Mark as not active after saving
             cleanup_renderer()
         except Exception as e:
             print(f"Error during GeometryRenderNode cleanup: {e}")
@@ -109,6 +130,18 @@ class GeometryRenderNode:
 
     def render(self, object_type, center_x, center_y, center_z, size, rotation_deg_x, rotation_deg_y, rotation_deg_z, z_distance, img_size, color):
         """Render the geometry with process isolation"""
+        
+        # Initialize profiler for the first call or if not already profiling
+        if not self._profiler_active: # Check if already active
+            if self._profiler is None: # Create new profiler if it's the very first run or after a cleanup
+                self._profiler = cProfile.Profile()
+            self._profiler.enable()
+            self._profiler_active = True
+            print(f"[GeometryRenderNode] Profiler enabled. Profile will be saved on node deletion/cleanup.")
+            # Ensure cleanup will save profile data
+            # We might want to save on __del__ or a specific node "finish" signal if ComfyUI has one
+            # For now, saving in _cleanup which is called by __del__
+
         # Camera setup: looking at origin from +z
         camera_position = [(0, 0, z_distance), (0, 0, 0), (0, 1, 0)]
         
@@ -133,7 +166,8 @@ class GeometryRenderNode:
                 # If we got a valid result, return it
                 if result is not None:
                     if torch.is_tensor(result):
-                        print(f"[GeometryRenderNode] Successfully rendered image: shape={tuple(result.shape)}, dtype={result.dtype}")
+                        pass
+                        #print(f"[GeometryRenderNode] Successfully rendered image: shape={tuple(result.shape)}, dtype={result.dtype}")
                     return result
                 
                 # If we get here, rendering failed but returned None - try again
@@ -160,6 +194,14 @@ class GeometryRenderNode:
         
         # If we got here, all attempts failed
         #print(f"All {max_attempts} render attempts failed, returning fallback image")
+        
+        # It's generally better to disable the profiler and save stats 
+        # after a meaningful unit of work, or periodically.
+        # For a ComfyUI node, each `render` call is a unit.
+        # However, accumulating stats across multiple calls might be more insightful.
+        # For now, let's keep it simple and save on cleanup.
+        # If you want per-call profiles, you'd enable/disable/dump here.
+
         return self._create_fallback_tensors(img_size)
     
     def _render_with_renderer(self, renderer, object_type, center_x, center_y, center_z, size, 
@@ -315,8 +357,8 @@ if __name__ == "__main__":
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-            t += 0.05
-            time.sleep(0.01)  # 10ms
+            t += 0.1
+            time.sleep(0.001)  # 10ms
 
     except KeyboardInterrupt:
         print("Exiting live render loop.")

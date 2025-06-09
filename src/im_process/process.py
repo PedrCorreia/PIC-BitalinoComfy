@@ -251,7 +251,7 @@ class Midas:
             new_size = (int(original_size[1] * scale_factor), int(original_size[0] * scale_factor))
             img_rgb = cv2.resize(img_rgb, new_size, interpolation=cv2.INTER_AREA)
             resized = True
-            logger.info(f"Resized image from {original_size} to {img_rgb.shape[:2]} for faster processing")
+            # logger.info(f"Resized image from {original_size} to {img_rgb.shape[:2]} for faster processing")
         
         # Check if transform is properly loaded
         if self.transform is None:
