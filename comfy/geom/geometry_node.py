@@ -12,7 +12,8 @@ import numpy as np
 import torch
 
 try:
-    from src.geometry.render3d_isolated import render3d_color_subprocess
+    # Import the new render3d_comfy module for better isolation
+    from src.geometry.render3d_comfy import render_geometry_for_comfy
     from src.geometry.geom import Sphere, Cube
 except ImportError as e:
     print("[ERROR] Could not import from src.geometry. sys.path is:", sys.path)

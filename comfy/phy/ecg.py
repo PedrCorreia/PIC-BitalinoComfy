@@ -58,7 +58,7 @@ class ECGNode:
         metrics_registry = SignalRegistry.get_instance()
         fs = 1000  # Sampling frequency assumption
         nyquist_fs = fs / 2  # Nyquist frequency
-        viz_window_sec = 5
+        viz_window_sec = 10
         viz_buffer_size = fs * viz_window_sec
         feature_buffer_size = viz_buffer_size + fs
         feature_values_deque = deque(maxlen=feature_buffer_size)

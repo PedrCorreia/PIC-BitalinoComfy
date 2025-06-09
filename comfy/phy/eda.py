@@ -5,7 +5,7 @@ import time
 from ...src.phy.eda_signal_processing import EDA
 from ...src.registry.signal_registry import SignalRegistry
 from ...src.utils.signal_processing import NumpySignalProcessor
-
+from ...src.registry.plot_registry import PlotRegistry
 class EDANode:
     """
     Node for processing EDA (Electrodermal Activity) signals.
@@ -41,7 +41,6 @@ class EDANode:
         self.eda = EDA()  # Instance for stateful processing
 
     def _background_process(self, input_signal_id, show_peaks, stop_flag, output_signal_id):
-        from ...src.registry.plot_registry import PlotRegistry
         registry = PlotRegistry.get_instance()
         metrics_registry = SignalRegistry.get_instance()
         fs = 1000
@@ -54,14 +53,14 @@ class EDANode:
         viz_values_deque = deque(maxlen=viz_buffer_size)
         viz_timestamps_deque = deque(maxlen=viz_buffer_size)
         metrics_buffer_size = 300  # e.g., 5 minutes at 1Hz
-        metrics_deque = deque(maxlen=metrics_buffer_size)
-        max_frequency_interest = 100  # EDA is low freq, but keep for decimation logic
-        decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
-        use_decimation = decimation_factor > 1
         last_registry_data_hash = None
         last_process_time = time.time()
         processing_interval = 0.033
         start_time = None
+        metrics_deque = deque(maxlen=metrics_buffer_size)
+        max_frequency_interest = 10  # EDA is low freq, but keep for decimation logic
+        decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
+        use_decimation = decimation_factor > 1
         while not stop_flag[0]:
             current_time = time.time()
             if current_time - last_process_time < processing_interval:
@@ -170,26 +169,8 @@ class EDANode:
             raw_window = viz_values_window
             filtered_tonic = tonic_viz
             filtered_phasic = phasic_viz
-            raw_range = np.max(raw_window) - np.min(raw_window) if len(raw_window) > 0 else 1.0
-            tonic_range = np.max(filtered_tonic) - np.min(filtered_tonic) if len(filtered_tonic) > 0 else 1.0
-            phasic_range = np.max(filtered_phasic) - np.min(filtered_phasic) if len(filtered_phasic) > 0 else 1.0
-            # If filtered amplitude is much lower than raw, amplify
-            min_ratio = 0.2  # If filtered is less than 20% of raw, amplify
-            amp_factor = 1.0
-            if raw_range > 0 and (tonic_range/raw_range < min_ratio or phasic_range/raw_range < min_ratio):
-                amp_factor = raw_range / max(tonic_range, phasic_range, 1e-6)
-                tonic_viz = tonic_viz * amp_factor
-                phasic_viz = phasic_viz * amp_factor
 
-            # Normalize tonic and phasic for overlay plotting
-            def normalize(arr):
-                arr = np.asarray(arr)
-                if arr.size == 0:
-                    return arr
-                minv, maxv = np.min(arr), np.max(arr)
-                return (arr - minv) / (maxv - minv) if maxv > minv else arr * 0
-            tonic_norm = normalize(tonic_viz)
-            phasic_norm = normalize(phasic_viz)            # SCL/SCK calculation and rolling history
+           # SCL/SCK calculation and rolling history
             scl = float(np.mean(tonic_viz)) if len(tonic_viz) > 0 else 0.0
             sck = float(np.mean(phasic_viz)) if len(phasic_viz) > 0 else 0.0
             
@@ -234,8 +215,8 @@ class EDANode:
             # Hash for registry update optimization
             data_hash = hash((
                 tuple(viz_timestamps_window[-5:]),
-                tuple(tonic_norm[-5:]),
-                tuple(phasic_norm[-5:]),
+                tuple(phasic_viz[-5:]),
+                tuple(phasic_viz[-5:]),
                 tuple(peak_timestamps_in_window[-3:] if len(peak_timestamps_in_window) > 0 else []),
                 scl, sck
             ))
@@ -262,18 +243,13 @@ class EDANode:
                 "scl_metric_id": "SCL_METRIC",
                 "sck_metric_id": "SCK_METRIC",
                 "scr_metric_id": "SCR_METRIC",  # Add SCR frequency metric reference
-                "tonic_norm": tonic_norm.tolist(),
-                "phasic_norm": phasic_norm.tolist(),
                 "timestamps": viz_timestamps_window.tolist(),
                 "over": True
             }
             processed_signal_data = {
                 "t": viz_timestamps_window.tolist(),
-                "v": tonic_viz.tolist(),  # fallback for main plot
                 "tonic": tonic_viz.tolist(),
                 "phasic": phasic_viz.tolist(),
-                "tonic_norm": tonic_norm.tolist(),
-                "phasic_norm": phasic_norm.tolist(),
                 "timestamps": viz_timestamps_window.tolist(),
                 "id": output_signal_id            }
             registry.register_signal(output_signal_id, processed_signal_data, metadata)
