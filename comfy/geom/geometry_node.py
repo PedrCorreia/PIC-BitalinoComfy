@@ -38,20 +38,22 @@ atexit.register(_save_all_node_profiles_on_exit)
 
 # Handle both direct and relative imports
 geometry_module_path = os.path.join(pic_root, "src", "geometry")
+surface_eff_module_path = os.path.join(pic_root, "src", "geometry", "surface_eff.py") # Added for Surface_Noise
 
 try:
     # Try direct import first
     try:
         from src.geometry.render3d_comfy import render_geometry_for_comfy, cleanup_renderer
         from src.geometry.geom import Sphere, Cube
-        print("Successfully imported render modules directly")
+        from src.geometry.surface_eff import Surface_Noise # Added import
+        print("Successfully imported render and surface_eff modules directly")
     except ImportError:
         # If direct import fails, try a more explicit approach with importlib
         render3d_comfy_path = os.path.join(geometry_module_path, "render3d_comfy.py")
         geom_path = os.path.join(geometry_module_path, "geom.py")
         
-        if os.path.exists(render3d_comfy_path) and os.path.exists(geom_path):
-            print(f"Found modules at: {render3d_comfy_path}")
+        if os.path.exists(render3d_comfy_path) and os.path.exists(geom_path) and os.path.exists(surface_eff_module_path): # Check for surface_eff
+            print(f"Found modules at: {render3d_comfy_path}, {geom_path}, {surface_eff_module_path}")
             
             # Import render3d_comfy dynamically
             spec = importlib.util.spec_from_file_location("render3d_comfy", render3d_comfy_path)
@@ -66,10 +68,16 @@ try:
             spec.loader.exec_module(geom)
             Sphere = geom.Sphere
             Cube = geom.Cube
+
+            # Import Surface_Noise dynamically
+            spec_surface_eff = importlib.util.spec_from_file_location("surface_eff", surface_eff_module_path)
+            surface_eff = importlib.util.module_from_spec(spec_surface_eff)
+            spec_surface_eff.loader.exec_module(surface_eff)
+            Surface_Noise = surface_eff.Surface_Noise
             
-            print("Successfully imported render modules with importlib")
+            print("Successfully imported render and surface_eff modules with importlib")
         else:
-            raise ImportError(f"Could not find required modules at {geometry_module_path}")
+            raise ImportError(f"Could not find required modules at {geometry_module_path} or {surface_eff_module_path}")
     
     # Register cleanup function to ensure renderer is properly shut down on exit
     # This is for the worker process renderer, separate from node profile saving.
@@ -101,6 +109,13 @@ class GeometryRenderNode:
                 "z_distance": ("FLOAT", {"default": 5.0, "min": 0.1, "max": 20.0}),
                 "img_size": ("INT", {"default": 512, "min": 512, "max": 1024}),
                 "color": ("STRING", {"default": "#FFD700"}),
+                "deformation_type": (["none", "perlin", "simplex"], {"default": "none"}),
+                "deformation_strength": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "deformation_noise_scale": ("FLOAT", {"default": 1.0, "min": 0.01, "max": 10.0, "step": 0.01}),
+                "deformation_noise_octaves": ("INT", {"default": 4, "min": 1, "max": 8}),
+                "deformation_noise_persistence": ("FLOAT", {"default": 0.5, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "deformation_noise_lacunarity": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 4.0, "step": 0.01}),
+                "deformation_noise_seed": ("INT", {"default": 0, "min": 0, "max": 999999}),
             }
         }
 
@@ -169,7 +184,7 @@ class GeometryRenderNode:
             print(f"[GeometryRenderNode {id(self)}] _cleanup skipped, already destroyed.")
 
 
-    def render(self, object_type, center_x, center_y, center_z, size, rotation_deg_x, rotation_deg_y, rotation_deg_z, z_distance, img_size, color):
+    def render(self, object_type, center_x, center_y, center_z, size, rotation_deg_x, rotation_deg_y, rotation_deg_z, z_distance, img_size, color, deformation_type="none", deformation_strength=0.0, deformation_noise_scale=1.0, deformation_noise_octaves=4, deformation_noise_persistence=0.5, deformation_noise_lacunarity=2.0, deformation_noise_seed=0): # Added new params
         """Render the geometry with process isolation"""
         
         if not self._profiler_active:
@@ -199,7 +214,14 @@ class GeometryRenderNode:
                     None, object_type, center_x, center_y, center_z, size,
                     rotation_deg_x, rotation_deg_y, rotation_deg_z, camera_position, color,
                     img_size=img_size, background='white', show_edges=True,
-                    force_recreate=(attempt > 0)  # Force recreation on retry
+                    force_recreate=(attempt > 0),  # Force recreation on retry
+                    deformation_type=deformation_type, # Pass through
+                    deformation_strength=deformation_strength, # Pass through
+                    deformation_noise_scale=deformation_noise_scale,
+                    deformation_noise_octaves=deformation_noise_octaves,
+                    deformation_noise_persistence=deformation_noise_persistence,
+                    deformation_noise_lacunarity=deformation_noise_lacunarity,
+                    deformation_noise_seed=deformation_noise_seed
                 )
                 
                 # If we got a valid result, return it
@@ -238,7 +260,11 @@ class GeometryRenderNode:
     
     def _render_with_renderer(self, renderer, object_type, center_x, center_y, center_z, size, 
                             rotation_deg_x, rotation_deg_y, rotation_deg_z, camera_position, color, 
-                            img_size=None, background=None, show_edges=True, force_recreate=False):
+                            img_size=None, background=None, show_edges=True, force_recreate=False,
+                            deformation_type="none", deformation_strength=0.0,
+                            deformation_noise_scale=1.0, deformation_noise_octaves=4, 
+                            deformation_noise_persistence=0.5, deformation_noise_lacunarity=2.0, 
+                            deformation_noise_seed=0): # Added new params
         """
         Shared rendering logic for both GPU and CPU, responsive to all node inputs
         
@@ -267,7 +293,49 @@ class GeometryRenderNode:
                       width=size, 
                       quality='medium', 
                       rotation=(rotation_deg_x, rotation_deg_y, rotation_deg_z))
+
+        deformed_this_frame = False
+        # Apply surface deformation if specified
+        if deformation_type != "none" and deformation_strength > 0.0:
+            noise_generator = Surface_Noise(seed=deformation_noise_seed) # Use seed here
+            # Parameters for noise can be exposed as inputs later if needed
+            geom = noise_generator.apply_deformation(
+                geometry_object=geom,
+                deformation_type=deformation_type,
+                strength=deformation_strength,
+                scale=deformation_noise_scale, 
+                octaves=deformation_noise_octaves, 
+                persistence=deformation_noise_persistence,
+                lacunarity=deformation_noise_lacunarity
+            )
+            # If deformation occurred, ensure the mesh is treated as a new object
+            # by the renderer by creating a deep copy of it.
+            if hasattr(geom, 'mesh') and geom.mesh is not None:
+                geom.mesh = geom.mesh.copy(deep=True)
+            deformed_this_frame = True
         
+        # If deformation happened, also create a new wrapper geometry object (Sphere/Cube)
+        # to ensure the renderer sees a "new" high-level object if it caches by id(geom_wrapper).
+        if deformed_this_frame:
+            current_mesh = geom.mesh
+            current_vertices = geom.vertices
+            
+            if object_type == "sphere":
+                new_geom_wrapper = Sphere(center=(center_x, center_y, center_z), 
+                                     radius=size/2, 
+                                     quality='medium', 
+                                     rotation=(rotation_deg_x, rotation_deg_y, rotation_deg_z))
+            else:  # cube
+                new_geom_wrapper = Cube(center=(center_x, center_y, center_z), 
+                                   width=size, 
+                                   quality='medium', 
+                                   rotation=(rotation_deg_x, rotation_deg_y, rotation_deg_z))
+            
+            new_geom_wrapper.mesh = current_mesh # Assign the (already deep-copied) deformed mesh
+            new_geom_wrapper.vertices = current_vertices # Assign the deformed vertices
+            
+            geom = new_geom_wrapper # Replace original geom with this new wrapper for rendering
+
         # Use process-isolated rendering
         geom_args = [(geom, color, 'black', 1.0)]
         
@@ -340,31 +408,78 @@ if __name__ == "__main__":
     # from PIL import Image # Not used
 
     node = GeometryRenderNode()
+
+    # CHOOSE TEST MODE: "deformation" or "movement"
+    test_mode = "deformation"  # Change to "movement" to test object transformations
+
     params = {
-        "object_type": "cube",
-        "center_x": 0,
-        "center_y": 0,
-        "center_z": 0,
-        "size": 1.0,
+        "object_type": "cube", # Changed to sphere for better deformation visibility
+        "center_x": 0.0,
+        "center_y": 0.0,
+        "center_z": 0.0,
+        "size": 2.0, # Slightly larger
         "rotation_deg_x": 0.0,
         "rotation_deg_y": 0.0,
         "rotation_deg_z": 0.0,
-        "z_distance": 10.0,
+        "z_distance": 7.0, # Adjusted for size
         "img_size": 512,
-        "color": "#FFD700"
+        "color": "#4682B4", # Steel Blue
+        "deformation_type": "perlin", 
+        "deformation_strength": 0.0, # Start with 0 strength
+        "deformation_noise_scale": 1.0,
+        "deformation_noise_octaves": 4,
+        "deformation_noise_persistence": 0.5,
+        "deformation_noise_lacunarity": 2.0,
+        "deformation_noise_seed": 42 # Fixed seed for consistent testing
     }
 
-    t_anim = 0.0 # Renamed t to t_anim to avoid conflict with time module
-    print("Starting live render loop. Press Ctrl+C to exit.")
+    t_anim = 0.0
+    print(f"Starting live render loop in '{test_mode}' mode. Press Ctrl+C to exit.")
     try:
         while True:
-            # Animate parameters
-            params["rotation_deg_x"] = (math.sin(t_anim) * 45) % 360
-            params["rotation_deg_y"] = (math.cos(t_anim) * 45) % 360
-            params["rotation_deg_z"] = (t_anim * 30) % 360
-            params["center_x"] = math.sin(t_anim) * 2
-            params["center_y"] = math.cos(t_anim) * 2
-            params["center_z"] = math.sin(t_anim * 0.5) * 2
+            if test_mode == "deformation":
+                # Keep object static, animate deformation
+                params["rotation_deg_x"] = 15.0 # Slight static rotation for better view
+                params["rotation_deg_y"] = 15.0
+                params["center_x"] = 0.0
+                params["center_y"] = 0.0
+                params["center_z"] = 0.0
+                
+                if int(t_anim) % 40 == 0:
+                    new_type = "simplex" if int(t_anim / 20) % 2 == 0 else "perlin"
+                    if params["deformation_type"] != new_type:
+                        print(f"Switching deformation_type to {new_type} at t={t_anim:.1f}s")
+                    params["deformation_type"] = new_type  # Switch noise type every 20s
+                params["deformation_strength"] = (math.sin(t_anim * 0.7) + 1) / 2 * 0.8 # Cycle strength 0.0 to 0.4
+                params["deformation_noise_scale"] = 0.5 + (math.cos(t_anim * 0.4) + 1) / 2 * 1.5 # Cycle scale 0.5 to 2.0
+                params["deformation_noise_octaves"] = int(3 + (math.sin(t_anim * 0.2) +1) / 2 * 3) # Cycle octaves 3 to 6
+                params["deformation_noise_seed"] = int(t_anim / 10) # Change seed every 10s
+
+            elif test_mode == "movement":
+                # Animate movement, static or no deformation
+                params["rotation_deg_x"] = (t_anim * 20) % 360
+                params["rotation_deg_y"] = (math.cos(t_anim * 0.5) * 30) % 360
+                params["rotation_deg_z"] = (math.sin(t_anim * 0.5) * 30) % 360
+                params["center_x"] = math.sin(t_anim * 0.3) * 1.5
+                params["center_y"] = math.cos(t_anim * 0.3) * 1.5
+                params["center_z"] = math.sin(t_anim * 0.2) * 1.0
+                
+                # Keep deformation static or off
+                params["deformation_type"] = "perlin"
+                params["deformation_strength"] = 0.1 # Small static deformation
+                params["deformation_noise_scale"] = 0.8
+                params["deformation_noise_octaves"] = 3
+                # params["deformation_type"] = "none" # Or turn off deformation completely
+
+            else: # Default to combined if mode is unknown (original behavior)
+                params["rotation_deg_x"] = (math.sin(t_anim) * 45) % 360
+                params["rotation_deg_y"] = (math.cos(t_anim) * 45) % 360
+                params["rotation_deg_z"] = (t_anim * 30) % 360
+                params["center_x"] = math.sin(t_anim) * 2.0
+                params["center_y"] = math.cos(t_anim) * 2.0
+                params["center_z"] = math.sin(t_anim * 0.5) * 2.0
+                params["deformation_strength"] = (math.sin(t_anim * 0.7) + 1) / 2 * 0.3
+                params["deformation_noise_scale"] = 0.5 + (math.cos(t_anim * 0.4) + 1) / 2 * 1.5
 
             color_img_tensor = node.render(**params)
 

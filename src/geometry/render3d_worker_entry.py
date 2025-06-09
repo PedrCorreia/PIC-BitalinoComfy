@@ -133,40 +133,60 @@ class Render3DWorker:
         meshes_data = []
         # print(f"Worker: Processing {len(geometries_data)} geometries") # Debug
         for geom_data in geometries_data:
-            # Create a hash key for caching
-            hash_key = self._hash_geometry(geom_data)
-            
-            # Try to get geometry from cache first
-            if hash_key in self._geometry_cache:
-                mesh = self._geometry_cache[hash_key]
-            else:
-                # Create mesh if not in cache
-                # print(f"Worker: Cache miss for {hash_key}, creating new mesh: {geom_data['type']}") # Debug
-                if geom_data['type'] == 'sphere':
-                    mesh = self._create_sphere_mesh(
-                        geom_data['center'], 
-                        geom_data['params']['radius'],
-                        geom_data.get('quality', 'medium')
-                    )
-                elif geom_data['type'] == 'cube':
-                    mesh = self._create_cube_mesh(
-                        geom_data['center'], 
-                        geom_data['params']['width'],
-                        geom_data['rotation'] # Rotation is already a tuple (or list of 3 floats)
-                    )
+            mesh = None # Initialize mesh to None
+
+            # Priority 1: Reconstruct from custom_mesh_data if provided
+            if geom_data.get('type') == 'custom_mesh' and 'custom_mesh_data' in geom_data:
+                custom_data = geom_data['custom_mesh_data']
+                points = np.array(custom_data['points'])
+                faces_flat = np.array(custom_data['faces'])
+                if points.ndim == 2 and points.shape[1] == 3 and faces_flat.ndim == 1:
+                    try:
+                        mesh = pv.PolyData(points, faces_flat.astype(np.int_))
+                    except Exception as e:
+                        print(f"Worker: Error reconstructing custom mesh: {e}")
+                        traceback.print_exc()
                 else:
-                    # print(f"Worker: Unknown geometry type {geom_data['type']}") # Debug
-                    continue
-                    
-                # Store in cache for future use
-                self._geometry_cache[hash_key] = mesh
+                    print(f"Worker: Invalid custom mesh data format. Points shape: {points.shape}, Faces shape: {faces_flat.shape}")
+            
+            # Priority 2: Fallback to caching and standard generation if no valid custom mesh
+            if mesh is None: # If custom mesh reconstruction failed or wasn't provided
+                # Create a hash key for caching (only for standard geometries)
+                hash_key = self._hash_geometry(geom_data)
                 
-            meshes_data.append({
-                'mesh': mesh, 
-                'color': geom_data['color'], 
-                'edge_color': geom_data['edge_color'], 
-                'opacity': geom_data['opacity']
-            })
+                # Try to get geometry from cache first
+                if hash_key in self._geometry_cache:
+                    mesh = self._geometry_cache[hash_key]
+                else:
+                    # Create mesh if not in cache
+                    if geom_data['type'] == 'sphere':
+                        mesh = self._create_sphere_mesh(
+                            geom_data['center'], 
+                            geom_data['params']['radius'],
+                            geom_data.get('quality', 'medium')
+                        )
+                    elif geom_data['type'] == 'cube':
+                        mesh = self._create_cube_mesh(
+                            geom_data['center'], 
+                            geom_data['params']['width'],
+                            geom_data['rotation'] # Rotation is already a tuple (or list of 3 floats)
+                        )
+                    else:
+                        pass # Continue to next geometry if type is unknown and not custom
+                        
+                    # Store in cache for future use (only if standard geometry was created)
+                    if mesh is not None:
+                        self._geometry_cache[hash_key] = mesh
+            
+            if mesh is not None:
+                meshes_data.append({
+                    'mesh': mesh, 
+                    'color': geom_data['color'], 
+                    'edge_color': geom_data['edge_color'], 
+                    'opacity': geom_data['opacity']
+                })
+            # else:
+                # print(f\"Worker: Mesh could not be created or reconstructed for geom_data: {geom_data.get('type')}\") # Removed this print
         
         return meshes_data
 

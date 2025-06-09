@@ -41,7 +41,7 @@ def get_renderer(img_size=512, background='white', safe_mode=False, recreate=Fal
             img_size=img_size,
             background=background,
             safe_mode=safe_mode,
-            process_isolation=True
+            process_isolation=True # Reverted to True
         )
     
     return _global_renderer

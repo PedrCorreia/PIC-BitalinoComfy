@@ -332,37 +332,60 @@ class Render3D:
         return hashlib.md5(key.encode()).hexdigest()
         
     def _process_geometries(self):
-        """Optimized geometry processing with caching"""
+        """Optimized geometry processing with caching and support for pre-defined meshes"""
         meshes_data = []
         
         for geom, color, edge_color, opacity in self.geometries:
             if not isinstance(geom, Geometry3D):
+                # If geom is already a raw PyVista PolyData, we could potentially handle it here too.
+                # For now, we expect Geometry3D objects from add_geometry.
                 continue
                 
-            # Create a hash key for caching
-            hash_key = self._hash_geometry(geom)
-            
-            # Try to get geometry from cache first
-            if hash_key in self._geometry_cache:
-                mesh = self._geometry_cache[hash_key]
+            processed_mesh = None
+
+            # Priority 1: Use geom.mesh if it's a valid, populated PyVista PolyData object.
+            # This allows for pre-transformed or dynamically modified meshes to be rendered directly.
+            # No caching is applied here, as these meshes are assumed to be externally managed.
+            if hasattr(geom, 'mesh') and isinstance(geom.mesh, pv.PolyData) and geom.mesh.n_points > 0:
+                processed_mesh = geom.mesh
+                # Note: If geom.mesh.points are local, and geom.center/rotation are meant to be applied,
+                # this direct usage bypasses that. For surface_eff.py, apply_deformation works on world coordinates.
             else:
-                # Create mesh if not in cache
-                if 'radius' in geom.params:  # Sphere
-                    mesh = self._create_sphere_mesh(geom)
-                elif 'width' in geom.params:  # Cube
-                    if self.use_gpu:
-                        mesh = self._create_cube_mesh_gpu(geom)
-                    else:
-                        mesh = self._create_cube_mesh_cpu(geom)
-                else:
-                    continue
-                    
-                # Store in cache for future use
-                self._geometry_cache[hash_key] = mesh
+                # Priority 2: Fallback to existing caching and generation logic
+                # if geom.mesh is not a usable PolyData.
+                hash_key = self._hash_geometry(geom) # Hash based on params, center, rotation
                 
-            meshes_data.append({
-                'mesh': mesh, 'color': color, 'edge_color': edge_color, 'opacity': opacity
-            })
+                if hash_key in self._geometry_cache:
+                    processed_mesh = self._geometry_cache[hash_key]
+                else:
+                    # Create mesh if not in cache
+                    new_mesh = None
+                    if 'radius' in geom.params:  # Sphere
+                        new_mesh = self._create_sphere_mesh(geom)
+                    elif 'width' in geom.params:  # Cube
+                        if self.use_gpu:
+                            new_mesh = self._create_cube_mesh_gpu(geom)
+                        else:
+                            new_mesh = self._create_cube_mesh_cpu(geom)
+                    else:
+                        # Unknown geometry type based on params, skip
+                        print(f"Render3D: Skipping geometry with unknown params: {geom.params}")
+                        continue 
+                    
+                    if new_mesh:
+                        self._geometry_cache[hash_key] = new_mesh # Cache the newly created mesh
+                        processed_mesh = new_mesh
+            
+            if processed_mesh is not None:
+                meshes_data.append({
+                    'mesh': processed_mesh, 
+                    'color': color, 
+                    'edge_color': edge_color, 
+                    'opacity': opacity
+                })
+            else:
+                # Optional: Log if a geometry could not be processed into a mesh
+                print(f"Render3D: Could not determine mesh for geometry: {geom}")
         
         return meshes_data
     
@@ -396,23 +419,41 @@ class Render3D:
                     continue
                     
                 geom_data = {
-                    'center': geom.center,
-                    'rotation': geom.rotation,
+                    'center': geom.center, # Still useful for potential fallback or context
+                    'rotation': geom.rotation, # Still useful for potential fallback or context
                     'color': color,
                     'edge_color': edge_color,
                     'opacity': opacity,
-                    'params': geom.params,
+                    'params': geom.params, # Original params
                 }
                 
-                # Determine geometry type
-                if 'radius' in geom.params:
-                    geom_data['type'] = 'sphere'
-                    if hasattr(geom, 'quality'):
-                        geom_data['quality'] = geom.quality
-                elif 'width' in geom.params:
-                    geom_data['type'] = 'cube'
+                # Check if a pre-defined/deformed mesh exists and should be sent
+                if hasattr(geom, 'mesh') and isinstance(geom.mesh, pv.PolyData) and geom.mesh.n_points > 0:
+                    # Serialize mesh points and faces
+                    # Ensure points are numpy arrays for consistent serialization
+                    points = np.asarray(geom.mesh.points)
+                    # Faces need to be in a flat format that PyVista can understand (e.g., [3, p1, p2, p3, 3, p4, p5, p6])
+                    # or a list of lists/tuples if the worker reconstructs it carefully.
+                    # pv.PolyData(points, faces_flat) is common.
+                    # geom.mesh.faces is already in the flat format [n_points_face1, idx1, idx2, ..., n_points_face2, idxA, idxB, ...]
+                    faces = np.asarray(geom.mesh.faces)
+                    
+                    geom_data['custom_mesh_data'] = {
+                        'points': points.tolist(), # Convert to list for JSON serialization
+                        'faces': faces.tolist()    # Convert to list for JSON serialization
+                    }
+                    geom_data['type'] = 'custom_mesh' # Indicate this is custom
                 else:
-                    continue
+                    # Determine geometry type for standard reconstruction if no custom mesh
+                    if 'radius' in geom.params:
+                        geom_data['type'] = 'sphere'
+                        if hasattr(geom, 'quality'):
+                            geom_data['quality'] = geom.quality
+                    elif 'width' in geom.params:
+                        geom_data['type'] = 'cube'
+                    else:
+                        print(f"Render3D: Skipping geometry with unknown params and no custom mesh: {geom.params}")
+                        continue
                     
                 geometries_data.append(geom_data)
             
