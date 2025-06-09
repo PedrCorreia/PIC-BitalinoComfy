@@ -14,6 +14,7 @@ import json
 import subprocess
 import importlib.util
 import threading
+import queue
 from .geom import Geometry3D, Cube
 
 # Configure PyVista for headless/off-screen rendering and prevent conflicts
@@ -264,6 +265,10 @@ class Render3D:
     
     def add_geometry(self, geom: Geometry3D, color='white', edge_color='black', opacity=1.0):
         self.geometries.append((geom, color, edge_color, opacity))
+        
+    def clear_geometries(self):
+        """Clear all geometries from the scene"""
+        self.geometries = []
     
     def _create_sphere_mesh(self, geom):
         """Optimized sphere creation"""
@@ -436,12 +441,42 @@ class Render3D:
                 'show_edges': show_edges
             })
             
-            # Wait for result with timeout
+            # Wait for result with timeout but process UI events periodically
             result = None
+            start_time = time.time()
+            timeout = 5  # Reduced timeout to 5 seconds for better UI responsiveness
+            
             try:
                 print("Waiting for worker result...")
-                result = self._result_queue.get(timeout=10)
-                print(f"Got worker result: success={result.get('success', False)}")
+                # Use a non-blocking approach with shorter timeouts to allow UI updates
+                while time.time() - start_time < timeout:
+                    try:
+                        # Try to get result with a shorter timeout
+                        result = self._result_queue.get(timeout=0.01)  # Shorter timeout for more UI updates
+                        print(f"Got worker result: success={result.get('success', False)}")
+                        break
+                    except queue.Empty:
+                        # If queue is empty, yield control back to UI thread
+                        time.sleep(0.005)  # Very short sleep for more responsive UI
+                        
+                        # Check worker process health every half second
+                        if time.time() - start_time > 0.5 and (time.time() - start_time) % 0.5 < 0.01:
+                            if not self._worker_process.is_alive():
+                                print("Worker process died while waiting for results")
+                                raise RuntimeError("Worker process died unexpectedly")
+                        continue
+                    except Exception as e:
+                        print(f"Error getting result: {e}")
+                        raise
+                
+                # If we got here without a result, we timed out
+                if result is None:
+                    print("Timeout waiting for worker result - restarting worker process")
+                    # Force reset the worker process
+                    self._stop_worker_process()
+                    self._start_worker_process()
+                    raise TimeoutError("Timeout waiting for worker result")
+                    
             except Exception as e:
                 print(f"Error waiting for render result: {e}")
                 # If result is not received in time, restart worker
@@ -461,20 +496,37 @@ class Render3D:
             if shm_name and shape and dtype_str:
                 shm = None
                 try:
-                    # Clean up any previous shared memory
+                    # Clean up any previous shared memory first to avoid resource leaks
                     self._cleanup_shared_memory()
                     
-                    # Access the shared memory segment
+                    # Access the shared memory segment with a timeout approach
                     print(f"Accessing shared memory: {shm_name}")
-                    shm = shared_memory.SharedMemory(name=shm_name)
+                    
+                    # Try to access shared memory with retries for robustness
+                    start_access_time = time.time()
+                    max_retries = 3
+                    retry_count = 0
+                    
+                    while retry_count < max_retries:
+                        try:
+                            shm = shared_memory.SharedMemory(name=shm_name)
+                            break  # Success, exit retry loop
+                        except Exception as e:
+                            retry_count += 1
+                            if retry_count >= max_retries:
+                                print(f"Failed to access shared memory after {max_retries} attempts: {e}")
+                                raise
+                            print(f"Retry {retry_count}/{max_retries} accessing shared memory: {e}")
+                            time.sleep(0.1)  # Short delay before retry
+                    
                     self._active_shm = shm  # Save reference for cleanup later
                     
                     # Create numpy array using the shared memory buffer
                     dtype = np.dtype(dtype_str.replace("'", ""))
                     img = np.ndarray(shape, dtype=dtype, buffer=shm.buf)
                     
-                    # Create a copy to avoid issues when shared memory is released
-                    img = img.copy()
+                    # Create a copy IMMEDIATELY to avoid issues when shared memory is released
+                    img = np.copy(img)
                     
                     # Save to output file if requested
                     if output and img is not None:
@@ -482,31 +534,53 @@ class Render3D:
                         print(f"3D Render saved to {output}")
                     
                     # Send a cleanup command to the worker to explicitly unlink the shared memory
+                    # Do this immediately after copying the data
                     try:
                         self._cmd_queue.put({
                             'action': 'cleanup_shared_memory',
                             'shm_name': shm_name
                         })
-                    except:
-                        pass
+                    except Exception as cleanup_e:
+                        print(f"Failed to send cleanup command: {cleanup_e}")
                     
-                    return img
-                except Exception as e:
-                    print(f"Error accessing shared memory: {e}")
-                    return None
-                finally:
-                    # Clean up resources immediately after copying the data
+                    # Close our handle immediately
                     if shm is not None:
                         try:
                             print(f"Closing shared memory: {shm_name}")
                             shm.close()
-                            # Let the worker process handle unlinking to avoid race conditions
-                            self._active_shm = None
-                        except Exception as e:
-                            print(f"Error closing shared memory: {e}")
+                            self._active_shm = None  # Clear reference
+                        except Exception as close_e:
+                            print(f"Error closing shared memory: {close_e}")
                     
-                    # Force garbage collection
+                    # Explicitly force garbage collection to ensure resources are freed
                     gc.collect()
+                    
+                    return img
+                    
+                except Exception as e:
+                    print(f"Error accessing shared memory: {e}")
+                    
+                    # Try to clean up any partially initialized resources
+                    if shm is not None:
+                        try:
+                            shm.close()
+                        except:
+                            pass
+                    
+                    # Force garbage collection on error
+                    self._active_shm = None
+                    gc.collect()
+                    
+                    # Return None to indicate failure
+                    return None
+                finally:
+                    # Final cleanup in case anything was missed
+                    if shm is not None:
+                        try:
+                            shm.close()
+                            self._active_shm = None
+                        except:
+                            pass
             
             return None
         except Exception as e:

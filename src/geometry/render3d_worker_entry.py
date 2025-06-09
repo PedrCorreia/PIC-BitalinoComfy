@@ -343,7 +343,6 @@ def worker_process(cmd_queue, result_queue):
                             except:
                                 pass
                         active_shm = []
-                    else:
                         result_queue.put({
                             'success': False,
                             'error': "Rendering failed"

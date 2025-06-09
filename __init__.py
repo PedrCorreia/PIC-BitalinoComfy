@@ -132,8 +132,8 @@ except Exception as e:
 print("[DEBUG-INIT] PIC-2025 nodes loaded successfully")
 
 try:
-    from .comfy.geom.geometry_node_realtime  import GeometryRenderNodeRealtime
-    NODE_CLASS_MAPPINGS["GeometryRenderNodeRT"] = GeometryRenderNodeRealtime
+    from .comfy.geom.geometry_node import GeometryRenderNode
+    NODE_CLASS_MAPPINGS["GeometryRenderNodeRT"] = GeometryRenderNode
     NODE_DISPLAY_NAME_MAPPINGS["GeometryRenderNode"] = "🧱 Geometry Render RT (3D)"
     NODE_CATEGORY_MAPPINGS["GeometryRenderNode"] = "Pedro_PIC/🧰 Tools"
     print("Geometry Render Node loaded successfully")
