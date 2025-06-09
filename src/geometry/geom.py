@@ -37,6 +37,15 @@ class Sphere(Geometry3D):
             theta_resolution=resolution,
             phi_resolution=resolution
         )
+
+        # Apply rotations
+        if self.rotation[0] != 0:
+            pv_mesh.rotate_x(self.rotation[0], point=self.center, inplace=True)
+        if self.rotation[1] != 0:
+            pv_mesh.rotate_y(self.rotation[1], point=self.center, inplace=True)
+        if self.rotation[2] != 0:
+            pv_mesh.rotate_z(self.rotation[2], point=self.center, inplace=True)
+            
         self.mesh = pv_mesh
         self.vertices = np.array(self.mesh.points, dtype=np.float32)
 
@@ -60,6 +69,14 @@ class Cube(Geometry3D):
         if subdivisions > 1:
             pv_mesh.triangulate(inplace=True) # Ensure mesh is triangulated before subdivision
             pv_mesh = pv_mesh.subdivide(subdivisions, subfilter='linear')
+
+        # Apply rotations
+        if self.rotation[0] != 0:
+            pv_mesh.rotate_x(self.rotation[0], point=self.center, inplace=True)
+        if self.rotation[1] != 0:
+            pv_mesh.rotate_y(self.rotation[1], point=self.center, inplace=True)
+        if self.rotation[2] != 0:
+            pv_mesh.rotate_z(self.rotation[2], point=self.center, inplace=True)
 
         self.mesh = pv_mesh
         self.vertices = np.array(self.mesh.points, dtype=np.float32)

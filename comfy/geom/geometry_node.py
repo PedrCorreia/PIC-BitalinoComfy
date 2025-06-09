@@ -410,14 +410,14 @@ if __name__ == "__main__":
     node = GeometryRenderNode()
 
     # CHOOSE TEST MODE: "deformation" or "movement"
-    test_mode = "deformation"  # Change to "movement" to test object transformations
+    test_mode = "d"  # Change to "movement" to test object transformations
 
     params = {
         "object_type": "cube", # Changed to sphere for better deformation visibility
         "center_x": 0.0,
         "center_y": 0.0,
         "center_z": 0.0,
-        "size": 2.0, # Slightly larger
+        "size": 1, # Slightly larger
         "rotation_deg_x": 0.0,
         "rotation_deg_y": 0.0,
         "rotation_deg_z": 0.0,
@@ -507,7 +507,7 @@ if __name__ == "__main__":
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-            t_anim += 0.1
+            t_anim += 0.05
             time.sleep(0.001)  # 1ms sleep
 
     except KeyboardInterrupt:
