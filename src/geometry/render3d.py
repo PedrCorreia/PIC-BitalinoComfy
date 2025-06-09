@@ -166,7 +166,6 @@ class Render3D:
             self._active_shm = None
             
             # Force garbage collection to help release any remaining references
-            gc.collect()
     
     def _setup_gpu_matrices(self):
         """Pre-create reusable matrices and tensors on GPU"""
@@ -480,9 +479,6 @@ class Render3D:
                 if output and img_copy is not None:
                     cv2.imwrite(output, cv2.cvtColor(img_copy, cv2.COLOR_RGB2BGR))
                     print(f"3D Render saved to {output}")
-                
-                # Explicitly force garbage collection to ensure resources are freed
-                gc.collect()
                 
                 return img_copy
             else:

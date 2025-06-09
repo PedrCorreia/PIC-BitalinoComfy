@@ -8,6 +8,7 @@ import torch
 import cProfile
 import pstats
 import io
+import time # Ensure time is imported at the top
 
 # More robustly determine project paths
 current_file_path = os.path.abspath(inspect.getfile(inspect.currentframe()))
@@ -19,6 +20,21 @@ project_root = os.path.dirname(pic_root)  # custom_nodes
 for path in [project_root, pic_root]:
     if path not in sys.path:
         sys.path.insert(0, path)
+
+# Global list for active node instances
+_active_geometry_nodes = []
+
+# Global atexit handler for saving node profiles
+def _save_all_node_profiles_on_exit():
+    print(f"[ATEIXT] Attempting to save profiles for {len(_active_geometry_nodes)} active node(s).")
+    for node_instance in list(_active_geometry_nodes): # Iterate over a copy
+        try:
+            print(f"[ATEIXT] Calling dump_profile for node: {id(node_instance)}")
+            node_instance.dump_profile()
+        except Exception as e:
+            print(f"[ATEIXT] Error dumping profile for node {id(node_instance)}: {e}")
+
+atexit.register(_save_all_node_profiles_on_exit)
 
 # Handle both direct and relative imports
 geometry_module_path = os.path.join(pic_root, "src", "geometry")
@@ -56,6 +72,7 @@ try:
             raise ImportError(f"Could not find required modules at {geometry_module_path}")
     
     # Register cleanup function to ensure renderer is properly shut down on exit
+    # This is for the worker process renderer, separate from node profile saving.
     atexit.register(cleanup_renderer)
 except ImportError as e:
     print("[ERROR] Could not import from src.geometry. sys.path is:", sys.path)
@@ -93,54 +110,76 @@ class GeometryRenderNode:
     CATEGORY = "geometry"
     
     def __init__(self):
-        # Register cleanup on node destruction
         self._destroyed = False
-        self._profiler = None # Initialize _profiler here
-        self._profiler_active = False # Initialize _profiler_active here
+        self._profiler = cProfile.Profile() # Initialize profiler instance
+        self._profiler_active = False
+        _active_geometry_nodes.append(self)
+        print(f"[GeometryRenderNode {id(self)}] Initialized, profiler created, and added to active list.")
     
+    def dump_profile(self):
+        # This method contains the logic to save the profile
+        if hasattr(self, '_profiler') and self._profiler and self._profiler_active:
+            print(f"[GeometryRenderNode {id(self)}] Dumping profile...")
+            self._profiler.disable()
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            
+            # current_file_path is defined at module level
+            profile_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_file_path))) # PIC-BitalinoComfy
+            profile_filename = f"geometry_node_profile_instance_{id(self)}_{timestamp}.prof"
+            profile_path = os.path.join(profile_dir, profile_filename)
+
+            try:
+                self._profiler.dump_stats(profile_path)
+                print(f"[GeometryRenderNode {id(self)}] Profiling data saved to {profile_path}")
+            except Exception as e:
+                print(f"[GeometryRenderNode {id(self)}] Error saving profile to {profile_path}: {e}")
+            finally:
+                self._profiler_active = False # Mark as not active after saving
+        else:
+            status_profiler = "exists" if hasattr(self, '_profiler') and self._profiler else "None"
+            status_active = self._profiler_active if hasattr(self, '_profiler_active') else "N/A"
+            print(f"[GeometryRenderNode {id(self)}] Profile dump skipped. Profiler: {status_profiler}, Active: {status_active}")
+
     def __del__(self):
+        print(f"[GeometryRenderNode {id(self)}] __del__ called.")
         if not self._destroyed:
             self._cleanup()
     
     def _cleanup(self):
-        """Clean up resources when node is deleted"""
-        self._destroyed = True
-        # Ensure renderer is cleaned up properly
-        try:
-            # If profiling, ensure profiler is closed if it exists
-            if hasattr(self, '_profiler') and self._profiler and self._profiler_active: # Check if active
-                self._profiler.disable()
-                # Save profile data with a timestamp to avoid overwriting
-                import time
-                timestamp = time.strftime("%Y%m%d-%H%M%S")
-                # Ensure the profile path is correct, relative to the custom_nodes directory
-                profile_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_file_path))) # PIC-BitalinoComfy
-                profile_path = os.path.join(profile_dir, f"geometry_node_profile_{timestamp}.prof")
-                
-                # Create the directory if it doesn't exist
-                # os.makedirs(os.path.dirname(profile_path), exist_ok=True) # Not needed if saving in PIC-BitalinoComfy root
+        print(f"[GeometryRenderNode {id(self)}] _cleanup called.")
+        if not self._destroyed: # Ensure cleanup runs once per instance
+            self._destroyed = True
+            
+            self.dump_profile() # Save profile data for this instance
 
-                self._profiler.dump_stats(profile_path)
-                print(f"[GeometryRenderNode] Profiling data saved to {profile_path}")
-                self._profiler_active = False # Mark as not active after saving
-            cleanup_renderer()
-        except Exception as e:
-            print(f"Error during GeometryRenderNode cleanup: {e}")
-            pass
+            # Global renderer cleanup (for the worker process)
+            # This is registered with atexit separately but can also be called here if appropriate.
+            # However, render3d_comfy.cleanup_renderer() is already registered with atexit.
+            # Calling it here might be redundant or lead to issues if called multiple times.
+            # Let's rely on its own atexit registration.
+            # print(f"[GeometryRenderNode {id(self)}] Skipping redundant global renderer cleanup call here.")
+            
+            # Remove from global list
+            if self in _active_geometry_nodes:
+                _active_geometry_nodes.remove(self)
+                print(f"[GeometryRenderNode {id(self)}] Removed from active list.")
+            else:
+                print(f"[GeometryRenderNode {id(self)}] Instance not found in active list during cleanup.")
+        else:
+            print(f"[GeometryRenderNode {id(self)}] _cleanup skipped, already destroyed.")
+
 
     def render(self, object_type, center_x, center_y, center_z, size, rotation_deg_x, rotation_deg_y, rotation_deg_z, z_distance, img_size, color):
         """Render the geometry with process isolation"""
         
-        # Initialize profiler for the first call or if not already profiling
-        if not self._profiler_active: # Check if already active
-            if self._profiler is None: # Create new profiler if it's the very first run or after a cleanup
-                self._profiler = cProfile.Profile()
-            self._profiler.enable()
-            self._profiler_active = True
-            print(f"[GeometryRenderNode] Profiler enabled. Profile will be saved on node deletion/cleanup.")
-            # Ensure cleanup will save profile data
-            # We might want to save on __del__ or a specific node "finish" signal if ComfyUI has one
-            # For now, saving in _cleanup which is called by __del__
+        if not self._profiler_active:
+            # self._profiler is already initialized in __init__
+            if self._profiler: # Check if profiler object exists
+                self._profiler.enable()
+                self._profiler_active = True
+                print(f"[GeometryRenderNode {id(self)}] Profiler enabled. Profile will be saved on exit/cleanup.")
+            else:
+                print(f"[GeometryRenderNode {id(self)}] Profiler object does not exist, cannot enable.")
 
         # Camera setup: looking at origin from +z
         camera_position = [(0, 0, z_distance), (0, 0, 0), (0, 1, 0)]
@@ -171,11 +210,11 @@ class GeometryRenderNode:
                     return result
                 
                 # If we get here, rendering failed but returned None - try again
-                print(f"[GeometryRenderNode] Render attempt {attempt+1}/{max_attempts} failed with None result, retrying...")
+                print(f"[GeometryRenderNode {id(self)}] Render attempt {attempt+1}/{max_attempts} failed with None result, retrying...")
                 attempt += 1
                 
             except Exception as e:
-                print(f"[GeometryRenderNode] Process-isolated rendering failed on attempt {attempt+1}/{max_attempts}: {e}")
+                print(f"[GeometryRenderNode {id(self)}] Process-isolated rendering failed on attempt {attempt+1}/{max_attempts}: {e}")
                 import traceback
                 traceback.print_exc()
                 
@@ -185,7 +224,7 @@ class GeometryRenderNode:
                     attempt += 1
                     # Force cleanup before retry
                     try:
-                        cleanup_renderer()
+                        cleanup_renderer() # This is the global worker cleanup
                     except:
                         pass
                 else:
@@ -195,13 +234,6 @@ class GeometryRenderNode:
         # If we got here, all attempts failed
         #print(f"All {max_attempts} render attempts failed, returning fallback image")
         
-        # It's generally better to disable the profiler and save stats 
-        # after a meaningful unit of work, or periodically.
-        # For a ComfyUI node, each `render` call is a unit.
-        # However, accumulating stats across multiple calls might be more insightful.
-        # For now, let's keep it simple and save on cleanup.
-        # If you want per-call profiles, you'd enable/disable/dump here.
-
         return self._create_fallback_tensors(img_size)
     
     def _render_with_renderer(self, renderer, object_type, center_x, center_y, center_z, size, 
@@ -271,8 +303,11 @@ class GeometryRenderNode:
             # Normalize to [0, 1] if needed
             if color_img.dtype == np.uint8:
                 color_img = color_img.astype(np.float32) / 255.0
-            elif color_img.max() > 1.0:
-                color_img = color_img.astype(np.float32) / color_img.max()
+            elif color_img.max() > 1.0: # Check if max() can be called, e.g. not empty
+                if np.any(color_img): # Ensure not all zeros before dividing by max
+                     color_img = color_img.astype(np.float32) / color_img.max()
+                else:
+                    color_img = color_img.astype(np.float32)
             else:
                 color_img = color_img.astype(np.float32)
             
@@ -299,10 +334,10 @@ class GeometryRenderNode:
 
 
 if __name__ == "__main__":
-    import time
+    # import time # Already imported at the top
     import math
     import cv2
-    from PIL import Image
+    # from PIL import Image # Not used
 
     node = GeometryRenderNode()
     params = {
@@ -319,17 +354,17 @@ if __name__ == "__main__":
         "color": "#FFD700"
     }
 
-    t = 0.0
+    t_anim = 0.0 # Renamed t to t_anim to avoid conflict with time module
     print("Starting live render loop. Press Ctrl+C to exit.")
     try:
         while True:
             # Animate parameters
-            params["rotation_deg_x"] = (math.sin(t) * 45) % 360
-            params["rotation_deg_y"] = (math.cos(t) * 45) % 360
-            params["rotation_deg_z"] = (t * 30) % 360
-            params["center_x"] = math.sin(t) * 2
-            params["center_y"] = math.cos(t) * 2
-            params["center_z"] = math.sin(t * 0.5) * 2
+            params["rotation_deg_x"] = (math.sin(t_anim) * 45) % 360
+            params["rotation_deg_y"] = (math.cos(t_anim) * 45) % 360
+            params["rotation_deg_z"] = (t_anim * 30) % 360
+            params["center_x"] = math.sin(t_anim) * 2
+            params["center_y"] = math.cos(t_anim) * 2
+            params["center_z"] = math.sin(t_anim * 0.5) * 2
 
             color_img_tensor = node.render(**params)
 
@@ -338,7 +373,7 @@ if __name__ == "__main__":
             if color_img_np.dtype != np.uint8:
                 if not np.issubdtype(color_img_np.dtype, np.floating):
                     color_img_np = color_img_np.astype(np.float32)
-                if color_img_np.max() > 1e-6:
+                if np.any(color_img_np) and color_img_np.max() > 1e-6 : # Check if not all zeros
                     if color_img_np.max() > 1.0:
                         color_img_np = color_img_np / color_img_np.max()
                 color_img_disp = (np.clip(color_img_np, 0, 1) * 255).astype(np.uint8)
@@ -357,10 +392,16 @@ if __name__ == "__main__":
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
-            t += 0.1
-            time.sleep(0.001)  # 10ms
+            t_anim += 0.1
+            time.sleep(0.001)  # 1ms sleep
 
     except KeyboardInterrupt:
         print("Exiting live render loop.")
-
-    cv2.destroyAllWindows()
+    finally: # Ensure cleanup is attempted for standalone mode
+        if node:
+            node._cleanup() # Call node's cleanup
+        cv2.destroyAllWindows()
+        # The atexit handlers should still run for profile saving if __main__ exits normally
+        # or via sys.exit(). If KeyboardInterrupt is not caught gracefully by main Python interpreter,
+        # atexit might not run. The explicit cleanup here is a fallback for the node instance.
+        # The global _save_all_node_profiles_on_exit will also attempt to save.
