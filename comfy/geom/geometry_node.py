@@ -99,6 +99,7 @@ class GeometryRenderNode:
         return {
             "required": {
                 "object_type": (["sphere", "cube"],),
+                "quality": (["low", "medium", "high", "ultra"], {"default": "medium"}), # Added quality
                 "center_x": ("FLOAT",{"default":0.0,"min":-5, "max":5}),
                 "center_y": ("FLOAT",{"default":0.0,"min":-5, "max":5}),
                 "center_z": ("FLOAT",{"default":0.0,"min":-5, "max":5}),
@@ -184,7 +185,7 @@ class GeometryRenderNode:
             print(f"[GeometryRenderNode {id(self)}] _cleanup skipped, already destroyed.")
 
 
-    def render(self, object_type, center_x, center_y, center_z, size, rotation_deg_x, rotation_deg_y, rotation_deg_z, z_distance, img_size, color, deformation_type="none", deformation_strength=0.0, deformation_noise_scale=1.0, deformation_noise_octaves=4, deformation_noise_persistence=0.5, deformation_noise_lacunarity=2.0, deformation_noise_seed=0): # Added new params
+    def render(self, object_type, center_x, center_y, center_z, size, rotation_deg_x, rotation_deg_y, rotation_deg_z, z_distance, img_size, color, quality="medium", deformation_type="none", deformation_strength=0.0, deformation_noise_scale=1.0, deformation_noise_octaves=4, deformation_noise_persistence=0.5, deformation_noise_lacunarity=2.0, deformation_noise_seed=0): # Added quality
         """Render the geometry with process isolation"""
         
         if not self._profiler_active:
@@ -213,6 +214,7 @@ class GeometryRenderNode:
                 result = self._render_with_renderer(
                     None, object_type, center_x, center_y, center_z, size,
                     rotation_deg_x, rotation_deg_y, rotation_deg_z, camera_position, color,
+                    quality=quality, # Pass quality
                     img_size=img_size, background='white', show_edges=True,
                     force_recreate=(attempt > 0),  # Force recreation on retry
                     deformation_type=deformation_type, # Pass through
@@ -260,6 +262,7 @@ class GeometryRenderNode:
     
     def _render_with_renderer(self, renderer, object_type, center_x, center_y, center_z, size, 
                             rotation_deg_x, rotation_deg_y, rotation_deg_z, camera_position, color, 
+                            quality="medium", # Added quality
                             img_size=None, background=None, show_edges=True, force_recreate=False,
                             deformation_type="none", deformation_strength=0.0,
                             deformation_noise_scale=1.0, deformation_noise_octaves=4, 
@@ -281,17 +284,17 @@ class GeometryRenderNode:
             show_edges: Whether to show edges of the geometry
             force_recreate: If True, force recreation of the renderer
         """
-        #print(f"[GeometryRenderNode] Starting render with object_type={object_type}, center=({center_x}, {center_y}, {center_z}), size={size}, rotation=({rotation_deg_x}, {rotation_deg_y}, {rotation_deg_z}), camera_position={camera_position}, color={color}")
+        #print(f"[GeometryRenderNode] Starting render with object_type={object_type}, center=({center_x}, {center_y}, {center_z}), size={size}, rotation=({rotation_deg_x}, {rotation_deg_y}, rotation_deg_z}), camera_position={camera_position}, color={color}")
         # Create geometry object
         if object_type == "sphere":
             geom = Sphere(center=(center_x, center_y, center_z), 
                         radius=size/2, 
-                        quality='medium', 
+                        quality=quality, # Use quality
                         rotation=(rotation_deg_x, rotation_deg_y, rotation_deg_z))
         else:  # cube
             geom = Cube(center=(center_x, center_y, center_z), 
                       width=size, 
-                      quality='medium', 
+                      quality=quality, # Use quality
                       rotation=(rotation_deg_x, rotation_deg_y, rotation_deg_z))
 
         deformed_this_frame = False
@@ -323,12 +326,12 @@ class GeometryRenderNode:
             if object_type == "sphere":
                 new_geom_wrapper = Sphere(center=(center_x, center_y, center_z), 
                                      radius=size/2, 
-                                     quality='medium', 
+                                     quality=quality, # Use quality
                                      rotation=(rotation_deg_x, rotation_deg_y, rotation_deg_z))
             else:  # cube
                 new_geom_wrapper = Cube(center=(center_x, center_y, center_z), 
                                    width=size, 
-                                   quality='medium', 
+                                   quality=quality, # Use quality
                                    rotation=(rotation_deg_x, rotation_deg_y, rotation_deg_z))
             
             new_geom_wrapper.mesh = current_mesh # Assign the (already deep-copied) deformed mesh
@@ -414,6 +417,7 @@ if __name__ == "__main__":
 
     params = {
         "object_type": "cube", # Changed to sphere for better deformation visibility
+        "quality": "medium", # Added quality
         "center_x": 0.0,
         "center_y": 0.0,
         "center_z": 0.0,
