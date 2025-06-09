@@ -112,9 +112,9 @@ class GeometryRenderNode:
         # Camera setup: looking at origin from +z
         camera_position = [(0, 0, z_distance), (0, 0, 0), (0, 1, 0)]
         
-        print(f"[GeometryRenderNode] Rendering {object_type} at ({center_x}, {center_y}, {center_z}) with size {size}")
-        print(f"[GeometryRenderNode] Rotation: ({rotation_deg_x}, {rotation_deg_y}, {rotation_deg_z}), color: {color}")
-        print(f"[GeometryRenderNode] Output image size: {img_size}x{img_size}")
+        #print(f"[GeometryRenderNode] Rendering {object_type} at ({center_x}, {center_y}, {center_z}) with size {size}")
+        #print(f"[GeometryRenderNode] Rotation: ({rotation_deg_x}, {rotation_deg_y}, {rotation_deg_z}), color: {color}")
+        #print(f"[GeometryRenderNode] Output image size: {img_size}x{img_size}")
         
         # Track render attempts for better error handling
         max_attempts = 2
@@ -159,7 +159,7 @@ class GeometryRenderNode:
                     break
         
         # If we got here, all attempts failed
-        print(f"All {max_attempts} render attempts failed, returning fallback image")
+        #print(f"All {max_attempts} render attempts failed, returning fallback image")
         return self._create_fallback_tensors(img_size)
     
     def _render_with_renderer(self, renderer, object_type, center_x, center_y, center_z, size, 
@@ -181,7 +181,7 @@ class GeometryRenderNode:
             show_edges: Whether to show edges of the geometry
             force_recreate: If True, force recreation of the renderer
         """
-        print(f"[GeometryRenderNode] Starting render with object_type={object_type}, center=({center_x}, {center_y}, {center_z}), size={size}, rotation=({rotation_deg_x}, {rotation_deg_y}, {rotation_deg_z}), camera_position={camera_position}, color={color}")
+        #print(f"[GeometryRenderNode] Starting render with object_type={object_type}, center=({center_x}, {center_y}, {center_z}), size={size}, rotation=({rotation_deg_x}, {rotation_deg_y}, {rotation_deg_z}), camera_position={camera_position}, color={color}")
         # Create geometry object
         if object_type == "sphere":
             geom = Sphere(center=(center_x, center_y, center_z), 
@@ -212,7 +212,7 @@ class GeometryRenderNode:
     
     def _process_outputs(self, color_img):
         """Process rendered outputs into ComfyUI-compatible tensors with proper negative strides handling"""
-        print("[GeometryRenderNode] Processing outputs")
+        #print("[GeometryRenderNode] Processing outputs")
         # Process color image
         if color_img is not None:
             # Convert to numpy array if needed
@@ -257,98 +257,68 @@ class GeometryRenderNode:
 
 
 if __name__ == "__main__":
-    import cProfile
-    import pstats
-    import io
-    import cv2 # Keep cv2 import here if used later for display
-    from PIL import Image # Keep PIL import here if used later for saving
+    import time
+    import math
+    import cv2
+    from PIL import Image
 
     node = GeometryRenderNode()
     params = {
         "object_type": "cube",
-        "center_x": 1,
+        "center_x": 0,
         "center_y": 0,
-        "center_z": -1,
+        "center_z": 0,
         "size": 1.0,
-        "rotation_deg_x": 45.0,
-        "rotation_deg_y": 65.0,
-        "rotation_deg_z": 45.0,
+        "rotation_deg_x": 0.0,
+        "rotation_deg_y": 0.0,
+        "rotation_deg_z": 0.0,
         "z_distance": 10.0,
         "img_size": 512,
         "color": "#FFD700"
     }
 
-    # Create a cProfile object
-    profiler = cProfile.Profile()
+    t = 0.0
+    print("Starting live render loop. Press Ctrl+C to exit.")
+    try:
+        while True:
+            # Animate parameters
+            params["rotation_deg_x"] = (math.sin(t) * 45) % 360
+            params["rotation_deg_y"] = (math.cos(t) * 45) % 360
+            params["rotation_deg_z"] = (t * 30) % 360
+            params["center_x"] = math.sin(t) * 2
+            params["center_y"] = math.cos(t) * 2
+            params["center_z"] = math.sin(t * 0.5) * 2
 
-    # Run the render method under profiler
-    print("Starting profiling...")
-    profiler.enable()
-    
-    # Run the function multiple times to get a better average if needed,
-    # but for a single call profile:
-    color_img_tensor = node.render(**params)
-    
-    profiler.disable()
-    print("Profiling finished.")
+            color_img_tensor = node.render(**params)
 
-    # Create a stream for the stats
-    s = io.StringIO()
-    # Sort stats by cumulative time
-    ps = pstats.Stats(profiler, stream=s).sort_stats('cumulative')
-    ps.print_stats()
+            # Prepare for display
+            color_img_np = color_img_tensor.cpu().numpy() if hasattr(color_img_tensor, 'cpu') else color_img_tensor
+            if color_img_np.dtype != np.uint8:
+                if not np.issubdtype(color_img_np.dtype, np.floating):
+                    color_img_np = color_img_np.astype(np.float32)
+                if color_img_np.max() > 1e-6:
+                    if color_img_np.max() > 1.0:
+                        color_img_np = color_img_np / color_img_np.max()
+                color_img_disp = (np.clip(color_img_np, 0, 1) * 255).astype(np.uint8)
+            else:
+                color_img_disp = color_img_np
 
-    # Print the stats to console
-    print(s.getvalue())
+            if color_img_disp.ndim == 4 and color_img_disp.shape[0] == 1:
+                color_img_disp = color_img_disp[0]
+            if color_img_disp.ndim == 2:
+                color_img_disp = cv2.cvtColor(color_img_disp, cv2.COLOR_GRAY2BGR)
+            elif color_img_disp.shape[2] == 1:
+                color_img_disp = cv2.cvtColor(color_img_disp, cv2.COLOR_GRAY2BGR)
 
-    # Optionally, save stats to a file
-    profile_output_path = "geometry_node_profile.prof"
-    profiler.dump_stats(profile_output_path)
-    print(f"Profile data saved to {profile_output_path}")
-    print(f"You can view it using: python -m pstats {profile_output_path}")
+            # Show live window
+            cv2.imshow('3D Geometry Live Render', color_img_disp)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
-    # --- Original image processing and display/save logic ---
-    if color_img_tensor is not None:
-        print("Processing image for display/saving...")
-        # Prepare color image - convert tensor to numpy first
-        color_img_np = color_img_tensor.cpu().numpy() if hasattr(color_img_tensor, 'cpu') else color_img_tensor
-        if color_img_np.dtype != np.uint8:
-            # Ensure it's float before clipping and scaling
-            if not np.issubdtype(color_img_np.dtype, np.floating):
-                 color_img_np = color_img_np.astype(np.float32)
-            
-            # Handle potential normalization issues if max is 0 or very small
-            if color_img_np.max() > 1e-6 : # Check if there's actual image data
-                if color_img_np.max() > 1.0: # If not in [0,1] range, scale by max
-                    color_img_np = color_img_np / color_img_np.max()
+            t += 0.05
+            time.sleep(0.01)  # 10ms
 
-            color_img_disp = (np.clip(color_img_np, 0, 1) * 255).astype(np.uint8)
-        else:
-            color_img_disp = color_img_np
-        
-        # Remove batch dimension if present
-        if color_img_disp.ndim == 4 and color_img_disp.shape[0] == 1:
-            color_img_disp = color_img_disp[0]
-        
-        # Ensure 3 channels for display with OpenCV
-        if color_img_disp.ndim == 2: # Grayscale
-            color_img_disp = cv2.cvtColor(color_img_disp, cv2.COLOR_GRAY2BGR)
-        elif color_img_disp.shape[2] == 1: # Single channel (e.g. depth map)
-             color_img_disp = cv2.cvtColor(color_img_disp, cv2.COLOR_GRAY2BGR)
+    except KeyboardInterrupt:
+        print("Exiting live render loop.")
 
-
-        # Display the rendered image (optional, can be slow)
-        # cv2.imshow('3D Color Render', color_img_disp)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
-        
-        # Save the image
-        try:
-            Image.fromarray(color_img_disp).save("test_profiled_render_color.png")
-            print("Saved profiled color render to test_profiled_render_color.png")
-        except Exception as e:
-            print(f"Error saving image: {e}")
-    else:
-        print("Rendering returned None, cannot process or save image.")
-
-    print("Done.")
+    cv2.destroyAllWindows()

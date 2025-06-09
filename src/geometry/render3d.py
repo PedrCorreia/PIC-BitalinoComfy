@@ -5,13 +5,9 @@ import cv2
 import hashlib
 import os
 import gc
-import ctypes
 import multiprocessing as mp
 from multiprocessing import shared_memory
-import sys
 import time
-import json
-import subprocess
 import importlib.util
 import threading
 import queue
