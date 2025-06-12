@@ -36,12 +36,12 @@ class EDA:
         - phasic: Phasic component of the EDA signal.
         """
         # Baseline correction for tonic component
-        filtered_signal = NumpySignalProcessor.lowpass_filter(eda_signal,cutoff=1, fs=fs,order=2)
+        filtered_signal = NumpySignalProcessor.lowpass_filter(eda_signal,cutoff=1, fs=fs,order=4)
         tonic = NumpySignalProcessor.lowpass_filter(filtered_signal, cutoff=0.1, fs=fs,order=4)
         
         # Phasic component is the difference between the original signal and tonic
         phasic = filtered_signal - tonic
-        phasic = NumpySignalProcessor.moving_average(phasic, window_size=10)  # Smooth phasic component
+        phasic = phasic#NumpySignalProcessor.moving_average(phasic, window_size=10)  # Smooth phasic component
         return tonic, phasic   
     @staticmethod
     def detect_events(phasic_signal, fs, threshold=0.01, min_peak_distance_sec=1.5):

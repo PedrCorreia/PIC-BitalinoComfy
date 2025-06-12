@@ -42,12 +42,6 @@ class PlotRegistry:
         Also, if the signal contains metrics (e.g., HR, RR, SCL, SCK), register/update corresponding metrics signals for MetricsView.
         """
         with self.registry_lock:
-            # Remove debug prints for production
-            # print(f"[DEBUG] PlotRegistry: Registering signal {signal_id}, metadata keys: {list(metadata.keys()) if metadata else 'None'}")
-            # if metadata and 'over' in metadata:
-            #     print(f"[DEBUG] PlotRegistry: Signal {signal_id} has over={metadata['over']}")
-            # if metadata and 'phasic_norm' in metadata and 'tonic_norm' in metadata:
-            #     print(f"[DEBUG] PlotRegistry: Signal {signal_id} has phasic/tonic components")
             # --- Existing registration logic ---
             # Accept dict with 't' and 'v' as-is (new format)
             if isinstance(signal_data, dict) and 't' in signal_data and 'v' in signal_data:
@@ -56,36 +50,37 @@ class PlotRegistry:
                 if prev is not signal_data:
                     #print(f"[DEBUG] PlotRegistry: Updating signal data for {signal_id}")
                     self.signals[signal_id] = signal_data
-                # Only update meta if changed
-                if metadata is not None:
-                    prev_meta = self.metadata.get(signal_id)
-                    if prev_meta != metadata:
-                        #print(f"[DEBUG] PlotRegistry: Updating metadata for {signal_id}")
-                        # Make sure we preserve the 'over' flag if it was previously set but not in new metadata
-                        if prev_meta and 'over' in prev_meta and prev_meta['over'] and metadata and 'over' not in metadata:
-                            #print(f"[DEBUG] PlotRegistry: Preserving over=True flag from previous metadata")
-                            metadata['over'] = True
-                        self.metadata[signal_id] = metadata
-            # Existing logic for tuple, array, etc
+            # ADDED: Handle other dictionaries (e.g. complex processed data like EDA)
+            elif isinstance(signal_data, dict):
+                prev = self.signals.get(signal_id)
+                if prev is not signal_data: 
+                    self.signals[signal_id] = signal_data # Store as dict
+            # Existing logic for tuple, array, etc.
             elif isinstance(signal_data, tuple) and len(signal_data) == 2:
                 prev = self.signals.get(signal_id)
                 if prev is not signal_data:
                     self.signals[signal_id] = signal_data
-            elif not isinstance(signal_data, np.ndarray):
+            elif not isinstance(signal_data, np.ndarray): # Catches lists and other convertibles, but not dicts anymore
                 arr = np.array(signal_data)
                 prev = self.signals.get(signal_id)
-                if prev is not arr:
+                # Comparing numpy arrays with 'is' is not reliable if they are new objects.
+                # np.array_equal could be used, but for now, this matches existing style.
+                if prev is not arr: # This might lead to more updates than necessary if arr is always new.
                     self.signals[signal_id] = arr
-            else:
+            else: # signal_data is already an np.ndarray
                 prev = self.signals.get(signal_id)
                 if prev is not signal_data:
                     self.signals[signal_id] = signal_data
-            # Store metadata if provided
-            if metadata:
+            
+            # Store metadata if provided (this logic applies after signal_data is stored)
+            if metadata is not None: # Check if metadata was passed in this call
                 prev_meta = self.metadata.get(signal_id)
                 if prev_meta != metadata:
+                    # Make sure we preserve the 'over' flag if it was previously set but not in new metadata
+                    if prev_meta and 'over' in prev_meta and prev_meta['over'] and ('over' not in metadata or not metadata.get('over')): # check metadata.get('over')
+                        metadata['over'] = True
                     self.metadata[signal_id] = metadata
-            elif signal_id not in self.metadata:
+            elif signal_id not in self.metadata: # If no metadata provided in call AND no metadata exists yet for this signal_id
                 self.metadata[signal_id] = {
                     'color': self._generate_color_from_id(signal_id),
                     'created': time.time()
@@ -261,67 +256,129 @@ class PlotRegistry:
     def get_signals_by_type(self, window_sec, signal_type, debug=False):
         """
         Fetch signals from the registry by type ('raw' or 'processed'), returning a list of dicts:
-        [{ 'id': ..., 't': ..., 'v': ..., 'meta': ... }, ...]
-        """
+        [{ 'id': ..., 't': ..., 'v': ..., 'meta': ... }, ...]\r\n        """
         import numpy as np
-        all_signal_ids = self.get_all_signal_ids()        # --- Improved type detection: use metadata if available, fallback to ID heuristics ---
+        all_signal_ids = self.get_all_signal_ids()
         ids = []
         for sid in all_signal_ids:
             meta = self.get_signal_metadata(sid)
             meta_type = meta.get('type') if meta else None
             if signal_type == 'raw':
                 if (meta_type == 'raw' or
-                    (meta_type is None and ('RAW' in sid or 'ECG' in sid or 'EDA' in sid))):
+                    (meta_type is None and ('RAW' in sid or 'ECG' in sid or 'EDA' in sid or '_RAW' in sid.upper()))): # Added _RAW check
                     ids.append(sid)
             elif signal_type == 'processed':
-                # Handle both generic 'processed' and specific processed types like 'eda_processed', 'ecg_processed'
                 if (meta_type == 'processed' or 
                     (meta_type and meta_type.endswith('_processed')) or
-                    (meta_type is None and ('PROC' in sid or 'PROCESSED' in sid or 'WAVE' in sid))):
+                    (meta_type is None and ('PROC' in sid.upper() or 'PROCESSED' in sid.upper() or 'WAVE' in sid.upper() or '_PROC' in sid.upper()))): # Added _PROC and made checks case-insensitive
                     ids.append(sid)
-        signals = []
+        
+        signals_out = [] # Renamed from 'signals' to avoid conflict with module
         for sid in ids:
             data = self.get_signal(sid)
-            meta = self.get_signal_metadata(sid)
+            current_meta_from_registry = self.get_signal_metadata(sid) # Original metadata for this signal
+            
             if data is None:
+                if debug: logger.warning(f"[PlotRegistry.get_signals_by_type] No data for signal ID: {sid}")
                 continue
-            # --- Patch: robustly handle all generator/legacy formats ---
-            t = v = None
-            # Handle new format: dict with 't', 'v', 'meta'
-            if isinstance(data, dict) and 't' in data and 'v' in data:
-                t = np.array(data['t'])
-                v = np.array(data['v'])
-                # If meta is already in the data dict, use it; otherwise use the one from the registry
-                if 'meta' in data:
-                    meta = data['meta']
-            # Handle numpy array of shape (N, 2)
-            elif isinstance(data, np.ndarray) and data.ndim == 2 and data.shape[1] == 2:
-                t, v = data[:, 0], data[:, 1]
-            # Handle (timestamps, values) tuple
-            elif isinstance(data, tuple) and len(data) == 2:
-                t, v = np.array(data[0]), np.array(data[1])
-            # Handle 1D array or list: treat as values, synthesize t
-            elif isinstance(data, (list, np.ndarray)):
-                v = np.array(data)
-                sr = meta.get('sampling_rate', 100) if meta else 100
-                t = np.arange(len(v)) / sr
+
+            t_signal, v_signal, processed_meta = None, None, current_meta_from_registry
+
+            # Try to parse data into t_signal, v_signal, and update processed_meta if needed
+            if isinstance(data, dict) and 't' in data and 'v' in data: # Standard dict format
+                t_signal = np.array(data['t'])
+                v_signal = np.array(data['v'])
+                if 'meta' in data and isinstance(data['meta'], dict): # If data dict itself contains meta, prefer it
+                    processed_meta = data['meta']
+            elif isinstance(data, dict) and 't' in data: # Handles other dicts like processed EDA
+                t_signal = np.array(data['t'])
+                
+                # Enrich metadata with the original data dictionary
+                enriched_meta = processed_meta.copy() if processed_meta else {}
+                enriched_meta['_original_data_dict'] = data
+                processed_meta = enriched_meta
+                
+                # Attempt to find a primary 'v' component for standardization
+                if 'phasic_norm' in data: # EDA specific
+                    v_signal = np.array(data['phasic_norm'])
+                elif 'tonic_norm' in data: # EDA specific fallback
+                    v_signal = np.array(data['tonic_norm'])
+                # Add other 'elif key in data:' checks here if other dict types need a primary 'v'
+                else:
+                    v_signal = np.array([]) # Default to empty 'v' if no primary component found
+            
+            elif isinstance(data, np.ndarray) and data.ndim == 2 and data.shape[1] == 2: # Numpy (N,2) array
+                t_signal, v_signal = data[:, 0], data[:, 1]
+            
+            elif isinstance(data, tuple) and len(data) == 2: # (timestamps, values) tuple
+                try:
+                    t_signal, v_signal = np.array(data[0]), np.array(data[1])
+                except Exception as e:
+                    if debug: logger.error(f"[PlotRegistry.get_signals_by_type] Error converting tuple signal {sid} to numpy arrays: {e}")
+                    continue
+            
+            elif isinstance(data, (list, np.ndarray)): # 1D list or array (treat as values, synthesize t)
+                if isinstance(data, np.ndarray) and data.ndim == 0:
+                    if debug: logger.warning(f"[PlotRegistry.get_signals_by_type] Signal {sid} data is a 0-d numpy array (value: {data.item()}). Cannot synthesize 't'. Skipping.")
+                    continue
+                
+                v_signal = np.array(data)
+                if len(v_signal) == 0:
+                    if debug: logger.warning(f"[PlotRegistry.get_signals_by_type] Signal {sid} data is an empty list/array. Skipping.")
+                    continue
+                
+                sr = processed_meta.get('sampling_rate', 100) if processed_meta else 100
+                t_signal = np.arange(len(v_signal)) / sr
+            
             else:
-                continue  # skip unknown format
-            # --- Ensure t and v are the same length before windowing ---
-            min_len = min(len(t), len(v))
-            t = t[:min_len]
-            v = v[:min_len]
-            # --- Only apply windowing if window_sec is not None ---
-            if window_sec is not None and len(t) > 1:
-                t0 = t[-1] - window_sec
-                mask = t >= t0
-                if len(mask) == len(t):
-                    t, v = t[mask], v[mask]
-                if len(t) < 2:
-                    t, v = t[-2:], v[-2:]
-                t = t - t[0]
-                signals.append({'id': sid, 't': t, 'v': v, 'meta': meta})
+                if debug: logger.warning(f"[PlotRegistry.get_signals_by_type] Signal {sid} has unknown data format: {type(data)}. Skipping.")
+                continue
+
+            # If parsing failed to produce t_signal, skip
+            if t_signal is None:
+                if debug: logger.warning(f"[PlotRegistry.get_signals_by_type] Signal {sid} could not be parsed into t_signal. Skipping.")
+                continue
+            
+            # Ensure v_signal is an ndarray if it's None (e.g. if t_signal was from dict but no v_keys matched)
+            if v_signal is None:
+                v_signal = np.array([])
+
+            # Synchronize lengths of t_signal and v_signal if v_signal is not empty
+            # (it can be deliberately empty for dicts without a primary 'v' like EDA)
+            if v_signal.size > 0:
+                min_len_sync = min(len(t_signal), len(v_signal))
+                if len(t_signal) != min_len_sync: t_signal = t_signal[:min_len_sync]
+                if len(v_signal) != min_len_sync: v_signal = v_signal[:min_len_sync]
+            
+            # Store unwindowed versions for potential fallback if windowing makes signal too short
+            t_unwindowed, v_unwindowed = t_signal.copy(), v_signal.copy()
+
+            # Apply windowing if window_sec is specified
+            if window_sec is not None and len(t_signal) > 1:
+                t0 = t_signal[-1] - window_sec
+                mask = t_signal >= t0
+                
+                t_signal_windowed = t_signal[mask]
+                v_signal_windowed = v_signal[mask] if v_signal.size > 0 and len(mask) == len(v_signal) else (np.array([]) if v_signal.size == 0 else v_signal[mask])
+
+
+                # If windowing results in too few points, try to take last 2 from original (if available)
+                if len(t_signal_windowed) < 2 and len(t_unwindowed) >= 2:
+                    t_final = t_unwindowed[-2:]
+                    v_final = v_unwindowed[-2:] if v_unwindowed.size > 0 and len(v_unwindowed) >=2 else (np.array([]) if v_unwindowed.size == 0 else v_unwindowed[-min(2, len(v_unwindowed)):])
+
+                else:
+                    t_final = t_signal_windowed
+                    v_final = v_signal_windowed
+
+                if len(t_final) > 0:
+                    t_final = t_final - t_final[0] # Normalize time to start from 0
+                else: # t_final is empty, v_final should also be empty
+                    v_final = np.array([])
             else:
-                # No windowing, just return full t and v
-                signals.append({'id': sid, 't': t, 'v': v, 'meta': meta})
-        return signals
+                # No windowing or signal too short for windowing, use original (or length-synced) t_signal, v_signal
+                t_final, v_final = t_signal, v_signal
+            
+            signals_out.append({'id': sid, 't': t_final, 'v': v_final, 'meta': processed_meta})
+        
+        return signals_out

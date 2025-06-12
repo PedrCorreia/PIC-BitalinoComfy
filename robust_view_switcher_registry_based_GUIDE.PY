@@ -75,6 +75,7 @@ def main(start_generators=True, stop_event=None):
     # Instantiate UI components
     sidebar = Sidebar(screen, SIDEBAR_WIDTH, WINDOW_HEIGHT, font, icon_font, selected_tab, {}, tabs=TABS, tab_icons=TAB_ICONS)
     status_bar = StatusBar(screen, STATUS_BAR_HEIGHT, font, start_time)
+    signal_view = SignalView(screen, None, {}, font)  # Data and lock will be set per draw
     settings_panel = SettingsPanel(font, plot_registry)
 
     # --- Precompute plot area variables (will be updated each frame) ---
@@ -85,7 +86,13 @@ def main(start_generators=True, stop_event=None):
 
     # --- Per-signal rolling window state ---
     signal_window_sec = {}  # {signal_id: window_sec}
+    default_window_sec = 5
 
+    def get_window_sec_for_signal(sid):
+        return signal_window_sec.get(sid, default_window_sec)
+
+    def set_window_sec_for_signal(sid, value):
+        signal_window_sec[sid] = value
 
     def draw_tab_content(screen, font, plot_registry, selected_tab, plot_x, plot_y, plot_width, plot_height, window_sec_dict, signal_window_sec):
         from src.plot.ui.drawing import draw_signal_plot
@@ -97,26 +104,6 @@ def main(start_generators=True, stop_event=None):
             if hasattr(sig, 'name'):
                 return getattr(sig, 'name')
             return str(sig)
-            
-        def determine_plot_mode(sig):
-            # Check if signal metadata indicates it's EDA
-            if isinstance(sig, dict) and 'meta' in sig: # Ensure meta exists
-                meta = sig.get('meta', {})
-                print(f"[DETERMINE_PLOT_MODE_DEBUG] Signal ID: {get_sig_id(sig)}, Meta: {meta}", flush=True) # DEBUG PRINT
-                if meta.get('type') == 'processed' and meta.get('viz_subtype') == 'eda':
-                    print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'eda' for {get_sig_id(sig)}", flush=True) # DEBUG PRINT
-                    return 'eda'
-            # Fallback for older EDA structure or other direct EDA signals (less likely now)
-            if isinstance(sig, dict) and 'scl' in sig and 'scr' in sig and 't' in sig:
-                print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'eda' (fallback) for {get_sig_id(sig)}", flush=True) # DEBUG PRINT
-                return 'eda'
-            # Check if signal metadata indicates it's EDA (older check, keep for compatibility or other types)
-            if isinstance(sig, dict) and 'meta' in sig and sig.get('meta', {}).get('type') == 'eda':
-                print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'eda' (older meta check) for {get_sig_id(sig)}", flush=True) # DEBUG PRINT
-                return 'eda'
-            print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'default' for {get_sig_id(sig)}", flush=True) # DEBUG PRINT
-            return 'default'
-            
         if selected_tab == ViewMode.SETTINGS:
             _ = settings_panel.draw(screen, plot_x, plot_y, plot_width, plot_height, window_sec_dict, selected_tab, signal_window_sec=signal_window_sec)
         elif selected_tab == ViewMode.RAW:
@@ -124,19 +111,13 @@ def main(start_generators=True, stop_event=None):
             for i, sig in enumerate(raw_signals[:3]):
                 sig_id = get_sig_id(sig)
                 win_sec = signal_window_sec.get(sig_id, window_sec_dict.get(ViewMode.RAW, 2))
-                plot_mode = determine_plot_mode(sig)
-                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height, show_time_markers=True, window_sec=win_sec, mode=plot_mode)
+                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height, show_time_markers=True, window_sec=win_sec)
         elif selected_tab == ViewMode.PROCESSED:
             processed_signals = plot_registry.get_signals_by_type(None, 'processed', debug=True)
-            print(f"[VIEW_DEBUG_PROCESSED_LIST] Fetched processed signals: Count={len(processed_signals)}, Content={processed_signals}", flush=True) # DEBUG PRINT ADDED
-
             for i, sig in enumerate(processed_signals[:3]):
                 sig_id = get_sig_id(sig)
                 win_sec = signal_window_sec.get(sig_id, window_sec_dict.get(ViewMode.PROCESSED, 2))
-                plot_mode = determine_plot_mode(sig)
-                # More detailed print:
-                print(f"[VIEW_DEBUG] Drawing PROCESSED signal: ID={sig_id}, Mode={plot_mode}, HasMeta={'meta' in sig}, MetaKeys={list(sig.get('meta', {}).keys()) if 'meta' in sig else 'N/A'}, FullSignalKeys={list(sig.keys()) if isinstance(sig, dict) else 'N/A'}", flush=True)
-                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height, show_time_markers=True, window_sec=win_sec, mode=plot_mode)
+                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height, show_time_markers=True, window_sec=win_sec)
         elif selected_tab == ViewMode.TWIN:
             raw_signals = plot_registry.get_signals_by_type(None, 'raw', debug=True)
             processed_signals = plot_registry.get_signals_by_type(None, 'processed', debug=True)
@@ -147,15 +128,19 @@ def main(start_generators=True, stop_event=None):
             for i, sig in enumerate(processed_signals[:3]):
                 sig_id = get_sig_id(sig)
                 win_sec = signal_window_sec.get(sig_id, window_sec_dict.get(ViewMode.TWIN, 2))
-                plot_mode = determine_plot_mode(sig)
-                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, left_width, plot_height, show_time_markers=True, window_sec=win_sec, mode=plot_mode)
+                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, left_width, plot_height, show_time_markers=True, window_sec=win_sec)
             for i, sig in enumerate(raw_signals[:3]):
                 sig_id = get_sig_id(sig)
                 win_sec = signal_window_sec.get(sig_id, window_sec_dict.get(ViewMode.TWIN, 2))
-                plot_mode = determine_plot_mode(sig)
-                draw_signal_plot(screen, font, sig, center_x + 5, plot_y + i*plot_height, right_width, plot_height, show_time_markers=True, window_sec=win_sec, mode=plot_mode)
-        # ...existing code...
+                draw_signal_plot(screen, font, sig, center_x + 5, plot_y + i*plot_height, right_width, plot_height, show_time_markers=True, window_sec=win_sec)
+        elif selected_tab == ViewMode.METRICS :
+            from src.plot.view.metrics_view import MetricsView
+            metrics_view = MetricsView(font, plot_registry)
+            # Use per-metric window_sec if available, else fallback to global
+            # Draw all metrics in one call (metrics_view handles all metrics)
+            metrics_view.draw(screen, plot_x, plot_y, plot_width, WINDOW_HEIGHT - STATUS_BAR_HEIGHT - 2 * PLOT_PADDING, window_sec=window_sec_dict.get(ViewMode.METRICS, 30))
 
+    # --- Main loop ---
     while running:
         # --- Update plot area variables each frame in case of dynamic resizing (optional) ---
         plot_x = SIDEBAR_WIDTH + PLOT_PADDING
@@ -176,19 +161,21 @@ def main(start_generators=True, stop_event=None):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
-            elif event.type == pygame.MOUSEBUTTONDOWN or event.type == pygame.KEYDOWN:
+            elif event.type == pygame.MOUSEBUTTONDOWN:
+                mx, my = pygame.mouse.get_pos()
+                if 0 <= mx < SIDEBAR_WIDTH:
+                    clicked_mode = sidebar.handle_click(my)
+                    if clicked_mode is not None:
+                        sidebar.current_mode = clicked_mode
+                        selected_tab = clicked_mode
+                # --- Handle per-signal window +/- in settings panel ---
                 if selected_tab == ViewMode.SETTINGS:
-                    row_height = 28
-                    signals_list = plotted_signals if plotted_signals is not None else []
-                    row = 1 + len(signals_list)
-                    settings_panel.handle_event(event, plot_x, plot_y, row, row_height, plot_height, window_sec, selected_tab, signals_list, signal_window_sec=signal_window_sec)
-                if event.type == pygame.MOUSEBUTTONDOWN:
-                    mx, my = pygame.mouse.get_pos()
-                    if 0 <= mx < SIDEBAR_WIDTH:
-                        clicked_mode = sidebar.handle_click(my)
-                        if clicked_mode is not None:
-                            sidebar.current_mode = clicked_mode
-                            selected_tab = clicked_mode
+                    # Use dummy values for row/row_height/plot_height (not used in handle_event)
+                    settings_panel.handle_event(
+                        event,
+                        plot_x, plot_y, 0, 24, plot_height,
+                        window_sec, selected_tab, plotted_signals, signal_window_sec
+                    )
         # --- Connect all signals to the connector node (emulated) ---
         for sid in plot_registry.get_all_signal_ids():
             plot_registry.connect_node_to_signal(connector_node_id, sid)
@@ -216,7 +203,8 @@ def main(start_generators=True, stop_event=None):
         else:
             draw_tab_content(screen, font, plot_registry, selected_tab, plot_x, plot_y, plot_width, plot_height, window_sec, signal_window_sec)
         # --- Status Bar ---
-        status_bar.draw(clock.get_fps(), latency_monitor.get_current_latency() if hasattr(latency_monitor, 'get_current_latency') else 0.0, None)
+        rel_runtime = int(time.time() - start_time)
+        status_bar.draw(clock.get_fps(), latency_monitor.get_latency(), signal_times=None)
         pygame.display.flip()
         clock.tick(TARGET_FPS)
 

@@ -1,11 +1,11 @@
-from collections import deque
+1from collections import deque
 import numpy as np
 import threading
 import time
 from ...src.phy.eda_signal_processing import EDA
 from ...src.registry.signal_registry import SignalRegistry
 from ...src.utils.signal_processing import NumpySignalProcessor
-from ...src.registry.plot_registry import PlotRegistry
+
 class EDANode:
     """
     Node for processing EDA (Electrodermal Activity) signals.
@@ -41,6 +41,7 @@ class EDANode:
         self.eda = EDA()  # Instance for stateful processing
 
     def _background_process(self, input_signal_id, show_peaks, stop_flag, output_signal_id):
+        from ...src.registry.plot_registry import PlotRegistry
         registry = PlotRegistry.get_instance()
         metrics_registry = SignalRegistry.get_instance()
         fs = 1000
@@ -53,14 +54,14 @@ class EDANode:
         viz_values_deque = deque(maxlen=viz_buffer_size)
         viz_timestamps_deque = deque(maxlen=viz_buffer_size)
         metrics_buffer_size = 300  # e.g., 5 minutes at 1Hz
+        metrics_deque = deque(maxlen=metrics_buffer_size)
+        max_frequency_interest = 100  # EDA is low freq, but keep for decimation logic
+        decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
+        use_decimation = decimation_factor > 1
         last_registry_data_hash = None
         last_process_time = time.time()
         processing_interval = 0.033
         start_time = None
-        metrics_deque = deque(maxlen=metrics_buffer_size)
-        max_frequency_interest = 10  # EDA is low freq, but keep for decimation logic
-        decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
-        use_decimation = decimation_factor > 1
         while not stop_flag[0]:
             current_time = time.time()
             if current_time - last_process_time < processing_interval:
@@ -145,68 +146,50 @@ class EDANode:
                 viz_timestamps_window = viz_timestamps
                 viz_values_window = viz_values
 
-            # Tonic/phasic extraction
-            tonic_raw, phasic_raw = self.eda.extract_tonic_phasic(feature_values, fs=effective_fs)
-
-            # Sanitize raw components to ensure they are 1D numpy arrays
-            def sanitize_component(raw_comp):
-                if raw_comp is None: return np.array([])
-                # Attempt to convert to numpy array
-                try:
-                    arr = np.asarray(raw_comp)
-                except Exception: # If conversion fails, return empty array
-                    return np.array([])
-                
-                if arr.ndim == 0: # Handle scalar by converting to 1-element 1D array
-                    return np.array([arr.item()]) 
-                return arr.flatten() # Ensure 1D, or keep as 1D if already
-
-            tonic_raw = sanitize_component(tonic_raw)
-            phasic_raw = sanitize_component(phasic_raw)
-
-            # Ensure viz_timestamps_window is a usable 1D numpy array for shaping tonic_viz/phasic_viz
-            if not isinstance(viz_timestamps_window, np.ndarray) or viz_timestamps_window.ndim != 1:
-                viz_timestamps_window = np.array([]) # Fallback to empty array
-
-            # Initialize viz versions based on viz_timestamps_window
-            if viz_timestamps_window.size == 0:
-                tonic_viz = np.array([])
-                phasic_viz = np.array([])
+            # Tonic/phasic extraction (use feature buffer for stability)
+            tonic, phasic = self.eda.extract_tonic_phasic(feature_values, fs=effective_fs)
+            # Map tonic/phasic to visualization window
+            if len(tonic) == len(feature_values):
+                # Align tonic/phasic to feature_timestamps, then map to viz window
+                if len(feature_timestamps) == len(viz_timestamps_window):
+                    tonic_viz = tonic[-len(viz_timestamps_window):]
+                    phasic_viz = phasic[-len(viz_timestamps_window):]
+                else:
+                    # Interpolate to match window
+                    if len(feature_timestamps) > 1 and len(viz_timestamps_window) > 1:
+                        tonic_viz = np.interp(viz_timestamps_window, feature_timestamps, tonic)
+                        phasic_viz = np.interp(viz_timestamps_window, feature_timestamps, phasic)
+                    else:
+                        tonic_viz = tonic[-len(viz_timestamps_window):]
+                        phasic_viz = phasic[-len(viz_timestamps_window):]
             else:
-                tonic_viz = np.zeros_like(viz_timestamps_window)
-                phasic_viz = np.zeros_like(viz_timestamps_window)
-
-                # Attempt to populate tonic_viz and phasic_viz by interpolation
-                # This requires feature_timestamps, tonic_raw, and phasic_raw to be valid 1D arrays
-                # and raw components to align with feature_timestamps.
-                if (tonic_raw.size > 0 and phasic_raw.size > 0 and
-                    isinstance(feature_timestamps, np.ndarray) and feature_timestamps.ndim == 1 and feature_timestamps.size > 0 and
-                    tonic_raw.ndim == 1 and phasic_raw.ndim == 1 and
-                    len(tonic_raw) == len(feature_timestamps) and 
-                    len(phasic_raw) == len(feature_timestamps)):
-                    try:
-                        # Interpolate to align with viz_timestamps_window
-                        tonic_viz_interp = np.interp(viz_timestamps_window, feature_timestamps, tonic_raw)
-                        phasic_viz_interp = np.interp(viz_timestamps_window, feature_timestamps, phasic_raw)
-                        
-                        # Ensure interpolation produced arrays of the correct shape
-                        if tonic_viz_interp.shape == viz_timestamps_window.shape:
-                             tonic_viz = tonic_viz_interp
-                        if phasic_viz_interp.shape == viz_timestamps_window.shape:
-                             phasic_viz = phasic_viz_interp
-                        # If interpolation results in wrong shape, they remain as pre-initialized zeros_like
-                    except Exception: 
-                        # If interpolation fails, tonic_viz/phasic_viz remain as pre-initialized zeros_like
-                        pass
-            # tonic_viz and phasic_viz are now guaranteed to be 1D numpy arrays,
-            # either empty or matching viz_timestamps_window length (filled with zeros or interpolated values).
+                tonic_viz = tonic[-len(viz_timestamps_window):]
+                phasic_viz = phasic[-len(viz_timestamps_window):]
 
             # --- Amplitude correction: check absolute change before/after filtering ---
             raw_window = viz_values_window
             filtered_tonic = tonic_viz
             filtered_phasic = phasic_viz
+            raw_range = np.max(raw_window) - np.min(raw_window) if len(raw_window) > 0 else 1.0
+            tonic_range = np.max(filtered_tonic) - np.min(filtered_tonic) if len(filtered_tonic) > 0 else 1.0
+            phasic_range = np.max(filtered_phasic) - np.min(filtered_phasic) if len(filtered_phasic) > 0 else 1.0
+            # If filtered amplitude is much lower than raw, amplify
+            min_ratio = 0.2  # If filtered is less than 20% of raw, amplify
+            amp_factor = 1.0
+            if raw_range > 0 and (tonic_range/raw_range < min_ratio or phasic_range/raw_range < min_ratio):
+                amp_factor = raw_range / max(tonic_range, phasic_range, 1e-6)
+                tonic_viz = tonic_viz * amp_factor
+                phasic_viz = phasic_viz * amp_factor
 
-           # SCL/SCK calculation and rolling history
+            # Normalize tonic and phasic for overlay plotting
+            def normalize(arr):
+                arr = np.asarray(arr)
+                if arr.size == 0:
+                    return arr
+                minv, maxv = np.min(arr), np.max(arr)
+                return (arr - minv) / (maxv - minv) if maxv > minv else arr * 0
+            tonic_norm = normalize(tonic_viz)
+            phasic_norm = normalize(phasic_viz)            # SCL/SCK calculation and rolling history
             scl = float(np.mean(tonic_viz)) if len(tonic_viz) > 0 else 0.0
             sck = float(np.mean(phasic_viz)) if len(phasic_viz) > 0 else 0.0
             
@@ -214,44 +197,23 @@ class EDANode:
             setattr(self, '_last_scl', scl)
             setattr(self, '_last_sck', sck)
             # SCR event (peak) detection and mapping to window (like ECG R-peak logic)
-            scr_event_indices = np.array([], dtype=int) # Initialize
-            if len(phasic_viz) > 0: # Only detect events if phasic_viz is not empty
-                result = self.eda.detect_events(phasic_viz, effective_fs)
-                # Handle tuple return (validated_events, envelope) or just events
-                if isinstance(result, tuple) and len(result) == 2:
-                    scr_event_indices_raw, _ = result  # Extract just the indices, ignore envelope
-                else:
-                    scr_event_indices_raw = result
-                
-                # Ensure scr_event_indices_raw becomes a 1D integer numpy array
-                if scr_event_indices_raw is None:
-                    _scr_event_indices_temp = np.array([], dtype=int)
-                else:
-                    _scr_event_indices_temp = np.asarray(scr_event_indices_raw)
-                    if _scr_event_indices_temp.ndim == 0: # Scalar value
-                        try:
-                            # Attempt to convert scalar to a single-element 1D int array
-                            _scr_event_indices_temp = np.array([int(_scr_event_indices_temp.item())], dtype=int)
-                        except (ValueError, TypeError): # If not convertible to int
-                            _scr_event_indices_temp = np.array([], dtype=int)
-                    else: # Already an array (or list-like)
-                        try:
-                            # Flatten to 1D and ensure integer type
-                            _scr_event_indices_temp = _scr_event_indices_temp.flatten().astype(int)
-                        except (ValueError, TypeError): # If elements not convertible to int
-                            _scr_event_indices_temp = np.array([], dtype=int)
-                
-                # _scr_event_indices_temp is now a 1D int array (possibly empty)
-                
-                # Only keep indices that are valid for the current window
-                if len(viz_timestamps_window) > 0 and _scr_event_indices_temp.size > 0:
-                    scr_event_indices = _scr_event_indices_temp[(_scr_event_indices_temp >= 0) & (_scr_event_indices_temp < len(viz_timestamps_window))]
-                else:
-                    scr_event_indices = np.array([], dtype=int) # No window or no raw indices, no valid indices
-            else: # No phasic data, no events
+            result = self.eda.detect_events(phasic_viz, effective_fs)
+            # Handle tuple return (validated_events, envelope) or just events
+            if isinstance(result, tuple) and len(result) == 2:
+                scr_event_indices, _ = result  # Extract just the indices, ignore envelope
+            else:
+                scr_event_indices = result
+            
+            # Ensure we have a clean array of indices
+            if scr_event_indices is None:
                 scr_event_indices = np.array([], dtype=int)
-
-            # scr_event_indices is now guaranteed to be a 1D numpy array (int type, possibly empty)
+            else:
+                scr_event_indices = np.array(scr_event_indices, dtype=int)
+            
+            # Only keep indices that are valid for the current window
+            scr_event_indices = scr_event_indices[(scr_event_indices >= 0) & (scr_event_indices < len(viz_timestamps_window))]
+            scr_event_times = viz_timestamps_window[scr_event_indices] if len(scr_event_indices) > 0 and len(viz_timestamps_window) > 0 else []
+            scr_frequency = (len(scr_event_indices) / viz_window_sec) * 60 if viz_window_sec > 0 and len(scr_event_indices) > 0 else 0.0  # events per minute
 
             # --- Vectorized mapping of SCR event indices to timestamps in window (like RR node) ---
             peak_timestamps_in_window = []
@@ -262,27 +224,19 @@ class EDANode:
                 in_window_mask = (scr_event_times >= window_min) & (scr_event_times <= window_max)
                 peak_timestamps_in_window = scr_event_times[in_window_mask].tolist()
             else:
-                peak_timestamps_in_window = [] # Ensure it's a list
+                peak_timestamps_in_window = []
             scr_frequency = (len(peak_timestamps_in_window) / viz_window_sec) * 60 if viz_window_sec > 0 and len(peak_timestamps_in_window) > 0 else 0.0  # events per minute
 
             # --- RR-style peak metadata for visualization ---
             peak_marker = "o"
             peak_color = "#FF55AA"  # Choose a distinct color for EDA peaks
 
-            # Ensure all components are 1D numpy arrays before use in hash, metadata, or processed_signal_data
-            viz_timestamps_window = sanitize_component(viz_timestamps_window)
-            tonic_viz = sanitize_component(tonic_viz)
-            phasic_viz = sanitize_component(phasic_viz)
-            # scr_event_indices is usually robustly handled to be 1D int array.
-            # This call ensures it (e.g. if a 0D array sneaked in). Dtype is preserved by sanitize_component for existing arrays.
-            scr_event_indices = sanitize_component(scr_event_indices) 
-
             # Hash for registry update optimization
             data_hash = hash((
                 tuple(viz_timestamps_window[-5:]),
-                tuple(phasic_viz[-5:]),
-                tuple(tonic_viz[-5:]),  # Changed from phasic_viz to tonic_viz
-                tuple(scr_event_indices[-3:].tolist() if len(scr_event_indices) > 0 else []),
+                tuple(tonic_norm[-5:]),
+                tuple(phasic_norm[-5:]),
+                tuple(peak_timestamps_in_window[-3:] if len(peak_timestamps_in_window) > 0 else []),
                 scl, sck
             ))
             if data_hash == last_registry_data_hash:
@@ -293,26 +247,35 @@ class EDANode:
             # Metadata and processed signal for registry
             metadata = {
                 "id": output_signal_id,
-                "type": "processed",  # Changed from "eda_processed"
-                "viz_subtype": "eda", # Added for specific EDA handling
+                "type": "eda_processed",
                 "scl": scl,
                 "sck": sck,
                 "scr_frequency": scr_frequency,
-                "peak_timestamps": peak_timestamps_in_window # Kept for potential other uses
-                # "over": True # Removed, as mode='eda' will handle it
+                # --- RR-style peak overlay fields for visualization ---
+                "peak_timestamps": peak_timestamps_in_window,
+                "peak_marker": "o",
+                "color": "#FF55AA",  # Magenta for EDA peaks
+                # --- End RR-style fields ---
+                "scr_peak_timestamps": peak_timestamps_in_window,
+                "scr_peak_indices": scr_event_indices.tolist(),  # Add indices for visualization
+                "show_peaks": show_peaks,  # Add show_peaks flag for visualization
+                "scl_metric_id": "SCL_METRIC",
+                "sck_metric_id": "SCK_METRIC",
+                "scr_metric_id": "SCR_METRIC",  # Add SCR frequency metric reference
+                "tonic_norm": tonic_norm.tolist(),
+                "phasic_norm": phasic_norm.tolist(),
+                "timestamps": viz_timestamps_window.tolist(),
+                "over": True
             }
             processed_signal_data = {
                 "t": viz_timestamps_window.tolist(),
-                "tonic_norm": tonic_viz.tolist(),    # Renamed from tonic, assumed normalized
-                "phasic_norm": phasic_viz.tolist(),   # Renamed from phasic, assumed normalized
-                "peak_indices": scr_event_indices.tolist(), # Added peak indices relative to windowed data
-                # "timestamps": viz_timestamps_window.tolist(), # Removed duplicate key, "t" is used
-                "id": output_signal_id
-            }
-            # CRITICAL DEBUG PRINT for EDA signal registration
-            print(f"[EDA_NODE_DEBUG] Attempting to register signal: ID={output_signal_id}, TypeInMeta={metadata.get('type')}, VizSubtypeInMeta={metadata.get('viz_subtype')}", flush=True)
-            print(f"[EDA_NODE_DEBUG] Processed signal data keys: {list(processed_signal_data.keys())}", flush=True)
-            print(f"[EDA_NODE_DEBUG] Metadata keys: {list(metadata.keys())}", flush=True)
+                "v": tonic_viz.tolist(),  # fallback for main plot
+                "tonic": tonic_viz.tolist(),
+                "phasic": phasic_viz.tolist(),
+                "tonic_norm": tonic_norm.tolist(),
+                "phasic_norm": phasic_norm.tolist(),
+                "timestamps": viz_timestamps_window.tolist(),
+                "id": output_signal_id            }
             registry.register_signal(output_signal_id, processed_signal_data, metadata)
             
             # Metrics registry pattern (similar to ECG node)
@@ -333,8 +296,8 @@ class EDANode:
                 't': metrics_t,
                 'v': metrics_scl
             }
-            metrics_registry.register_signal('scl', scl_metrics_data, { # Changed from SCL_METRIC
-                'id': 'scl', # Changed from SCL_METRIC
+            metrics_registry.register_signal('SCL_METRIC', scl_metrics_data, {
+                'id': 'SCL_METRIC',
                 'type': 'eda_metrics',
                 'label': 'Skin Conductance Level (SCL)',
                 'source': output_signal_id,
@@ -346,8 +309,8 @@ class EDANode:
                 't': metrics_t,
                 'v': metrics_sck
             }
-            metrics_registry.register_signal('sck', sck_metrics_data, { # Changed from SCK_METRIC
-                'id': 'sck', # Changed from SCK_METRIC
+            metrics_registry.register_signal('SCK_METRIC', sck_metrics_data, {
+                'id': 'SCK_METRIC',
                 'type': 'eda_metrics',
                 'label': 'Skin Conductance Response (SCK)',
                 'source': output_signal_id,
@@ -359,8 +322,8 @@ class EDANode:
                 't': metrics_t,
                 'v': metrics_scr_freq
             }
-            metrics_registry.register_signal('scr_frequency', scr_freq_metrics_data, { # Changed from SCR_METRIC
-                'id': 'scr_frequency', # Changed from SCR_METRIC
+            metrics_registry.register_signal('SCR_METRIC', scr_freq_metrics_data, {
+                'id': 'SCR_METRIC',
                 'type': 'eda_metrics',
                 'label': 'SCR Frequency (events/min)',
                 'source': output_signal_id,
@@ -405,3 +368,4 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "EDANode": "🖐️ EDA Processor"
 }
+4
