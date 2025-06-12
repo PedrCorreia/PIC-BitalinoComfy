@@ -5,7 +5,7 @@ from src.plot.constants import TEXT_COLOR
 def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, window_sec=None,mode='default'):
 
     if mode == 'default':
-        print("[DRAW_SIGNAL_PLOT_DEBUG] Default mode entered", flush=True)
+        #print("[DRAW_SIGNAL_PLOT_DEBUG] Default mode entered", flush=True)
         t, v, meta = signal['t'], signal['v'], signal.get('meta', {})
         t = np.array(t)
         v = np.array(v)
@@ -109,9 +109,9 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
             screen.blit(min_label, (x + 2, y + h - 22))
             screen.blit(max_label, (x + w - max_label.get_width() - 2, y + h - 22))
     if mode == 'eda':
-        print("[DRAW_SIGNAL_PLOT_DEBUG] EDA mode entered", flush=True) # DEBUG PRINT
+        #print("[DRAW_SIGNAL_PLOT_DEBUG] EDA mode entered", flush=True) # DEBUG PRINT
         
-        print(f"[EDA_DRAW_DEBUG] Initial signal object (type: {type(signal)}): {signal}", flush=True) # DEBUG PRINT
+        #print(f"[EDA_DRAW_DEBUG] Initial signal object (type: {type(signal)}): {signal}", flush=True) # DEBUG PRINT
 
         # --- Retrieve data with robust fallbacks and type checking ---
         # General metadata (like name, show_peaks) comes from the main meta object from the signal
@@ -129,7 +129,7 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
         raw_tonic_data = original_data_dict.get('tonic_norm')
         raw_peak_indices_data = original_data_dict.get('peak_indices')
         
-        print(f"[EDA_DRAW_DEBUG] Raw data retrieved: t is None: {raw_t_data is None}, p is None: {raw_phasic_data is None}, to is None: {raw_tonic_data is None}, pi is None: {raw_peak_indices_data is None}", flush=True)
+        #print(f"[EDA_DRAW_DEBUG] Raw data retrieved: t is None: {raw_t_data is None}, p is None: {raw_phasic_data is None}, to is None: {raw_tonic_data is None}, pi is None: {raw_peak_indices_data is None}", flush=True)
 
         # 'meta' is already defined and ensured to be a dict from signal.get('meta',...)
         show_peaks_meta = meta.get('show_peaks', True) # Uses the correct 'meta' for plot attributes
@@ -147,8 +147,8 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
         tonic_data = ensure_list(raw_tonic_data)
         peak_indices_data = ensure_list(raw_peak_indices_data)
         
-        print(f"[EDA_DRAW_DEBUG] Raw data after ensure_list: t={type(t_data)}, p={type(phasic_data)}, to={type(tonic_data)}, pi={type(peak_indices_data)}", flush=True) # DEBUG PRINT
-        print(f"[EDA_DRAW_DEBUG] Raw data lengths before np.asarray: t_len={len(t_data) if t_data is not None else 'None'}, p_len={len(phasic_data) if phasic_data is not None else 'None'}, to_len={len(tonic_data) if tonic_data is not None else 'None'}, pi_len={len(peak_indices_data) if peak_indices_data is not None else 'None'}", flush=True)
+        #print(f"[EDA_DRAW_DEBUG] Raw data after ensure_list: t={type(t_data)}, p={type(phasic_data)}, to={type(tonic_data)}, pi={type(peak_indices_data)}", flush=True) # DEBUG PRINT
+        #print(f"[EDA_DRAW_DEBUG] Raw data lengths before np.asarray: t_len={len(t_data) if t_data is not None else 'None'}, p_len={len(phasic_data) if phasic_data is not None else 'None'}, to_len={len(tonic_data) if tonic_data is not None else 'None'}, pi_len={len(peak_indices_data) if peak_indices_data is not None else 'None'}", flush=True)
         
         # --- Convert to NumPy arrays for processing (after ensuring they are lists) ---
         # This is where we ensure they are numpy arrays for consistent processing.
@@ -158,9 +158,9 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
         tonic_data_np = np.asarray(tonic_data, dtype=float)   # Assuming numeric data
         peak_indices_data_np = np.asarray(peak_indices_data, dtype=int) # Peak indices should be int
 
-        print(f"[EDA_DRAW_DEBUG] NumPy data types: t={t_data_np.dtype}, p={phasic_data_np.dtype}, to={tonic_data_np.dtype}, pi={peak_indices_data_np.dtype}", flush=True) # DEBUG PRINT
-        print(f"[EDA_DRAW_DEBUG] NumPy data shapes: t={t_data_np.shape}, p={phasic_data_np.shape}, to={tonic_data_np.shape}, pi={peak_indices_data_np.shape}", flush=True) # DEBUG PRINT
-        print(f"[EDA_DRAW_DEBUG] NumPy data content (first 5 if available): t={t_data_np[:5]}, p={phasic_data_np[:5]}, to={tonic_data_np[:5]}, pi={peak_indices_data_np[:5]}", flush=True)
+        #print(f"[EDA_DRAW_DEBUG] NumPy data types: t={t_data_np.dtype}, p={phasic_data_np.dtype}, to={tonic_data_np.dtype}, pi={peak_indices_data_np.dtype}", flush=True) # DEBUG PRINT
+        #print(f"[EDA_DRAW_DEBUG] NumPy data shapes: t={t_data_np.shape}, p={phasic_data_np.shape}, to={tonic_data_np.shape}, pi={peak_indices_data_np.shape}", flush=True) # DEBUG PRINT
+        #print(f"[EDA_DRAW_DEBUG] NumPy data content (first 5 if available): t={t_data_np[:5]}, p={phasic_data_np[:5]}, to={tonic_data_np[:5]}, pi={peak_indices_data_np[:5]}", flush=True)
 
         # --- Basic Data Validation (using NumPy arrays) ---
         display_error_message = None
@@ -227,7 +227,7 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
         if delta_tonic < 1e-6:
             delta_tonic = 1.0
             
-        pygame.draw.rect(screen, (40, 40, 40), (x, y, w, h)) # Background
+        # pygame.draw.rect(screen, (40, 40, 40), (x, y, w, h)) # Background - REMOVED to match default plot background
         pygame.draw.rect(screen, (80, 80, 80), (x, y, w, h), 2) # Border
             
         # Generate points for Phasic (orange)
@@ -328,5 +328,4 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
         
         tonic_legend_surface = legend_font.render("Tonic", True, tonic_color)
         # Adjusted y position for tonic legend to be on the same line if space, or next line.
-        screen.blit(tonic_legend_surface, (x + 10 + phasic_legend_surface.get_width() + 15, legend_y_start)) 
-       
+        screen.blit(tonic_legend_surface, (x + 10 + phasic_legend_surface.get_width() + 15, legend_y_start))

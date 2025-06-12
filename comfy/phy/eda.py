@@ -58,7 +58,7 @@ class EDANode:
         processing_interval = 0.033
         start_time = None
         metrics_deque = deque(maxlen=metrics_buffer_size)
-        max_frequency_interest = 10  # EDA is low freq, but keep for decimation logic
+        max_frequency_interest = 250  # EDA is low freq, but keep for decimation logic
         decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
         use_decimation = decimation_factor > 1
         while not stop_flag[0]:
@@ -310,9 +310,9 @@ class EDANode:
                 "id": output_signal_id
             }
             # CRITICAL DEBUG PRINT for EDA signal registration
-            print(f"[EDA_NODE_DEBUG] Attempting to register signal: ID={output_signal_id}, TypeInMeta={metadata.get('type')}, VizSubtypeInMeta={metadata.get('viz_subtype')}", flush=True)
-            print(f"[EDA_NODE_DEBUG] Processed signal data keys: {list(processed_signal_data.keys())}", flush=True)
-            print(f"[EDA_NODE_DEBUG] Metadata keys: {list(metadata.keys())}", flush=True)
+            # print(f"[EDA_NODE_DEBUG] Attempting to register signal: ID={output_signal_id}, TypeInMeta={metadata.get('type')}, VizSubtypeInMeta={metadata.get('viz_subtype')}", flush=True)
+            # print(f"[EDA_NODE_DEBUG] Processed signal data keys: {list(processed_signal_data.keys())}", flush=True)
+            # print(f"[EDA_NODE_DEBUG] Metadata keys: {list(metadata.keys())}", flush=True)
             registry.register_signal(output_signal_id, processed_signal_data, metadata)
             
             # Metrics registry pattern (similar to ECG node)
@@ -333,8 +333,8 @@ class EDANode:
                 't': metrics_t,
                 'v': metrics_scl
             }
-            metrics_registry.register_signal('scl', scl_metrics_data, { # Changed from SCL_METRIC
-                'id': 'scl', # Changed from SCL_METRIC
+            metrics_registry.register_signal('SCL_METRIC', scl_metrics_data, { # Changed from scl
+                'id': 'SCL_METRIC', # Changed from scl
                 'type': 'eda_metrics',
                 'label': 'Skin Conductance Level (SCL)',
                 'source': output_signal_id,
@@ -346,10 +346,10 @@ class EDANode:
                 't': metrics_t,
                 'v': metrics_sck
             }
-            metrics_registry.register_signal('sck', sck_metrics_data, { # Changed from SCK_METRIC
-                'id': 'sck', # Changed from SCK_METRIC
+            metrics_registry.register_signal('SCK_METRIC', sck_metrics_data, { # Changed from sck
+                'id': 'SCK_METRIC', # Changed from sck
                 'type': 'eda_metrics',
-                'label': 'Skin Conductance Response (SCK)',
+                'label': 'Skin Conductance Response (SCK)', # Changed from Skin Conductance Response (SCK)
                 'source': output_signal_id,
                 'scope': 'global_metric'
             })
@@ -359,8 +359,8 @@ class EDANode:
                 't': metrics_t,
                 'v': metrics_scr_freq
             }
-            metrics_registry.register_signal('scr_frequency', scr_freq_metrics_data, { # Changed from SCR_METRIC
-                'id': 'scr_frequency', # Changed from SCR_METRIC
+            metrics_registry.register_signal('scr_frequency', scr_freq_metrics_data, { # No change needed, already correct
+                'id': 'scr_frequency', # No change needed
                 'type': 'eda_metrics',
                 'label': 'SCR Frequency (events/min)',
                 'source': output_signal_id,

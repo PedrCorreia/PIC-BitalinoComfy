@@ -61,7 +61,8 @@ def main(start_generators=True, stop_event=None):
     window_sec = {
         ViewMode.RAW: 5,
         ViewMode.PROCESSED: 5,
-        ViewMode.TWIN: 5
+        ViewMode.TWIN: 5,
+        ViewMode.METRICS: 30  # Added Metrics view window
     }
     running = True
     time.sleep(1.0)
@@ -90,31 +91,34 @@ def main(start_generators=True, stop_event=None):
     def draw_tab_content(screen, font, plot_registry, selected_tab, plot_x, plot_y, plot_width, plot_height, window_sec_dict, signal_window_sec):
         from src.plot.ui.drawing import draw_signal_plot
         def get_sig_id(sig):
-            if isinstance(sig, dict) and 'id' in sig:
-                return sig['id']
+            if isinstance(sig, dict):
+                # Try 'id', then 'name', then fallback to string representation of the dict
+                return sig.get('id', sig.get('name', str(sig)))
             if hasattr(sig, 'id'):
-                return getattr(sig, 'id')
+                return sig.id
             if hasattr(sig, 'name'):
-                return getattr(sig, 'name')
+                return sig.name
             return str(sig)
             
         def determine_plot_mode(sig):
             # Check if signal metadata indicates it's EDA
-            if isinstance(sig, dict) and 'meta' in sig: # Ensure meta exists
+            if isinstance(sig, dict) and 'meta' in sig:
                 meta = sig.get('meta', {})
-                print(f"[DETERMINE_PLOT_MODE_DEBUG] Signal ID: {get_sig_id(sig)}, Meta: {meta}", flush=True) # DEBUG PRINT
-                if meta.get('type') == 'processed' and meta.get('viz_subtype') == 'eda':
-                    print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'eda' for {get_sig_id(sig)}", flush=True) # DEBUG PRINT
-                    return 'eda'
+                if isinstance(meta, dict): # Ensure meta is a dict before .get
+                    viz_subtype = meta.get('viz_subtype')
+                    # print(f"[DETERMINE_PLOT_MODE_DEBUG] Signal {get_sig_id(sig)} has meta with viz_subtype: {viz_subtype}", flush=True) # DEBUG PRINT
+                    if viz_subtype == 'eda':
+                        # print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'eda' for {get_sig_id(sig)} based on viz_subtype", flush=True) # DEBUG PRINT
+                        return 'eda'
             # Fallback for older EDA structure or other direct EDA signals (less likely now)
-            if isinstance(sig, dict) and 'scl' in sig and 'scr' in sig and 't' in sig:
-                print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'eda' (fallback) for {get_sig_id(sig)}", flush=True) # DEBUG PRINT
+            if isinstance(sig, dict) and 'scl' in sig and 'scr' in sig and 't' in sig: # Check for specific EDA keys
+                # print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'eda' for {get_sig_id(sig)} based on scl/scr keys", flush=True) # DEBUG PRINT
                 return 'eda'
             # Check if signal metadata indicates it's EDA (older check, keep for compatibility or other types)
-            if isinstance(sig, dict) and 'meta' in sig and sig.get('meta', {}).get('type') == 'eda':
-                print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'eda' (older meta check) for {get_sig_id(sig)}", flush=True) # DEBUG PRINT
+            if isinstance(sig, dict) and 'meta' in sig and sig.get('meta', {}).get('type') == 'eda': # Check meta type 'eda'
+                # print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'eda' for {get_sig_id(sig)} based on meta.type == eda", flush=True) # DEBUG PRINT
                 return 'eda'
-            print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'default' for {get_sig_id(sig)}", flush=True) # DEBUG PRINT
+            # print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'default' for {get_sig_id(sig)}", flush=True) # DEBUG PRINT
             return 'default'
             
         if selected_tab == ViewMode.SETTINGS:
@@ -122,39 +126,49 @@ def main(start_generators=True, stop_event=None):
         elif selected_tab == ViewMode.RAW:
             raw_signals = plot_registry.get_signals_by_type(None, 'raw', debug=True)
             for i, sig in enumerate(raw_signals[:3]):
-                sig_id = get_sig_id(sig)
-                win_sec = signal_window_sec.get(sig_id, window_sec_dict.get(ViewMode.RAW, 2))
+                current_sig_id = get_sig_id(sig)
+                current_window = signal_window_sec.get(current_sig_id, window_sec_dict.get(ViewMode.RAW, 5))
                 plot_mode = determine_plot_mode(sig)
-                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height, show_time_markers=True, window_sec=win_sec, mode=plot_mode)
+                # print(f"[RAW_VIEW_DEBUG] Plotting signal: {current_sig_id}, Mode: {plot_mode}, Window: {current_window}", flush=True) # DEBUG PRINT
+                draw_signal_plot(screen, font, sig, plot_x, plot_y + i * plot_height, plot_width, plot_height, True, current_window, mode=plot_mode)
         elif selected_tab == ViewMode.PROCESSED:
             processed_signals = plot_registry.get_signals_by_type(None, 'processed', debug=True)
-            print(f"[VIEW_DEBUG_PROCESSED_LIST] Fetched processed signals: Count={len(processed_signals)}, Content={processed_signals}", flush=True) # DEBUG PRINT ADDED
+            # print(f"[VIEW_DEBUG_PROCESSED_LIST] Fetched processed signals: Count={len(processed_signals)}, Content={processed_signals}", flush=True) # DEBUG PRINT ADDED
 
             for i, sig in enumerate(processed_signals[:3]):
-                sig_id = get_sig_id(sig)
-                win_sec = signal_window_sec.get(sig_id, window_sec_dict.get(ViewMode.PROCESSED, 2))
+                current_sig_id = get_sig_id(sig)
+                current_window = signal_window_sec.get(current_sig_id, window_sec_dict.get(ViewMode.PROCESSED, 5))
                 plot_mode = determine_plot_mode(sig)
-                # More detailed print:
-                print(f"[VIEW_DEBUG] Drawing PROCESSED signal: ID={sig_id}, Mode={plot_mode}, HasMeta={'meta' in sig}, MetaKeys={list(sig.get('meta', {}).keys()) if 'meta' in sig else 'N/A'}, FullSignalKeys={list(sig.keys()) if isinstance(sig, dict) else 'N/A'}", flush=True)
-                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, plot_width, plot_height, show_time_markers=True, window_sec=win_sec, mode=plot_mode)
+                # print(f"[PROCESSED_VIEW_DEBUG] Plotting signal: {current_sig_id}, Mode: {plot_mode}, Window: {current_window}", flush=True) # DEBUG PRINT
+                draw_signal_plot(screen, font, sig, plot_x, plot_y + i * plot_height, plot_width, plot_height, True, current_window, mode=plot_mode)
         elif selected_tab == ViewMode.TWIN:
             raw_signals = plot_registry.get_signals_by_type(None, 'raw', debug=True)
             processed_signals = plot_registry.get_signals_by_type(None, 'processed', debug=True)
             left_width = plot_width // 2 - TWIN_VIEW_SEPARATOR
             right_width = plot_width // 2 - TWIN_VIEW_SEPARATOR
-            center_x = plot_x + left_width + TWIN_VIEW_SEPARATOR
-            pygame.draw.line(screen, (50, 50, 50), (center_x, plot_y), (center_x, plot_y + 3*plot_height), 3)
-            for i, sig in enumerate(processed_signals[:3]):
-                sig_id = get_sig_id(sig)
-                win_sec = signal_window_sec.get(sig_id, window_sec_dict.get(ViewMode.TWIN, 2))
+            center_x_coord = plot_x + left_width + TWIN_VIEW_SEPARATOR # Renamed to avoid conflict
+            pygame.draw.line(screen, (50, 50, 50), (center_x_coord, plot_y), (center_x_coord, plot_y + 3*plot_height), 3) # Use renamed var
+            for i, sig in enumerate(processed_signals[:3]): # Plot processed on the left
+                current_sig_id = get_sig_id(sig)
+                current_window = signal_window_sec.get(current_sig_id, window_sec_dict.get(ViewMode.TWIN, 5))
                 plot_mode = determine_plot_mode(sig)
-                draw_signal_plot(screen, font, sig, plot_x, plot_y + i*plot_height, left_width, plot_height, show_time_markers=True, window_sec=win_sec, mode=plot_mode)
-            for i, sig in enumerate(raw_signals[:3]):
-                sig_id = get_sig_id(sig)
-                win_sec = signal_window_sec.get(sig_id, window_sec_dict.get(ViewMode.TWIN, 2))
-                plot_mode = determine_plot_mode(sig)
-                draw_signal_plot(screen, font, sig, center_x + 5, plot_y + i*plot_height, right_width, plot_height, show_time_markers=True, window_sec=win_sec, mode=plot_mode)
-        # ...existing code...
+                # print(f"[TWIN_VIEW_PROCESSED_DEBUG] Plotting signal: {current_sig_id}, Mode: {plot_mode}, Window: {current_window}", flush=True) # DEBUG PRINT
+                draw_signal_plot(screen, font, sig, plot_x, plot_y + i * plot_height, left_width, plot_height, True, current_window, mode=plot_mode)
+            for i, sig in enumerate(raw_signals[:3]): # Plot raw on the right
+                current_sig_id = get_sig_id(sig)
+                current_window = signal_window_sec.get(current_sig_id, window_sec_dict.get(ViewMode.TWIN, 5))
+                plot_mode = determine_plot_mode(sig) # Raw signals are usually 'default'
+                # print(f"[TWIN_VIEW_RAW_DEBUG] Plotting signal: {current_sig_id}, Mode: {plot_mode}, Window: {current_window}", flush=True) # DEBUG PRINT
+                draw_signal_plot(screen, font, sig, center_x_coord + TWIN_VIEW_SEPARATOR, plot_y + i * plot_height, right_width, plot_height, True, current_window, mode=plot_mode)
+        elif selected_tab == ViewMode.METRICS: # Added Metrics view logic
+            from src.plot.view.metrics_view import MetricsView
+            metrics_view = MetricsView(font, plot_registry)
+            # Use the full available height for metrics view
+            metrics_plot_height = WINDOW_HEIGHT - STATUS_BAR_HEIGHT - (2 * PLOT_PADDING) # Adjusted height
+            current_metrics_window = window_sec_dict.get(ViewMode.METRICS, 30) # Use specific or default window
+            # print(f"[METRICS_VIEW_DEBUG] Drawing MetricsView with window: {current_metrics_window}", flush=True) # DEBUG PRINT
+            metrics_view.draw(screen, plot_x, plot_y, plot_width, metrics_plot_height, window_sec=current_metrics_window)
+    # ...existing code...
 
     while running:
         # --- Update plot area variables each frame in case of dynamic resizing (optional) ---
