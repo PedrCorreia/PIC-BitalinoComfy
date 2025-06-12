@@ -228,7 +228,7 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
             delta_tonic = 1.0
             
         # pygame.draw.rect(screen, (40, 40, 40), (x, y, w, h)) # Background - REMOVED to match default plot background
-        pygame.draw.rect(screen, (80, 80, 80), (x, y, w, h), 2) # Border
+        # pygame.draw.rect(screen, (80, 80, 80), (x, y, w, h), 2) # Border - REMOVED to avoid "box outliner"
             
         # Generate points for Phasic (orange)
         phasic_color = (255, 170, 0) # Orange
@@ -315,10 +315,30 @@ def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, 
                     pygame.draw.line(screen, peak_marker_color, (px_peak - peak_marker_size // 2, py_peak - peak_marker_size // 2), (px_peak + peak_marker_size // 2, py_peak + peak_marker_size // 2), 2)
                     pygame.draw.line(screen, peak_marker_color, (px_peak + peak_marker_size // 2, py_peak - peak_marker_size // 2), (px_peak - peak_marker_size // 2, py_peak + peak_marker_size // 2), 2)
         
-        # Add labels and legend
+        # Add labels and legend (label first, then time markers, then legend)
         label = meta.get('name', signal.get('id', 'EDA Plot'))
         label_surface = font.render(label, True, TEXT_COLOR)
         screen.blit(label_surface, (x + 10, y + 10))
+
+        # --- Draw Time Markers (like in default mode) ---
+        if show_time_markers and len(t_plot) > 1:
+            # Use actual min/max times from the currently plotted window
+            min_time_val = t_plot[0]
+            max_time_val = t_plot[-1]
+
+            # Left vertical bar (yellowish)
+            pygame.draw.line(screen, (200, 200, 80), (x, y), (x, y + h), 2)
+            # Right vertical bar (cyanish)
+            pygame.draw.line(screen, (80, 200, 200), (x + w - 1, y), (x + w - 1, y + h), 2) # -1 to be fully within w
+
+            min_label_text = f"{min_time_val:.1f}s"
+            max_label_text = f"{max_time_val:.1f}s"
+            
+            min_time_label_surface = font.render(min_label_text, True, (200, 200, 80))
+            max_time_label_surface = font.render(max_label_text, True, (80, 200, 200))
+            
+            screen.blit(min_time_label_surface, (x + 2, y + h - min_time_label_surface.get_height() - 2))
+            screen.blit(max_time_label_surface, (x + w - max_time_label_surface.get_width() - 2, y + h - max_time_label_surface.get_height() - 2))
         
         legend_font = font 
         legend_y_start = y + 10 + label_surface.get_height() + 5

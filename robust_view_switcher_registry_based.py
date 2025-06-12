@@ -33,6 +33,7 @@ TAB_ICONS = ['R', 'P', 'T', 'M', 'S']
 # --- Registry imports ---
 from src.registry.signal_generator import RegistrySignalGenerator
 from src.registry.plot_registry import PlotRegistry
+from src.registry.signal_registry import SignalRegistry # Added import
 from src.plot.performance.latency_monitor import LatencyMonitor
 
 # --- Main App ---
@@ -72,6 +73,7 @@ def main(start_generators=True, stop_event=None):
     from src.plot.ui.status_bar import StatusBar
     from src.plot.view.signal_view import SignalView
     from src.plot.ui.settings import SettingsPanel
+    from src.registry.signal_registry import SignalRegistry # Added import for SignalRegistry
 
     # Instantiate UI components
     sidebar = Sidebar(screen, SIDEBAR_WIDTH, WINDOW_HEIGHT, font, icon_font, selected_tab, {}, tabs=TABS, tab_icons=TAB_ICONS)
@@ -162,7 +164,9 @@ def main(start_generators=True, stop_event=None):
                 draw_signal_plot(screen, font, sig, center_x_coord + TWIN_VIEW_SEPARATOR, plot_y + i * plot_height, right_width, plot_height, True, current_window, mode=plot_mode)
         elif selected_tab == ViewMode.METRICS: # Added Metrics view logic
             from src.plot.view.metrics_view import MetricsView
-            metrics_view = MetricsView(font, plot_registry)
+            # Ensure the correct registry (SignalRegistry for metrics) is passed to MetricsView
+            metrics_registry = SignalRegistry.get_instance() 
+            metrics_view = MetricsView(font, metrics_registry) # Pass metrics_registry
             # Use the full available height for metrics view
             metrics_plot_height = WINDOW_HEIGHT - STATUS_BAR_HEIGHT - (2 * PLOT_PADDING) # Adjusted height
             current_metrics_window = window_sec_dict.get(ViewMode.METRICS, 30) # Use specific or default window

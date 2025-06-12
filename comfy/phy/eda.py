@@ -201,6 +201,12 @@ class EDANode:
             # tonic_viz and phasic_viz are now guaranteed to be 1D numpy arrays,
             # either empty or matching viz_timestamps_window length (filled with zeros or interpolated values).
 
+            # --- Ensure no NaN/Inf in tonic_viz and phasic_viz before further processing or registration ---
+            if tonic_viz.size > 0:
+                tonic_viz = np.nan_to_num(tonic_viz, nan=0.0, posinf=np.finfo(tonic_viz.dtype).max, neginf=np.finfo(tonic_viz.dtype).min)
+            if phasic_viz.size > 0:
+                phasic_viz = np.nan_to_num(phasic_viz, nan=0.0, posinf=np.finfo(phasic_viz.dtype).max, neginf=np.finfo(phasic_viz.dtype).min)
+
             # --- Amplitude correction: check absolute change before/after filtering ---
             raw_window = viz_values_window
             filtered_tonic = tonic_viz
