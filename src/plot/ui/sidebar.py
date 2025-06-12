@@ -79,7 +79,7 @@ class Sidebar:
             icon_rect = icon_surface.get_rect(center=(self.width // 2, y + self.button_height // 2))
             self.surface.blit(icon_surface, icon_rect)
         # Draw status indicator dot below the last button
-        self._draw_status_dot_below_settings()
+        #self._draw_status_dot_below_settings()
 
     def _draw_mode_button(self, position, icon, tooltip, mode_value):
         """

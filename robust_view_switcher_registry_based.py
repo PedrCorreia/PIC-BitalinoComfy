@@ -168,7 +168,7 @@ def main(start_generators=True, stop_event=None):
             metrics_registry = SignalRegistry.get_instance() 
             # ADDED DEBUG: Check what signals the main UI loop sees in SignalRegistry
             all_sids_in_main_loop = metrics_registry.get_all_signal_ids()
-            print(f"[MainLoop DEBUG] SignalRegistry contents before MetricsView.draw: {len(all_sids_in_main_loop)} signals: {all_sids_in_main_loop}", flush=True)
+            #print(f"[MainLoop DEBUG] SignalRegistry contents before MetricsView.draw: {len(all_sids_in_main_loop)} signals: {all_sids_in_main_loop}", flush=True)
             metrics_view = MetricsView(font, metrics_registry) # Pass metrics_registry
             # Use the full available height for metrics view
             metrics_plot_height = WINDOW_HEIGHT - STATUS_BAR_HEIGHT - (2 * PLOT_PADDING) # Adjusted height
@@ -183,9 +183,6 @@ def main(start_generators=True, stop_event=None):
         plot_y = STATUS_BAR_HEIGHT + PLOT_PADDING
         plot_width = WINDOW_WIDTH - SIDEBAR_WIDTH - 2 * PLOT_PADDING
         plot_height = (WINDOW_HEIGHT - STATUS_BAR_HEIGHT - 2 * PLOT_PADDING) // 3
-
-        # Determine FPS cap from settings panel
-        fps_cap = TARGET_FPS if settings_panel.fps_cap_on else 0
 
         # Compute plotted_signals for event handling row count only
         plotted_signals = None
@@ -224,9 +221,6 @@ def main(start_generators=True, stop_event=None):
         pygame.draw.rect(screen, (20,20,20), (plot_x, plot_y, plot_width, WINDOW_HEIGHT - STATUS_BAR_HEIGHT - 2 * PLOT_PADDING))
         # --- Sidebar ---
         sidebar.current_mode = selected_tab
-        # Pass has_signals to sidebar for blinking dot
-        has_signals = len(plot_registry.get_all_signal_ids()) > 0
-        sidebar._draw_status_dot_below_settings(has_signals=has_signals)
         sidebar.draw()
         # --- Plotting/View ---
         if selected_tab == ViewMode.SETTINGS:
