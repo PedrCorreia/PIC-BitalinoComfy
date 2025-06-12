@@ -70,9 +70,13 @@ class RRNode:
         start_time = None
         # --- Filtering parameters for RR, adapted for decimation if needed ---
         nyquist_fs = fs / 2
-        max_frequency_interest = 40  # RR rarely above 1 Hz (60 bpm)
+        max_frequency_interest = 250  # RR rarely above 1 Hz (60 bpm)
         decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
         use_decimation = decimation_factor > 1
+
+        # Deque for storing (timestamp, rr_value) for RR_METRIC
+        rr_metrics_deque = deque(maxlen=viz_buffer_size) # Match viz buffer size for now
+
         while not stop_flag[0]:
             current_time = time.time()
             if current_time - last_process_time < processing_interval:
@@ -112,6 +116,7 @@ class RRNode:
                             decimated_timestamps = np.linspace(new_timestamps[0], new_timestamps[-1], num=len(decimated_values)) if len(new_timestamps) > 1 else new_timestamps
                             viz_timestamps_deque.extend(decimated_timestamps)
                             viz_values_deque.extend(decimated_values)
+                            # Ensure feature deques also get decimated data if decimation is used
                             feature_timestamps_deque.extend(decimated_timestamps)
                             feature_values_deque.extend(decimated_values)
                     else:
@@ -119,20 +124,27 @@ class RRNode:
                         viz_values_deque.extend(values[new_data_idx:])
                         feature_timestamps_deque.extend(timestamps[new_data_idx:])
                         feature_values_deque.extend(values[new_data_idx:])
-            else:
+            else: # Initial fill of the deques
                 if use_decimation:
                     if len(timestamps) > 1:
                         decimated_values = NumpySignalProcessor.robust_decimate(values, decimation_factor)
                         decimated_timestamps = np.linspace(timestamps[0], timestamps[-1], num=len(decimated_values))
                         viz_timestamps_deque.extend(decimated_timestamps)
                         viz_values_deque.extend(decimated_values)
+                        # Ensure feature deques also get decimated data if decimation is used
                         feature_timestamps_deque.extend(decimated_timestamps)
                         feature_values_deque.extend(decimated_values)
+                    # If len(timestamps) <= 1, robust_decimate might not be ideal,
+                    # and extending with non-decimated (original) points might be safer
+                    # or simply skip if not enough points for decimation.
+                    # Current logic correctly handles if len(timestamps) > 1.
+                    # If timestamps has 1 point, it won't decimate, deques remain empty until more data.
                 else:
                     viz_timestamps_deque.extend(timestamps)
                     viz_values_deque.extend(values)
                     feature_timestamps_deque.extend(timestamps)
                     feature_values_deque.extend(values)
+            
             viz_timestamps = np.array(viz_timestamps_deque)
             viz_values = np.array(viz_values_deque)
             feature_timestamps = np.array(feature_timestamps_deque)
@@ -183,6 +195,31 @@ class RRNode:
             self._last_is_peak = is_peak
             # Update arousal based on RR
             self.arousal = Arousal.rr_arousal(avg_rr) if avg_rr > 0 else 0.5
+
+            # --- RR Metric Registration ---
+            current_metric_timestamp = feature_timestamps[-1] if len(feature_timestamps) > 0 else time.time()
+            # Ensure avg_rr is a float and finite, default to 0.0 if not
+            rr_metric_value = float(avg_rr) if avg_rr is not None and np.isfinite(avg_rr) else 0.0
+            
+            rr_metrics_deque.append((current_metric_timestamp, rr_metric_value))
+            
+            rr_metric_t = [x[0] for x in rr_metrics_deque]
+            rr_metric_v = [x[1] for x in rr_metrics_deque]
+
+            rr_metric_data = {
+                "t": rr_metric_t,
+                "v": rr_metric_v,
+                "last": rr_metric_value
+            }
+            registry.register_signal("RR_METRIC", rr_metric_data, {
+                "id": "RR_METRIC",
+                "type": "rr_metrics", # Consistent type for metrics
+                "label": "Respiration Rate (bpm)",
+                "source": output_signal_id,
+                "scope": "global_metric"
+            })
+            # --- End RR Metric Registration ---
+
             # Visualization window
             if len(viz_timestamps) > 0:
                 window_max = viz_timestamps[-1]
@@ -229,7 +266,7 @@ class RRNode:
                 "id": output_signal_id,
                 "type": "rr_processed",
                 "rr": avg_rr,  # For compatibility, but this is breaths/min
-                "rr_metric_id": "RR_METRIC",  # Add reference to RR metric signal
+                # "rr_metric_id": "RR_METRIC",  # No longer needed here, as RR_METRIC is registered separately
                 "arousal": self.arousal,  # Add arousal value for metrics view
                 "color": "#55F4FF",
                 "show_peaks": show_peaks,
