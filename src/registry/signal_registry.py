@@ -42,6 +42,9 @@ class SignalRegistry:
     def get_all_metadata(self):
         return {k: v['metadata'] for k, v in self._signals.items()}
 
+    def get_all_signal_ids(self):
+        return list(self._signals.keys())
+
     def remove_signal(self, signal_id):
         if signal_id in self._signals:
             del self._signals[signal_id]

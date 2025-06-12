@@ -18,7 +18,7 @@ import scipy.signal
 
 class NumpySignalProcessor:
     @staticmethod
-    def bandpass_filter(signal, lowcut, highcut, fs, order=1):
+    def bandpass_filter(signal, lowcut, highcut, fs, order=2):
         """
         Applies a zero-phase bandpass filter to the signal using NumPy's butter and filtfilt.
         
@@ -47,9 +47,7 @@ class NumpySignalProcessor:
         nyquist = 0.5 * fs
         normalized_cutoff = cutoff / nyquist
         b, a = butter(order, normalized_cutoff, btype='low')
-        start = time.time()
         filtered_signal = filtfilt(b, a, signal)
-        elapsed = time.time() - start
         return filtered_signal
 
     @staticmethod

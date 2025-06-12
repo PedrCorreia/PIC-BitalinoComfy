@@ -70,7 +70,7 @@ class RRNode:
         start_time = None
         # --- Filtering parameters for RR, adapted for decimation if needed ---
         nyquist_fs = fs / 2
-        max_frequency_interest = 250  # RR rarely above 1 Hz (60 bpm)
+        max_frequency_interest = 1000  # RR rarely above 1 Hz (60 bpm)
         decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
         use_decimation = decimation_factor > 1
 
@@ -84,11 +84,13 @@ class RRNode:
                 continue
             last_process_time = current_time
             signal_data = registry.get_signal(input_signal_id)
+            #print(f"[RR_NODE_DEBUG] input_signal_id: {input_signal_id}, signal_data available: {signal_data is not None}") # DEBUG PRINT
             if not signal_data or "t" not in signal_data or "v" not in signal_data:
                 time.sleep(processing_interval)
                 continue
             timestamps = np.array(signal_data["t"])
             values = np.array(signal_data["v"])
+            #print(f"[RR_NODE_DEBUG] Timestamps len: {len(timestamps)}, Values len: {len(values)}") # DEBUG PRINT
             if len(timestamps) < 2 or len(values) < 2:
                 time.sleep(processing_interval)
                 continue
@@ -155,15 +157,17 @@ class RRNode:
                 effective_fs = fs / decimation_factor
             # Pre-process RR with bandpass filter adapted for RR (0.1-1 Hz)
             lowcut = 0.1
-            highcut = 1
+            highcut = 2
             filtered_rr = NumpySignalProcessor.bandpass_filter(
                 feature_values,
                 lowcut=lowcut,
                 highcut=highcut,
                 fs=effective_fs
             )
+            #print(f"[RR_NODE_DEBUG] filtered_rr len: {len(filtered_rr)}, first 5: {filtered_rr[:5]}") # DEBUG PRINT
             # Calculate RR and maintain recent peak times
             detected_peaks = NumpySignalProcessor.find_peaks(filtered_rr, fs=effective_fs)
+            #print(f"[RR_NODE_DEBUG] detected_peaks: {detected_peaks}") # DEBUG PRINT
             # Validate peaks with lag-based edge avoidance (similar to ECG)
             peaks =  detected_peaks# RR.validate_rr_peaks(filtered_rr, detected_peaks, lag=50, match_window=20)
             avg_rr = 0.0
@@ -187,6 +191,7 @@ class RRNode:
                     avg_breath = np.mean(breath_intervals)
                     if avg_breath > 0:
                         avg_rr = 60.0 / avg_breath  # Respiration rate in breaths/min
+            #print(f"[RR_NODE_DEBUG] avg_rr: {avg_rr}") # DEBUG PRINT
             # Robust is_peak logic (timing + newness)
             is_peak, latest_peak_time = RR.is_peak(
                 filtered_rr, feature_timestamps, fs, start_time=meta_start_time, rr=avg_rr, used_peaks=self._recent_peak_times[:-1] if len(self._recent_peak_times) > 1 else []
@@ -211,7 +216,10 @@ class RRNode:
                 "v": rr_metric_v,
                 "last": rr_metric_value
             }
-            registry.register_signal("RR_METRIC", rr_metric_data, {
+            #print(f"[RR_NODE_DEBUG] RR_METRIC data: t_len={len(rr_metric_t)}, v_len={len(rr_metric_v)}, last={rr_metric_value}") # DEBUG PRINT
+            # Use metrics_registry (which is SignalRegistry) for metrics
+            metrics_registry = SignalRegistry.get_instance() # Ensure we use the correct registry instance
+            metrics_registry.register_signal("RR_METRIC", rr_metric_data, {
                 "id": "RR_METRIC",
                 "type": "rr_metrics", # Consistent type for metrics
                 "label": "Respiration Rate (bpm)",
@@ -230,6 +238,8 @@ class RRNode:
             else:
                 viz_timestamps_window = viz_timestamps
                 viz_values_window = viz_values
+
+
             # Vectorized peak mapping to window
             peak_timestamps_in_window = []
             if show_peaks and len(peaks) > 0 and len(feature_timestamps) > 0 and len(viz_timestamps_window) > 0:
@@ -252,21 +262,29 @@ class RRNode:
                 filtered_min, filtered_max = np.min(filtered_viz_rr), np.max(filtered_viz_rr)
                 if filtered_max != filtered_min and viz_max != viz_min:
                     filtered_viz_rr = (filtered_viz_rr - filtered_min) / (filtered_max - filtered_min) * (viz_max - viz_min) + viz_min
+
+  
+
             data_hash = hash((
                 tuple(viz_timestamps_window[-5:]),
                 tuple(filtered_viz_rr[-5:]),
                 tuple(peak_timestamps_in_window[-3:] if peak_timestamps_in_window else []),
                 avg_rr
             ))
-            if data_hash == last_registry_data_hash:
+            # if data_hash == last_registry_data_hash: # Reverted debug change
+            # time.sleep(0.01) # Reverted debug change
+            # continue # Reverted debug change
+            # last_registry_data_hash = time.time() # Reverted debug change
+            if data_hash == last_registry_data_hash: # Original logic
                 time.sleep(0.01)
                 continue
             last_registry_data_hash = data_hash
+
+
             metadata = {
                 "id": output_signal_id,
-                "type": "rr_processed",
-                "rr": avg_rr,  # For compatibility, but this is breaths/min
-                # "rr_metric_id": "RR_METRIC",  # No longer needed here, as RR_METRIC is registered separately
+                "type": "processed",  # CHANGED from "rr_processed"
+                "rr": avg_rr,
                 "arousal": self.arousal,  # Add arousal value for metrics view
                 "color": "#55F4FF",
                 "show_peaks": show_peaks,
@@ -277,10 +295,11 @@ class RRNode:
                 "t": viz_timestamps_window.tolist(),
                 "v": filtered_viz_rr.tolist()
             }
+            #print(f"[RR_NODE_DEBUG] RR_PROCESSED data: t_len={len(processed_signal_data['t'])}, v_len={len(processed_signal_data['v'])}, metadata: {metadata}") # DEBUG PRINT
             registry.register_signal(output_signal_id, processed_signal_data, metadata)
             
             # Register arousal as a separate metric for the metrics view
-            metrics_registry = registry  # Use the same registry
+            # metrics_registry = registry  # Use the same registry # This was potentially problematic if registry was PlotRegistry
             
             # Ensure we have a valid arousal value
             arousal_value = 0.5  # Default middle value

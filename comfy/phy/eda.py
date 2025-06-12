@@ -337,7 +337,8 @@ class EDANode:
             # Register SCL metric as a time series for MetricsView compatibility
             scl_metrics_data = {
                 't': metrics_t,
-                'v': metrics_scl
+                'v': metrics_scl,
+                'last': scl # Add last value for MetricsView
             }
             metrics_registry.register_signal('SCL_METRIC', scl_metrics_data, { # Changed from scl
                 'id': 'SCL_METRIC', # Changed from scl
@@ -350,7 +351,8 @@ class EDANode:
             # Register SCK metric (phasic component)
             sck_metrics_data = {
                 't': metrics_t,
-                'v': metrics_sck
+                'v': metrics_sck,
+                'last': sck # Add last value for MetricsView
             }
             metrics_registry.register_signal('SCK_METRIC', sck_metrics_data, { # Changed from sck
                 'id': 'SCK_METRIC', # Changed from sck
@@ -363,7 +365,8 @@ class EDANode:
             # Register SCR frequency metric
             scr_freq_metrics_data = {
                 't': metrics_t,
-                'v': metrics_scr_freq
+                'v': metrics_scr_freq,
+                'last': scr_frequency # Add last value for MetricsView
             }
             metrics_registry.register_signal('scr_frequency', scr_freq_metrics_data, { # No change needed, already correct
                 'id': 'scr_frequency', # No change needed

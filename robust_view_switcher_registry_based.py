@@ -166,6 +166,9 @@ def main(start_generators=True, stop_event=None):
             from src.plot.view.metrics_view import MetricsView
             # Ensure the correct registry (SignalRegistry for metrics) is passed to MetricsView
             metrics_registry = SignalRegistry.get_instance() 
+            # ADDED DEBUG: Check what signals the main UI loop sees in SignalRegistry
+            all_sids_in_main_loop = metrics_registry.get_all_signal_ids()
+            print(f"[MainLoop DEBUG] SignalRegistry contents before MetricsView.draw: {len(all_sids_in_main_loop)} signals: {all_sids_in_main_loop}", flush=True)
             metrics_view = MetricsView(font, metrics_registry) # Pass metrics_registry
             # Use the full available height for metrics view
             metrics_plot_height = WINDOW_HEIGHT - STATUS_BAR_HEIGHT - (2 * PLOT_PADDING) # Adjusted height

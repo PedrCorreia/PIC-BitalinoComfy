@@ -8,9 +8,9 @@ class MetricsView:
     Modular metrics dashboard: plots time series and a color-changing bar for each metric.
     Each metric can be configured with label, signal id, min/max, and color stops.
     """
-    def __init__(self, font, plot_registry, metric_configs=None):
+    def __init__(self, font, signal_registry, metric_configs=None): # Renamed plot_registry to signal_registry
         self.font = font
-        self.plot_registry = plot_registry
+        self.signal_registry = signal_registry # Use signal_registry
         # Each config: (label, signal_id, min, max, color_stops)
         self.metric_configs = metric_configs or [
             ("HR", "HR_METRIC", 35, 125, [
@@ -20,6 +20,13 @@ class MetricsView:
                 (100, (255, 140, 0)),  # orange
                 (120, (255, 140, 0)) # red
             ]),
+            ("RR", "RR_METRIC", 8, 40, [  # RR = respiration rate (breaths/min)
+                (5, (0, 120, 255)),
+                (10, (0, 200, 80)),
+                (20, (255, 220, 0)),
+                (25, (255, 140, 0)),
+                (40, (255, 40, 40)),
+            ]),
             # SCL = Skin Conductance Level (tonic, slow-changing baseline, in uS)
             ("SCL", "SCL_METRIC", 0, 40, [
                 (0, (0, 120, 255)),     # sleep (blue)
@@ -28,14 +35,6 @@ class MetricsView:
                 (15, (255, 140, 0)),    # aroused (orange)
                 (20, (255, 40, 40)),    # stressed (red)
             ]),
-            # SCK = Skin Conductance Keying (mean of phasic component, in uS)
-            ("SCK", "SCK_METRIC", 0, 5, [ # Assuming SCK values are generally smaller than SCL
-                (0, (0, 120, 255)),     # low (blue)
-                (0.5, (0, 200, 80)),    # moderate (green)
-                (1.5, (255, 220, 0)),   # elevated (yellow)
-                (3, (255, 140, 0)),     # high (orange)
-                (4, (255, 40, 40)),     # very high (red)
-            ]),
             ("SCR Freq", "scr_frequency", 0, 2.5, [
                 (0, (0, 120, 255)),
                 (1, (0, 200, 80)),
@@ -43,13 +42,7 @@ class MetricsView:
                 (2, (255, 140, 0)),
                 (2.5, (255, 40, 40)),
             ]),
-            ("RR", "RR_METRIC", 8, 40, [  # RR = respiration rate (breaths/min)
-                (5, (0, 120, 255)),
-                (10, (0, 200, 80)),
-                (20, (255, 220, 0)),
-                (25, (255, 140, 0)),
-                (40, (255, 40, 40)),
-            ]),
+            
         ]
         
         # Arousal metrics configurations
@@ -62,14 +55,14 @@ class MetricsView:
 
     def _find_matching_signal(self, pattern):
         # Match any signal id in the registry that contains the pattern (case-insensitive, allows suffixes/prefixes)
-        all_ids = self.plot_registry.get_all_signal_ids() if hasattr(self.plot_registry, 'get_all_signal_ids') else []
-        # print(f"[MetricsView] Searching for signal '{pattern}' among {len(all_ids)} registered signals") # DEBUG PRINT
+        all_ids = self.signal_registry.get_all_signal_ids() if hasattr(self.signal_registry, 'get_all_signal_ids') else [] # Use signal_registry
+        print(f"[MetricsView DEBUG] _find_matching_signal: Searching for pattern '{pattern}' among {len(all_ids)} signals: {all_ids}") # DEBUG PRINT
         regex = re.compile(re.escape(pattern), re.IGNORECASE)
         for sid in all_ids:
             if regex.search(str(sid)):
-                # print(f"[MetricsView] Found match for '{pattern}': {sid}") # DEBUG PRINT
-                return self.plot_registry.get_signal(sid)
-        # print(f"[MetricsView] No matching signal found for '{pattern}'") # DEBUG PRINT
+                print(f"[MetricsView DEBUG] _find_matching_signal: Found match for '{pattern}': {sid}") # DEBUG PRINT
+                return self.signal_registry.get_signal(sid) # Use signal_registry
+        print(f"[MetricsView DEBUG] _find_matching_signal: No matching signal found for '{pattern}'") # DEBUG PRINT
         return None
 
     def draw(self, screen, x, y, width, height, window_sec=30):
@@ -107,7 +100,11 @@ class MetricsView:
             config = padded_configs[idx]
             if config is not None:
                 label, sig_pattern, min_v, max_v, color_stops = config
+                print(f"[MetricsView DEBUG] Processing metric: Label='{label}', SignalPattern='{sig_pattern}'") # DEBUG PRINT
                 sig = self._find_matching_signal(sig_pattern)
+                print(f"[MetricsView DEBUG] Metric '{label}': Retrieved signal data: {'Exists' if sig else 'None'}") # DEBUG PRINT
+                if sig and isinstance(sig, dict):
+                    print(f"[MetricsView DEBUG] Metric '{label}': Signal keys: {list(sig.keys())}, t_len: {len(sig.get('t', []))}, v_len: {len(sig.get('v', []))}, last: {sig.get('last', 'N/A')}")
             else:
                 label, sig, min_v, max_v, color_stops = "", None, 0, 1, [(0, (80, 80, 80)), (1, (80, 80, 80))]
             # --- Draw plot rectangle (top, square) ---
@@ -124,6 +121,7 @@ class MetricsView:
                     and len(sig["t"]) > 1 and len(sig["v"]) > 1
                     and len(sig["t"]) == len(sig["v"])
                 ):
+                    print(f"[MetricsView DEBUG] Metric '{label}': Data is valid for plotting.") # DEBUG PRINT
                     t = np.array(sig["t"], dtype=float)
                     v = np.array(sig["v"], dtype=float)
                     if t.size > 1 and v.size > 1 and np.all(np.isfinite(t)) and np.all(np.isfinite(v)):
@@ -166,9 +164,11 @@ class MetricsView:
                             screen.blit(vmin_surface, (plot_rect.left + 8, plot_rect.top + plot_rect.height // 2 - vmin_surface.get_height() // 2))
                             screen.blit(vmax_surface, (plot_rect.right - 8 - vmax_surface.get_width(), plot_rect.top + plot_rect.height // 2 - vmax_surface.get_height() // 2))
                             plot_drawn = True
-            except Exception:
+            except Exception as e:
+                print(f"[MetricsView DEBUG] Metric '{label}': Exception during plot drawing: {e}") # DEBUG PRINT
                 pass
             if not plot_drawn:
+                print(f"[MetricsView DEBUG] Metric '{label}': Plot not drawn (no data or error).") # DEBUG PRINT
                 # Draw placeholder axes and label if no data
                 try:
                     pygame.draw.line(screen, (80, 80, 80), (plot_rect.left + 40, plot_rect.bottom - 20), (plot_rect.right - 40, plot_rect.bottom - 20), 1)
@@ -193,15 +193,20 @@ class MetricsView:
                     #print(f"[HR BAR DEBUG] sig dict for {label}: keys={list(sig.keys())}")
                     if "last" in sig and isinstance(sig["last"], (float, int, np.floating, np.integer)):
                         last_val = float(sig["last"])
-                       # print(f"[HR BAR DEBUG] last_val from sig['last']: {last_val}")
+                        print(f"[MetricsView DEBUG] Metric '{label}': last_val from sig['last']: {last_val}") # DEBUG PRINT
                     elif "last" in sig and isinstance(sig["last"], (list, np.ndarray)) and len(sig["last"]):
                         last_val = float(sig["last"][-1])
-                        #print(f"[HR BAR DEBUG] last_val from sig['last'][-1]: {last_val}")
+                        print(f"[MetricsView DEBUG] Metric '{label}': last_val from sig['last'][-1]: {last_val}") # DEBUG PRINT
                     elif "v" in sig and isinstance(sig["v"], (list, np.ndarray)) and len(sig["v"]):
                         last_val = float(sig["v"][-1])
-                        #print(f"[HR BAR DEBUG] last_val from sig['v'][-1]: {last_val}")
+                        print(f"[MetricsView DEBUG] Metric '{label}': last_val from sig['v'][-1]: {last_val}") # DEBUG PRINT
+                    else:
+                        print(f"[MetricsView DEBUG] Metric '{label}': 'last_val' could not be extracted from signal data. Keys: {list(sig.keys()) if sig else 'None'}") # DEBUG PRINT
+                else:
+                    print(f"[MetricsView DEBUG] Metric '{label}': Signal data is None or not a dict, cannot extract 'last_val'.") # DEBUG PRINT
             except Exception as e:
-                pass # print(f"[HR BAR DEBUG] Exception extracting last_val for {label}: {e}") # DEBUG PRINT
+                print(f"[MetricsView DEBUG] Metric '{label}': Exception extracting last_val: {e}") # DEBUG PRINT
+                pass 
             # Clamp and normalize last_val for bar
             if last_val is not None and np.isfinite(last_val):
                 norm = (last_val - min_v) / (max_v - min_v) if (max_v - min_v) != 0 else 0.0
@@ -315,6 +320,7 @@ class MetricsView:
         for i, (label, signal_id) in enumerate(self.arousal_metrics):
             row_y = header_y + ((i + 1) * row_height)
             
+            print(f"[MetricsView DEBUG] Arousal Table: Processing '{label}', looking for SignalID '{signal_id}'") # DEBUG PRINT
             # Draw the row label
             label_surface = small_font.render(label, True, (180, 180, 180))
             screen.blit(label_surface, (col1_x, row_y))
@@ -322,33 +328,45 @@ class MetricsView:
             # Get the arousal value if available
             arousal_value = None
             sig = self._find_matching_signal(signal_id)
+            print(f"[MetricsView DEBUG] Arousal '{label}': Retrieved signal for '{signal_id}': {'Exists' if sig else 'None'}") # DEBUG PRINT
             
             # Try to get the arousal value from signal or its metadata
             if sig and isinstance(sig, dict):
+                print(f"[MetricsView DEBUG] Arousal '{label}': Signal keys for '{signal_id}': {list(sig.keys())}") # DEBUG PRINT
                 # First check if it's directly in the signal
-                if "last" in sig:
+                if "last" in sig and sig["last"] is not None:
                     arousal_value = sig["last"]
-                    # print(f"[MetricsView] {label}: Using 'last' value: {arousal_value}") # DEBUG PRINT
-                elif "v" in sig and len(sig["v"]) > 0:
+                    print(f"[MetricsView DEBUG] Arousal '{label}': Using 'last' value: {arousal_value}") # DEBUG PRINT
+                elif "v" in sig and len(sig["v"]) > 0 and sig["v"][-1] is not None:
                     arousal_value = sig["v"][-1]
-                    # print(f"[MetricsView] {label}: Using 'v[-1]' value: {arousal_value}") # DEBUG PRINT
+                    print(f"[MetricsView DEBUG] Arousal '{label}': Using 'v[-1]' value: {arousal_value}") # DEBUG PRINT
                 # If not found, try to get it from metadata
-                elif "meta" in sig and isinstance(sig["meta"], dict) and "arousal_value" in sig["meta"]:
+                elif "meta" in sig and isinstance(sig["meta"], dict) and "arousal_value" in sig["meta"] and sig["meta"]["arousal_value"] is not None:
                     arousal_value = sig["meta"]["arousal_value"]
-                    # print(f"[MetricsView] {label}: Using metadata 'arousal_value': {arousal_value}") # DEBUG PRINT
+                    print(f"[MetricsView DEBUG] Arousal '{label}': Using metadata 'arousal_value': {arousal_value}") # DEBUG PRINT
+                else:
+                    print(f"[MetricsView DEBUG] Arousal '{label}': Arousal value not found directly in signal keys or was None.") # DEBUG PRINT
                     
                 # Try to get metadata directly from registry if available
-                if arousal_value is None and hasattr(self.plot_registry, 'get_signal_metadata'):
+                if arousal_value is None and hasattr(self.signal_registry, 'get_signal_metadata'): 
                     try:
-                        meta = self.plot_registry.get_signal_metadata(signal_id)
-                        if meta and "arousal_value" in meta:
+                        meta = self.signal_registry.get_signal_metadata(signal_id) 
+                        print(f"[MetricsView DEBUG] Arousal '{label}': Fetched registry metadata for '{signal_id}': {meta is not None}") # DEBUG PRINT
+                        if meta and "arousal_value" in meta and meta["arousal_value"] is not None:
                             arousal_value = meta["arousal_value"]
-                            # print(f"[MetricsView] {label}: Using registry metadata 'arousal_value': {arousal_value}") # DEBUG PRINT
+                            print(f"[MetricsView DEBUG] Arousal '{label}': Using registry metadata 'arousal_value': {arousal_value}") # DEBUG PRINT
+                        else:
+                            print(f"[MetricsView DEBUG] Arousal '{label}': 'arousal_value' not in registry metadata, or metadata is None, or arousal_value in meta is None.") # DEBUG PRINT
                     except Exception as e:
-                        pass # print(f"[MetricsView] Error getting metadata for {signal_id}: {e}") # DEBUG PRINT
-                    
+                        print(f"[MetricsView DEBUG] Arousal '{label}': Exception getting metadata for {signal_id}: {e}") # DEBUG PRINT
+                elif arousal_value is None:
+                    print(f"[MetricsView DEBUG] Arousal '{label}': signal_registry does not have get_signal_metadata or arousal_value was already found (or still None).") # DEBUG PRINT
+            else:
+                print(f"[MetricsView DEBUG] Arousal '{label}': Signal data for '{signal_id}' is None or not a dict.") # DEBUG PRINT
+            
             # Draw the arousal value
             if arousal_value is not None and isinstance(arousal_value, (float, int)) and np.isfinite(arousal_value):
+                print(f"[MetricsView DEBUG] Arousal '{label}': Drawing value {float(arousal_value):.2f}") # DEBUG PRINT
                 # Color based on arousal level (use consistent colors from metric_configs)
                 level = float(arousal_value)
                 # Map the arousal value (0-1) to the color scheme used in metrics
