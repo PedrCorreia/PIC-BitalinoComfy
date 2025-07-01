@@ -74,23 +74,20 @@ class EDANode:
         
         last_registry_data_hash = None
         last_process_time = time.time()
-        processing_interval = 0.033
+        processing_interval = 0.2  # 5 Hz processing rate (reduced for better performance)
         start_time = None
         while not stop_flag[0]:
             current_time = time.time()
             if current_time - last_process_time < processing_interval:
-                time.sleep(0.001)
-                continue
+                continue  # Skip this iteration, don't sleep
             last_process_time = current_time
             signal_data = registry.get_signal(input_signal_id)
             if not signal_data or "t" not in signal_data or "v" not in signal_data:
-                time.sleep(processing_interval)
-                continue
+                continue  # Skip this iteration, don't sleep
             timestamps = np.array(signal_data["t"])
             values = np.array(signal_data["v"])
-            if len(timestamps) < 2 or len(values) < 2:
-                time.sleep(processing_interval)
-                continue
+            if len(timestamps) < 2 or len(values) < 2:  # Need at least 2 points for processing and visualization
+                continue  # Skip this iteration, don't sleep
             # --- Retrieve start_time from metadata if available (for peak logic only) ---
             meta = None
             if hasattr(registry, 'get_signal_metadata'):
@@ -291,8 +288,8 @@ class EDANode:
             }
             processed_signal_data = {
                 "t": viz_timestamps_window.tolist(),
-                "tonic": tonic_viz.tolist(),    # Raw values
-                "phasic": phasic_viz.tolist(),  # Raw values
+                "tonic_norm": tonic_viz.tolist(),    # Normalized values for visualization
+                "phasic_norm": phasic_viz.tolist(),  # Normalized values for visualization
                 "peak_indices": scr_event_indices.tolist(),
                 "id": output_signal_id
             }
@@ -340,7 +337,7 @@ class EDANode:
                 'source': output_signal_id,
                 'scope': 'global_metric'
             })
-            time.sleep(0.01)
+            continue  # Continue processing loop without delay
 
     def process_eda(self, input_signal_id="", show_peaks=True, output_signal_id="EDA_PROCESSED", enabled=True):
         if not enabled:

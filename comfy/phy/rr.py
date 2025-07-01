@@ -196,7 +196,7 @@ class RRNode:
         max_peaks_to_average = 10
         last_registry_data_hash = None
         last_process_time = time.time()
-        processing_interval = 0.033 # 30 Hz processing rate
+        processing_interval = 0.2  # 5 Hz processing rate (reduced for better performance)
         start_time = None
         # --- Filtering parameters for RR, adapted for decimation if needed ---
 
@@ -211,19 +211,17 @@ class RRNode:
         while not stop_flag[0]:
             current_time = time.time()
             if current_time - last_process_time < processing_interval:
-                time.sleep(0.001)
-                continue
+                continue  # Skip this iteration, don't sleep
             last_process_time = current_time
             signal_data = registry.get_signal(input_signal_id)
             #print(f"[RR_NODE_DEBUG] input_signal_id: {input_signal_id}, signal_data available: {signal_data is not None}") # DEBUG PRINT
             if not signal_data or "t" not in signal_data or "v" not in signal_data:
-                time.sleep(processing_interval)
-                continue
+                continue  # Skip this iteration, don't sleep
             timestamps = np.array(signal_data["t"])
             values = np.array(signal_data["v"])
             #print(f"[RR_NODE_DEBUG] Timestamps len: {len(timestamps)}, Values len: {len(values)}") # DEBUG PRINT
             if len(timestamps) < 2 or len(values) < 2:
-                time.sleep(processing_interval)
+                continue  # Skip this iteration, don't sleep
                 continue
             # --- Retrieve start_time from metadata if available (for peak logic only) ---
             meta = None
@@ -327,28 +325,24 @@ class RRNode:
                 self._recent_peak_times = [t for t in self._recent_peak_times if t >= cutoff_signal_time]
                 
                 # Calculate RR only if we have recent peaks (within 30 seconds of signal time)
-                if len(self._recent_peak_times) > 1:
+                if len(self._recent_peak_times) >= 1:
                     # Check if most recent peak is recent enough (signal time domain)
                     most_recent_peak = max(self._recent_peak_times)
                     signal_time_since_last_peak = current_signal_time - most_recent_peak
                     
                     if signal_time_since_last_peak <= 10.0:  # If no peak in last 10 seconds of signal time, RR = 0
-                        # CORRECT FORMULA: peaks per time span
-                        min_peak_time = min(self._recent_peak_times)
-                        max_peak_time = max(self._recent_peak_times)
-                        time_span = max_peak_time - min_peak_time
-                        peak_count = len(self._recent_peak_times)
-                        
-                        # DEBUG: Print calculation details
-                        print(f"[RR DEBUG] Peaks: {peak_count}, Time span: {time_span:.3f}s")
-                        print(f"[RR DEBUG] Peak times: {min_peak_time:.1f} to {max_peak_time:.1f}")
-                        
-                        if time_span > 0:
-                            breaths_per_second = peak_count / time_span
+                        # FIXED FORMULA: Use fixed time window for consistent calculation
+                        # For calm breathing with fewer peaks, we still use the full 30s window
+                        actual_time_window = min(time_window, current_signal_time - min(self._recent_peak_times))
+                        # Ensure we have a reasonable time window (at least 10s for reliable calculation)
+                        if actual_time_window >= 10.0:
+                            peak_count = len(self._recent_peak_times)
+                            
+                            # Use FIXED time window approach: peaks per fixed time window
+                            breaths_per_second = peak_count / actual_time_window
                             avg_rr = breaths_per_second * 60.0  # Convert to breaths per minute
-                            print(f"[RR DEBUG] Formula: ({peak_count} peaks / {time_span:.3f}s) * 60 = {avg_rr:.1f} BPM")
                         else:
-                            avg_rr = 0.0
+                            avg_rr = 0.0  # Not enough time window for reliable calculation
                     else:
                         avg_rr = 0.0  # No recent breathing detected
                 else:
@@ -443,8 +437,7 @@ class RRNode:
             # continue # Reverted debug change
             # last_registry_data_hash = time.time() # Reverted debug change
             if data_hash == last_registry_data_hash: # Original logic
-                time.sleep(0.01)
-                continue
+                continue  # Skip when no data available
             last_registry_data_hash = data_hash
 
 
@@ -492,7 +485,7 @@ class RRNode:
                 "scope": "global_metric",
                 "arousal_value": float(arousal_value)  # Explicitly add arousal value as a float in metadata
             })
-            time.sleep(0.01)
+            continue  # Continue processing loop without delay
 #================================================================================================================================== Processing Output ============================================================================================================================
     def process_rr(self, input_signal_id="", show_peaks=True, output_signal_id="RR_PROCESSED", enabled=True):
         if not enabled:

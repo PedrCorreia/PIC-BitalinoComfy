@@ -65,7 +65,7 @@ TOOLTIP_FONT_SIZE = 14             # Font size for tooltip text
 # Performance thresholds
 LOW_LATENCY_THRESHOLD = 0.05       # Below this is considered good (50ms)
 HIGH_LATENCY_THRESHOLD = 0.05      # Above this is considered poor (200ms)
-TARGET_FPS = 30                    # Target frames per second
+TARGET_FPS = 60                    # Target frames per second (increased for smoother display)
 
 # Default settings
 DEFAULT_SETTINGS = {

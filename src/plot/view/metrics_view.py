@@ -18,14 +18,15 @@ class MetricsView:
                 (60, (0, 200, 80)),    # green
                 (80, (255, 220, 0)),   # yellow
                 (100, (255, 140, 0)),  # orange
-                (120, (255, 140, 0)) # red
+                (120, (255, 40, 40))   # red
             ]),
-            ("RR", "RR_METRIC", 8, 40, [  # RR = respiration rate (breaths/min)
-                (5, (0, 120, 255)),
-                (10, (0, 200, 80)),
-                (16, (255, 220, 0)),
-                (20, (255, 140, 0)),
-                (30, (255, 40, 40)),
+            ("RR", "RR_METRIC", 0, 30, [  # RR = respiration rate (breaths/min), 0 = no peaks detected
+                (0, (0, 120, 255)),    # No breathing detected (blue - sleep/apnea)
+                (8, (0, 200, 80)),     # Very slow breathing (green - relaxed)
+                (12, (255, 220, 0)),   # Normal breathing (yellow - normal)
+                (18, (255, 140, 0)),   # Fast breathing (orange - aroused)
+                (25, (255, 40, 40)),   # Very fast breathing (red - stressed)
+                (30, (255, 40, 40)),   # Max arousal (red)
             ]),
             # SCL = Skin Conductance Level (tonic, slow-changing baseline, in uS)
             ("SCL", "SCL_METRIC", 0, 40, [
@@ -43,9 +44,43 @@ class MetricsView:
                 (10, (255, 40, 40)),
             ]),
             
+            # AROUSAL METRICS - All use 0.0-1.0 range with consistent color mapping
+            ("RR Arousal", "RR_AROUSAL_METRIC", 0.0, 1.0, [
+                (0.0, (0, 120, 255)),    # Sleep (blue)
+                (0.2, (0, 200, 80)),     # Relaxed (green)  
+                (0.4, (255, 220, 0)),    # Normal (yellow)
+                (0.6, (255, 140, 0)),    # Aroused (orange)
+                (0.8, (255, 40, 40)),    # Stressed (red)
+                (1.0, (255, 40, 40)),    # Max stressed (red)
+            ]),
+            ("ECG Arousal", "ECG_AROUSAL_METRIC", 0.0, 1.0, [
+                (0.0, (0, 120, 255)),
+                (0.2, (0, 200, 80)),
+                (0.4, (255, 220, 0)),
+                (0.6, (255, 140, 0)),
+                (0.8, (255, 40, 40)),
+                (1.0, (255, 40, 40)),
+            ]),
+            ("EDA Arousal", "EDA_AROUSAL_METRIC", 0.0, 1.0, [
+                (0.0, (0, 120, 255)),
+                (0.2, (0, 200, 80)),
+                (0.4, (255, 220, 0)),
+                (0.6, (255, 140, 0)),
+                (0.8, (255, 40, 40)),
+                (1.0, (255, 40, 40)),
+            ]),
+            ("Overall Arousal", "OVERALL_AROUSAL_METRIC", 0.0, 1.0, [
+                (0.0, (0, 120, 255)),
+                (0.2, (0, 200, 80)),
+                (0.4, (255, 220, 0)),
+                (0.6, (255, 140, 0)),
+                (0.8, (255, 40, 40)),
+                (1.0, (255, 40, 40)),
+            ]),
+            
         ]
         
-        # Arousal metrics configurations
+        # Remove separate arousal_metrics - now included in main metric_configs
         self.arousal_metrics = [
             ("RR Arousal", "RR_AROUSAL_METRIC"), 
             ("ECG Arousal", "ECG_AROUSAL_METRIC"), # Assuming HR and ECG arousal are related or HR_AROUSAL_METRIC might be intended
@@ -228,13 +263,17 @@ class MetricsView:
                 def lerp(a_val, b_val, t_val): # Renamed to avoid conflict
                     return a_val + (b_val - a_val) * t_val
                 def color_gradient(val_grad): # Renamed val to val_grad
+                    # For regular metrics (HR, RR, SCL, SCR Freq), the color_stops contain actual metric values
+                    # For arousal metrics (0.0-1.0), the color_stops contain arousal levels
+                    # We use the actual metric value to find the appropriate color
                     for j_idx in range(len(color_stops) - 1): # Renamed j to j_idx
                         v0, c0 = color_stops[j_idx]
                         v1, c1 = color_stops[j_idx+1]
-                        if v1 == v0: t_calc = 0.0 # Renamed t to t_calc
-                        else: t_calc = (val_grad - v0) / (v1 - v0)
                         if val_grad <= v1:
-                            return tuple(int(lerp(c0[k_idx], c1[k_idx], max(0.0, min(1.0, t_calc)))) for k_idx in range(3)) # Renamed k to k_idx
+                            if v1 == v0: t_calc = 0.0 # Renamed t to t_calc
+                            else: t_calc = (val_grad - v0) / (v1 - v0)
+                            t_calc = max(0.0, min(1.0, t_calc))
+                            return tuple(int(lerp(c0[k_idx], c1[k_idx], t_calc)) for k_idx in range(3)) # Renamed k to k_idx
                     return color_stops[-1][1]
                 bar_color = color_gradient(last_val)
                 fill_w = int(bar_w_val * norm)

@@ -78,7 +78,7 @@ class ECGNode:
         max_peaks_to_average = 10
         last_registry_data_hash = None
         last_process_time = time.time()
-        processing_interval = 0.033
+        processing_interval = 0.2  # 5 Hz processing rate (reduced for better performance)
         start_time = None
         # ECG metrics buffer: preserve 5 minutes of HR data at ~1Hz update rate
         metrics_window_sec = 300.0  # 5 minutes for HR metrics
@@ -88,18 +88,15 @@ class ECGNode:
         while not stop_flag[0]:
             current_time = time.time()
             if current_time - last_process_time < processing_interval:
-                time.sleep(0.001)
-                continue
+                continue  # Skip this iteration, don't sleep
             last_process_time = current_time
             signal_data = registry.get_signal(input_signal_id)
             if not signal_data or "t" not in signal_data or "v" not in signal_data:
-                time.sleep(processing_interval)
-                continue
+                continue  # Skip this iteration, don't sleep
             timestamps = np.array(signal_data["t"])
             values = np.array(signal_data["v"])
             if len(timestamps) < 2 or len(values) < 2:
-                time.sleep(processing_interval)
-                continue
+                continue  # Skip this iteration, don't sleep
             # --- Retrieve start_time from metadata if available (for peak logic only) ---
             meta = None
             if hasattr(registry, 'get_signal_metadata'):
@@ -255,8 +252,7 @@ class ECGNode:
             ))
             
             if data_hash == last_registry_data_hash:
-                time.sleep(0.01)  # Short sleep to reduce CPU usage
-                continue
+                continue  # Skip when no data available
                 
             last_registry_data_hash = data_hash
 
@@ -316,7 +312,7 @@ class ECGNode:
                 'scope': 'global_metric'
             })
             #print(f"[ECGNode][metrics_registry] {output_signal_id + '_METRICS'}: t={metrics_t[-1] if metrics_t else None}, hr={metrics_hr[-1] if metrics_hr else None}")
-            time.sleep(0.01)  # Reduced sleep time for faster updates
+            continue  # Continue processing loop without delay
 
     def process_ecg(self, input_signal_id, show_peaks, output_signal_id, enabled=True):
         """
