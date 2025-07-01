@@ -304,6 +304,9 @@ class RRNode:
             # Validate peaks with lag-based edge avoidance (similar to ECG)
             peaks = detected_peaks
             avg_rr = 0.0
+            # Use signal timestamp domain, not system time
+            current_signal_time = feature_timestamps[-1] if len(feature_timestamps) > 0 else 0.0
+            
             if isinstance(peaks, np.ndarray) and len(peaks) > 0 and len(feature_timestamps) > 0:
                 peak_times = feature_timestamps[peaks]
                 latest_peak_time = peak_times[-1]
@@ -311,19 +314,45 @@ class RRNode:
                 if not self._recent_peak_times or latest_peak_time != self._recent_peak_times[-1]:
                     if self._recent_peak_times:
                         last_time = self._recent_peak_times[-1]
-                        if (latest_peak_time - last_time) >= 1.0:  # min breath interval
+                        if (latest_peak_time - last_time) >= 2.0:  # 2.0s min breath interval (realistic for breathing)
                             add_peak = True
                     else:
                         add_peak = True
                     if add_peak:
                         self._recent_peak_times.append(latest_peak_time)
-                        if len(self._recent_peak_times) > max_peaks_to_average:
-                            self._recent_peak_times.pop(0)
+                        
+                # TIME-BASED FILTERING: Only keep peaks from last 30 seconds (signal time)
+                time_window = 30.0  # 30 seconds
+                cutoff_signal_time = current_signal_time - time_window
+                self._recent_peak_times = [t for t in self._recent_peak_times if t >= cutoff_signal_time]
+                
+                # Calculate RR only if we have recent peaks (within 30 seconds of signal time)
                 if len(self._recent_peak_times) > 1:
-                    breath_intervals = np.diff(self._recent_peak_times)
-                    avg_breath = np.mean(breath_intervals)
-                    if avg_breath > 0:
-                        avg_rr = 60.0 / avg_breath  # Respiration rate in breaths/min
+                    # Check if most recent peak is recent enough (signal time domain)
+                    most_recent_peak = max(self._recent_peak_times)
+                    signal_time_since_last_peak = current_signal_time - most_recent_peak
+                    
+                    if signal_time_since_last_peak <= 10.0:  # If no peak in last 10 seconds of signal time, RR = 0
+                        # CORRECT FORMULA: peaks per time span
+                        min_peak_time = min(self._recent_peak_times)
+                        max_peak_time = max(self._recent_peak_times)
+                        time_span = max_peak_time - min_peak_time
+                        peak_count = len(self._recent_peak_times)
+                        
+                        # DEBUG: Print calculation details
+                        print(f"[RR DEBUG] Peaks: {peak_count}, Time span: {time_span:.3f}s")
+                        print(f"[RR DEBUG] Peak times: {min_peak_time:.1f} to {max_peak_time:.1f}")
+                        
+                        if time_span > 0:
+                            breaths_per_second = peak_count / time_span
+                            avg_rr = breaths_per_second * 60.0  # Convert to breaths per minute
+                            print(f"[RR DEBUG] Formula: ({peak_count} peaks / {time_span:.3f}s) * 60 = {avg_rr:.1f} BPM")
+                        else:
+                            avg_rr = 0.0
+                    else:
+                        avg_rr = 0.0  # No recent breathing detected
+                else:
+                    avg_rr = 0.0  # Not enough peaks for calculation
             #print(f"[RR_NODE_DEBUG] avg_rr: {avg_rr}") # DEBUG PRINT
             # Robust is_peak logic (timing + newness)
             is_peak, latest_peak_time = RR.is_peak(
