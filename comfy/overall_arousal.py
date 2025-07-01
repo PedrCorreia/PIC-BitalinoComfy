@@ -22,7 +22,6 @@ class OverallArousalNode:
                 "scr_weight": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 5.0, "step": 0.1})
             }
         }
-
     RETURN_TYPES = ("FLOAT",)
     RETURN_NAMES = ("Overall_Arousal",)
     FUNCTION = "get_overall_arousal"
