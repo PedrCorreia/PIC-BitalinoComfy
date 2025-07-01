@@ -354,8 +354,11 @@ class RRNode:
             )
             self._last_rr = avg_rr
             self._last_is_peak = is_peak
-            # Update arousal based on RR
-            self.arousal = Arousal.rr_arousal(avg_rr) if avg_rr > 0 else 0.5
+            # Update arousal based on RR - handle edge cases better
+            if avg_rr <= 0:
+                self.arousal = 0.0  # No breathing = no arousal (sleep/apnea)
+            else:
+                self.arousal = Arousal.rr_arousal(avg_rr)
 
             # --- RR Metric Registration ---
             current_metric_timestamp = feature_timestamps[-1] if len(feature_timestamps) > 0 else time.time()

@@ -5,6 +5,7 @@ import time
 from ...src.phy.ecg_signal_processing import ECG
 from ...src.registry.signal_registry import SignalRegistry
 from ...src.utils.signal_processing import NumpySignalProcessor
+from ...src.utils.utils import Arousal
 
 class ECGNode:
     """
@@ -49,6 +50,8 @@ class ECGNode:
     def __init__(self):
         self.ecg = ECG()  # Now an instance, stateful
         # Remove redundant state tracking; ECG class handles peak state
+        self.ecg_arousal = 0.5  # ECG/HR arousal level (0.0-1.0)
+        self._recent_peak_times = []  # Store recent R-peak timestamps for time-based HR calculation
 
     def _background_process(self, input_signal_id, show_peaks, stop_flag, output_signal_id):
         """
@@ -178,16 +181,74 @@ class ECGNode:
                 fs=effective_fs,
                 order=4,
             )
-            # Use ECG class for peak and HR calculation with separate methods
-            avg_hr = self.ecg.calculate_hr(
-                filtered_ecg, feature_timestamps, effective_fs, max_peaks_to_average
-            )
+            # Time-based HR calculation (same robust method as RR)
+            # First detect R-peaks in the current data
+            detected_peaks = self.ecg.detect_r_peaks(filtered_ecg, fs=effective_fs, mode="qrs")
+            
+            avg_hr = 0.0
+            current_signal_time = feature_timestamps[-1] if len(feature_timestamps) > 0 else 0.0
+            
+            if isinstance(detected_peaks, np.ndarray) and len(detected_peaks) > 0 and len(feature_timestamps) > 0:
+                peak_times = feature_timestamps[detected_peaks]
+                latest_peak_time = peak_times[-1]
+                
+                # Add new peak if it's different from the last one (avoid duplicates)
+                add_peak = False
+                if not self._recent_peak_times or latest_peak_time != self._recent_peak_times[-1]:
+                    if self._recent_peak_times:
+                        last_time = self._recent_peak_times[-1]
+                        if (latest_peak_time - last_time) >= 0.3:  # 0.3s min interval (realistic for heartbeat)
+                            add_peak = True
+                    else:
+                        add_peak = True
+                    if add_peak:
+                        self._recent_peak_times.append(latest_peak_time)
+                        
+                # TIME-BASED FILTERING: Only keep peaks from last 30 seconds (signal time)
+                time_window = 30.0  # 30 seconds
+                cutoff_signal_time = current_signal_time - time_window
+                self._recent_peak_times = [t for t in self._recent_peak_times if t >= cutoff_signal_time]
+                
+                # Calculate HR only if we have recent peaks (within 30 seconds of signal time)
+                if len(self._recent_peak_times) >= 1:
+                    # Check if most recent peak is recent enough (signal time domain)
+                    most_recent_peak = max(self._recent_peak_times)
+                    signal_time_since_last_peak = current_signal_time - most_recent_peak
+                    
+                    if signal_time_since_last_peak <= 5.0:  # If no peak in last 5 seconds of signal time, HR = 0
+                        # Use fixed time window approach: peaks per fixed time window
+                        actual_time_window = min(time_window, current_signal_time - min(self._recent_peak_times))
+                        # Ensure we have a reasonable time window (at least 5s for reliable calculation)
+                        if actual_time_window >= 5.0:
+                            peak_count = len(self._recent_peak_times)
+                            
+                            # Use FIXED time window approach: peaks per fixed time window
+                            beats_per_second = peak_count / actual_time_window
+                            avg_hr = beats_per_second * 60.0  # Convert to beats per minute
+                        else:
+                            avg_hr = 0.0  # Not enough time window for reliable calculation
+                    else:
+                        avg_hr = 0.0  # No recent heartbeat detected
+                else:
+                    avg_hr = 0.0  # Not enough peaks for calculation
+            
+            # Handle case when no peaks detected - set HR to 0 for proper arousal calculation
+            if avg_hr is None or not np.isfinite(avg_hr) or avg_hr <= 0:
+                avg_hr = 0.0  # No heartbeat detected
+            
             is_peak = self.ecg.is_peak(
                 filtered_ecg, feature_timestamps, effective_fs, start_time=meta_start_time, hr=avg_hr
             )
             # Store latest state in ECG instance for access from process_ecg
             setattr(self.ecg, '_last_hr', avg_hr)
             setattr(self.ecg, '_last_is_peak', is_peak)
+            
+            # Calculate ECG/HR arousal using smart methods (same pattern as RR)
+            # Handle edge cases: HR=0 (no heartbeat) should map to very low arousal
+            if avg_hr <= 0:
+                self.ecg_arousal = 0.0  # No heartbeat = no arousal
+            else:
+                self.ecg_arousal = Arousal.hr_arousal(avg_hr)
             # For visualization, get peaks for windowing
             peaks = self.ecg.detect_r_peaks(filtered_ecg, fs=effective_fs, mode="qrs")
             if len(peaks) > 0 and len(feature_timestamps) > 0:
@@ -311,6 +372,27 @@ class ECGNode:
                 'source': output_signal_id,
                 'scope': 'global_metric'
             })
+            
+            # Register ECG arousal metric (following RR/EDA pattern)
+            ecg_arousal_value = 0.5  # Default middle value
+            if self.ecg_arousal is not None and isinstance(self.ecg_arousal, (float, int)) and np.isfinite(self.ecg_arousal):
+                ecg_arousal_value = float(self.ecg_arousal)
+            
+            # Prepare ECG arousal metric data
+            ecg_arousal_metrics_data = {
+                "t": [last_timestamp],
+                "v": [ecg_arousal_value],
+                "last": ecg_arousal_value
+            }
+            metrics_registry.register_signal('ECG_AROUSAL_METRIC', ecg_arousal_metrics_data, {
+                'id': 'ECG_AROUSAL_METRIC',
+                'type': 'arousal_metric',
+                'label': 'ECG Arousal Level',
+                'source': output_signal_id,
+                'scope': 'global_metric',
+                'arousal_value': ecg_arousal_value
+            })
+            
             #print(f"[ECGNode][metrics_registry] {output_signal_id + '_METRICS'}: t={metrics_t[-1] if metrics_t else None}, hr={metrics_hr[-1] if metrics_hr else None}")
             continue  # Continue processing loop without delay
 
