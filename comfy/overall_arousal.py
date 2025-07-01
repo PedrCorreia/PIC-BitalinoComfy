@@ -66,56 +66,59 @@ class OverallArousalNode:
             hr = self._get_metric_value("HR_METRIC")  # From ECG processing
             rr = self._get_metric_value("RR_METRIC")  # From RR processing  
             scl = self._get_metric_value("SCL_METRIC")  # From EDA processing (tonic)
-            scr = self._get_metric_value("SCR_METRIC")  # From EDA processing (phasic)
-            
-            print(f"[OverallArousal] Raw metrics - HR: {hr}, RR: {rr}, SCL: {scl}, SCR: {scr}")
-            print(f"[OverallArousal] Weights - HR: {hr_weight}, RR: {rr_weight}, SCL: {scl_weight}, SCR: {scr_weight}")
+            scr = self._get_metric_value("scr_frequency")  # From EDA processing (phasic)
             
             current_time = time.time()
-            
             # Calculate individual arousal values
             weighted_scores = []
             total_weight = 0.0
-            
             rr_arousal = None
             ecg_arousal = None  
             eda_arousal = None
-            
+            scl_arousal = None
+            scr_arousal = None
+            # RR
             if rr is not None and rr_weight > 0:
                 rr_arousal = Arousal.rr_arousal(rr)
                 self._register_arousal_metric("RR_AROUSAL_METRIC", rr_arousal, "RR Arousal", current_time)
                 weighted_scores.append(rr_arousal * rr_weight)
                 total_weight += rr_weight
-                
+            # HR
             if hr is not None and hr_weight > 0:
                 ecg_arousal = Arousal.hr_arousal(hr)
                 self._register_arousal_metric("ECG_AROUSAL_METRIC", ecg_arousal, "ECG Arousal", current_time)
                 weighted_scores.append(ecg_arousal * hr_weight)
                 total_weight += hr_weight
-                
-            if scl is not None and scl_weight > 0:
-                eda_arousal = Arousal.scl_arousal(scl)
-                self._register_arousal_metric("EDA_AROUSAL_METRIC", eda_arousal, "EDA Arousal", current_time)
-                weighted_scores.append(eda_arousal * scl_weight)
-                total_weight += scl_weight
-            elif scr is not None and scr_weight > 0:
-                # Fallback to SCR if SCL not available
-                eda_arousal = Arousal.scr_arousal(scr)
-                self._register_arousal_metric("EDA_AROUSAL_METRIC", eda_arousal, "EDA Arousal", current_time)
-                weighted_scores.append(eda_arousal * scr_weight)
-                total_weight += scr_weight
-            
+            # EDA (combine SCL and SCR as a single value, if at least one weight > 0 and value is available)
+            scl_valid = scl is not None and scl_weight > 0
+            scr_valid = scr is not None and scr_weight > 0
+            #print(f"scr_weight: {scr_weight}, scr not None: {scr is not None}")
+            #print (f"SCL valid: {scl_valid}, SCR valid: {scr_valid}")
+            eda_arousal = None
+            eda_total_weight = 0.0
+            if scl_valid:
+                scl_arousal = Arousal.scl_arousal(scl)
+                eda_arousal = scl_arousal * scl_weight
+                eda_total_weight += scl_weight
+            if scr_valid:
+                scr_arousal = Arousal.scr_arousal(scr)
+                if eda_arousal is None:
+                    eda_arousal = 0.0
+                eda_arousal += scr_arousal * scr_weight
+                eda_total_weight += scr_weight
+            if eda_total_weight > 0:
+                eda_arousal_final = eda_arousal / eda_total_weight
+                self._register_arousal_metric("EDA_AROUSAL_METRIC", eda_arousal_final, "EDA Arousal (SCL+SCR)", current_time)
+                weighted_scores.append(eda_arousal_final * eda_total_weight)
+                total_weight += eda_total_weight
             # Calculate weighted overall arousal
+            print(f"weighted_scores: {weighted_scores}, total_weight: {total_weight}")
             if weighted_scores and total_weight > 0:
                 overall_arousal = sum(weighted_scores) / total_weight
             else:
                 overall_arousal = 0.5  # Default when no data available
-            
-            print(f"[OverallArousal] Individual arousal - RR: {rr_arousal}, ECG: {ecg_arousal}, EDA: {eda_arousal}")
             print(f"[OverallArousal] Weighted overall arousal: {overall_arousal}")
-            
             return float(overall_arousal)
-
         except Exception as e:
             print(f"Error calculating weighted arousal metrics: {e}")
             return 0.5

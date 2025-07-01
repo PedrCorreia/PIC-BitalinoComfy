@@ -141,19 +141,19 @@ class Arousal:
     def scr_arousal_level(scr):
         """
         Return a discrete arousal level for skin conductance response:
-        0 = sleep (<= 0.1 μS)
-        1 = low (0.1-0.5 μS)
-        2 = medium (0.5-2 μS)
-        3 = high (2-4 μS)
-        4 = panic (> 4 μS)
+        0 = sleep 
+        1 = low 
+        2 = medium 
+        3 = high 
+        4 = very high 
         """
-        if scr <= 0.1:
+        if scr < 2:
             return 0
-        elif scr <= 0.5:
+        elif scr <= 3:
             return 1
-        elif scr <= 2:
+        elif scr <= 5:
             return 2
-        elif scr <= 4:
+        elif scr <= 7:
             return 3
         else:
             return 4
@@ -164,7 +164,7 @@ class Arousal:
         Normalize skin conductance response (SCR) to a value between 0 and 1,
         with each arousal level mapped to a segment of the range.
         """
-        levels = [(0.0, 0.1), (0.1, 0.5), (0.5, 2), (2, 4), (4, 5)]
+        levels = [(0.0, 1), (1, 2), (2, 6), (6, 7), (7, 10)]
         min_scr, max_scr = 0.0, 5.0
         for i, (low, high) in enumerate(levels):
             if low <= scr <= high:

@@ -26,25 +26,24 @@ class EDA:
     def extract_tonic_phasic(eda_signal, fs):
         """
         Extracts tonic and phasic components from the EDA signal.
-        
+
         Parameters:
         - eda_signal: The EDA signal in micro-Siemens (μS).
         - fs: Sampling frequency in Hz.
-        
+
         Returns:
-        - tonic: Tonic component of the EDA signal.
-        - phasic: Phasic component of the EDA signal.
+        - tonic: Tonic component of the EDA signal (lowpass).
+        - phasic: Phasic component of the EDA signal (bandpass, positive values only).
         """
-        # Baseline correction for tonic component
-        filtered_signal = NumpySignalProcessor.lowpass_filter(eda_signal,cutoff=1, fs=fs,order=4)
-        tonic = NumpySignalProcessor.lowpass_filter(filtered_signal, cutoff=0.1, fs=fs,order=4)
-        
-        # Phasic component is the difference between the original signal and tonic
-        phasic = filtered_signal - tonic
-        phasic = phasic#NumpySignalProcessor.moving_average(phasic, window_size=10)  # Smooth phasic component
-        return tonic, phasic   
+        # Tonic: lowpass filter (<0.05 Hz)
+        tonic = NumpySignalProcessor.lowpass_filter(eda_signal, cutoff=0.05, fs=fs, order=2)
+        # Phasic: bandpass filter (0.05-1 Hz)
+        phasic = NumpySignalProcessor.bandpass_filter(eda_signal, lowcut=0.05, highcut=1, fs=fs, order=2)
+        # Only keep positive values
+        phasic = np.where(phasic > 0, phasic, 0)
+        return tonic, phasic
     @staticmethod
-    def detect_events(phasic_signal, fs, threshold=0.01, min_peak_distance_sec=1.5):
+    def detect_events(phasic_signal, fs, threshold=0.5, min_peak_distance_sec=1.5):
         """
         Detects events in the phasic component of the EDA signal using robust peak finding.
         

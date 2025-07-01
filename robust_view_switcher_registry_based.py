@@ -112,6 +112,8 @@ def main(start_generators=True, stop_event=None):
                     if viz_subtype == 'eda':
                         # print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'eda' for {get_sig_id(sig)} based on viz_subtype", flush=True) # DEBUG PRINT
                         return 'eda'
+                    if viz_subtype == 'respiration':
+                        return 'respiration'
             # Fallback for older EDA structure or other direct EDA signals (less likely now)
             if isinstance(sig, dict) and 'scl' in sig and 'scr' in sig and 't' in sig: # Check for specific EDA keys
                 # print(f"[DETERMINE_PLOT_MODE_DEBUG] Determined mode: 'eda' for {get_sig_id(sig)} based on scl/scr keys", flush=True) # DEBUG PRINT

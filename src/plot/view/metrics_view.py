@@ -23,24 +23,24 @@ class MetricsView:
             ("RR", "RR_METRIC", 8, 40, [  # RR = respiration rate (breaths/min)
                 (5, (0, 120, 255)),
                 (10, (0, 200, 80)),
-                (20, (255, 220, 0)),
-                (25, (255, 140, 0)),
-                (40, (255, 40, 40)),
+                (16, (255, 220, 0)),
+                (20, (255, 140, 0)),
+                (30, (255, 40, 40)),
             ]),
             # SCL = Skin Conductance Level (tonic, slow-changing baseline, in uS)
             ("SCL", "SCL_METRIC", 0, 40, [
                 (0, (0, 120, 255)),     # sleep (blue)
                 (2, (0, 200, 80)),      # relaxed (green)
-                (10, (255, 220, 0)),     # normal (yellow)
-                (15, (255, 140, 0)),    # aroused (orange)
+                (5, (255, 220, 0)),     # normal (yellow)
+                (12, (255, 140, 0)),    # aroused (orange)
                 (20, (255, 40, 40)),    # stressed (red)
             ]),
-            ("SCR Freq", "scr_frequency", 0, 2.5, [
+            ("SCR Freq", "scr_frequency", 0, 6, [
                 (0, (0, 120, 255)),
-                (1, (0, 200, 80)),
-                (1.5, (255, 220, 0)),
-                (2, (255, 140, 0)),
-                (2.5, (255, 40, 40)),
+                (2, (0, 200, 80)),
+                (5, (255, 220, 0)),
+                (7, (255, 140, 0)),
+                (10, (255, 40, 40)),
             ]),
             
         ]

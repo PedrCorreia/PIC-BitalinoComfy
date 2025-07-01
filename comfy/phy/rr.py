@@ -42,6 +42,124 @@ class RRNode:
     FUNCTION = "process_rr"
     CATEGORY = "Pedro_PIC/🔬 Bio-Processing"    
     
+    @staticmethod
+    def validate_breathing_events(signal, fs):
+        """
+        Validates breathing events by finding alternating peaks (inspirations) and dips (expirations).
+        - Finds peaks in the original signal.
+        - Finds dips by inverting the signal.
+        - Applies adaptive thresholds for better sensitivity.
+        - Merges and sorts peaks and dips, ensuring an alternating sequence.
+        - Returns only the validated peak indices.
+        """
+        if not isinstance(signal, np.ndarray) or signal.size < 2:
+            return np.array([], dtype=int)
+            
+        # Calculate signal statistics for adaptive thresholds
+        signal_mean = np.mean(signal)
+        signal_std = np.std(signal)
+        signal_range = np.max(signal) - np.min(signal)
+        
+        # Determine if the signal has low amplitude (needs more sensitive detection)
+        is_low_amplitude = signal_range < 0.5  # Adjust this threshold as needed
+        
+        # 1. Find peaks (inspirations) with adaptive threshold
+        # Lower threshold (0.15 instead of 0.2) for more sensitivity
+        # For low amplitude signals, use even lower threshold (0.1)
+        if is_low_amplitude:
+            peak_thresh = 0.1 * np.max(signal) if np.max(signal) > 0 else 0
+            # Alternative threshold based on standard deviation
+            std_peak_thresh = signal_mean + 1.0 * signal_std  # Lower factor (1.0) for more sensitivity
+            # Use the minimum of the two thresholds for maximum sensitivity
+            peak_thresh = min(peak_thresh, std_peak_thresh) if np.max(signal) > 0 else std_peak_thresh
+        else:
+            peak_thresh = 0.15 * np.max(signal) if np.max(signal) > 0 else 0
+            
+        # More sensitive distance parameter (0.3s instead of 0.5s)
+        peak_distance = int(fs * 0.3)  # Minimum distance between peaks (0.3 seconds)
+        
+        # Use the window parameter instead of distance for minimum peak separation
+        # Window parameter defines the size of the sliding window for peak detection
+        peaks = NumpySignalProcessor.find_peaks(signal, fs=fs, threshold=peak_thresh, window=peak_distance)
+
+        # 2. Find dips (expirations) by inverting the signal
+        inverted_signal = -signal
+        # Threshold for dips is based on the max of the *inverted* signal
+        # Lower threshold (0.05 instead of 0.1) for more sensitivity
+        if is_low_amplitude:
+            dip_thresh = 0.05 * np.max(inverted_signal) if np.max(inverted_signal) > 0 else 0
+            # Alternative threshold based on standard deviation
+            std_dip_thresh = -signal_mean + 1.0 * signal_std
+            # Use the minimum of the two thresholds for maximum sensitivity
+            dip_thresh = min(dip_thresh, std_dip_thresh) if np.max(inverted_signal) > 0 else std_dip_thresh
+        else:
+            dip_thresh = 0.08 * np.max(inverted_signal) if np.max(inverted_signal) > 0 else 0
+            
+        # Use the window parameter for dips detection as well
+        dips = NumpySignalProcessor.find_peaks(inverted_signal, fs=fs, threshold=dip_thresh, window=peak_distance)
+
+        if not isinstance(peaks, np.ndarray):
+            peaks = np.array([], dtype=int)
+        if not isinstance(dips, np.ndarray):
+            dips = np.array([], dtype=int)
+
+        if peaks.size == 0 and dips.size == 0:
+            return np.array([], dtype=int)
+
+        # 3. Merge and sort events
+        # Store as (index, type), where 1=peak, -1=dip
+        events = []
+        if peaks.size > 0:
+            events.extend([(p, 1) for p in peaks])
+        if dips.size > 0:
+            events.extend([(d, -1) for d in dips])
+        
+        # Sort by index (timestamp)
+        events.sort(key=lambda x: x[0])
+
+        # 4. Validate sequence with improved pattern recognition
+        if not events:
+            return np.array([], dtype=int)
+            
+        # Improved validation logic for more sensitivity
+        # This section handles breathing pattern recognition
+        
+        # First pass: Basic alternating sequence validation
+        validated_events = [events[0]]
+        for i in range(1, len(events)):
+            # Only add if the type is different from the previous one
+            if events[i][1] != validated_events[-1][1]:
+                validated_events.append(events[i])
+        
+        # Add additional peaks if they meet spacing criteria
+        # This helps catch events that don't perfectly alternate
+        valid_event_indices = set(idx for idx, _ in validated_events)
+        min_event_spacing = int(fs * 1.5)  # Minimum spacing between events (1.5 seconds)
+        
+        # Second pass: Check for isolated peaks that might have been missed
+        for i, (idx, event_type) in enumerate(events):
+            # Skip events already validated
+            if idx in valid_event_indices:
+                continue
+                
+            # Check if this is a peak
+            if event_type == 1:
+                # Check if it's sufficiently far from existing events
+                is_isolated = all(abs(idx - existing_idx) > min_event_spacing for existing_idx, _ in validated_events)
+                
+                # If it's an isolated peak, add it
+                if is_isolated:
+                    validated_events.append((idx, event_type))
+                    valid_event_indices.add(idx)
+        
+        # Sort all events by index again after adding isolated peaks
+        validated_events.sort(key=lambda x: x[0])
+        
+        # 5. Return only the indices of the validated peaks
+        validated_peaks = np.array([idx for idx, event_type in validated_events if event_type == 1], dtype=int)
+        
+        return validated_peaks
+
     @classmethod
     def IS_CHANGED(elf, input_signal_id, show_peaks, output_signal_id, enabled):
         return float("NaN")
@@ -56,7 +174,7 @@ class RRNode:
         #--- Initialize signal registry and buffers ---
         registry = SignalRegistry.get_instance()
         fs = 1000  # RR typical sampling frequency
-        viz_window_sec = 10
+        viz_window_sec = 60
         viz_buffer_size = fs * viz_window_sec
         feature_buffer_size = viz_buffer_size + fs
         feature_values_deque = deque(maxlen=feature_buffer_size)
@@ -157,19 +275,19 @@ class RRNode:
                 effective_fs = fs / decimation_factor
             # Pre-process RR with bandpass filter adapted for RR (0.1-1 Hz)
             lowcut = 0.1
-            highcut = 2
+            highcut = 1
             filtered_rr = NumpySignalProcessor.bandpass_filter(
                 feature_values,
                 lowcut=lowcut,
                 highcut=highcut,
                 fs=effective_fs
             )
-            #print(f"[RR_NODE_DEBUG] filtered_rr len: {len(filtered_rr)}, first 5: {filtered_rr[:5]}") # DEBUG PRINT
-            # Calculate RR and maintain recent peak times
-            detected_peaks = NumpySignalProcessor.find_peaks(filtered_rr, fs=effective_fs)
-            #print(f"[RR_NODE_DEBUG] detected_peaks: {detected_peaks}") # DEBUG PRINT
+            
+            # --- Use the new validation method to find peaks ---
+            detected_peaks = RRNode.validate_breathing_events(filtered_rr, fs=effective_fs)
+            
             # Validate peaks with lag-based edge avoidance (similar to ECG)
-            peaks =  detected_peaks# RR.validate_rr_peaks(filtered_rr, detected_peaks, lag=50, match_window=20)
+            peaks = detected_peaks
             avg_rr = 0.0
             if isinstance(peaks, np.ndarray) and len(peaks) > 0 and len(feature_timestamps) > 0:
                 peak_times = feature_timestamps[peaks]
