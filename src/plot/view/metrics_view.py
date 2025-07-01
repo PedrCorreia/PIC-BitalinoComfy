@@ -151,8 +151,13 @@ class MetricsView:
                         if t.size > 1 and v.size > 1:
                             t0, t1 = t[0], t[-1]
                             t_norm = (t - t0) / (t1 - t0) if t1 != t0 else np.zeros_like(t)
-                            v_min_val, v_max_val = np.min(v), np.max(v) # Renamed to avoid conflict
-                            v_norm = (v - v_min_val) / (v_max_val - v_min_val) if v_max_val != v_min_val else np.zeros_like(v)
+                            
+                            # Use STATIC Y-axis ranges from config (physiological expected ranges)
+                            v_min_expected, v_max_expected = min_v, max_v  # From metric config
+                            v_norm = (v - v_min_expected) / (v_max_expected - v_min_expected) if v_max_expected != v_min_expected else np.zeros_like(v)
+                            # Clamp normalized values to [0,1] range to handle out-of-range data gracefully
+                            v_norm = np.clip(v_norm, 0.0, 1.0)
+                            
                             pts = [
                                 (int(plot_rect.left + 40 + tx * (plot_rect.width - 80)),
                                  int(plot_rect.top + 10 + (1 - vy) * (plot_rect.height - 40)))
@@ -177,11 +182,11 @@ class MetricsView:
                             t1_surface = font.render(fmt_time(t1), True, (120, 120, 120))
                             screen.blit(t0_surface, (plot_rect.left + 40, plot_rect.bottom - 18))
                             screen.blit(t1_surface, (plot_rect.right - 40 - t1_surface.get_width(), plot_rect.bottom - 18))
-                            # --- Draw min/max value at left/right of plot ---
-                            vmin_surface = font.render(f"{v_min_val:.1f}", True, (120, 120, 120))
-                            vmax_surface = font.render(f"{v_max_val:.1f}", True, (120, 120, 120))
-                            screen.blit(vmin_surface, (plot_rect.left + 8, plot_rect.top + plot_rect.height // 2 - vmin_surface.get_height() // 2))
-                            screen.blit(vmax_surface, (plot_rect.right - 8 - vmax_surface.get_width(), plot_rect.top + plot_rect.height // 2 - vmax_surface.get_height() // 2))
+                            # --- Draw min/max expected values at left/right of plot ---
+                            vmin_surface = font.render(f"{min_v:.1f}", True, (120, 120, 120))
+                            vmax_surface = font.render(f"{max_v:.1f}", True, (120, 120, 120))
+                            screen.blit(vmin_surface, (plot_rect.left + 8, plot_rect.bottom - 20 - vmin_surface.get_height()))
+                            screen.blit(vmax_surface, (plot_rect.left + 8, plot_rect.top + 10))
                             plot_drawn = True
             except Exception as e:
                 print(f"[MetricsView DEBUG] Metric '{label}': Exception during plot drawing: {e}") 
@@ -235,7 +240,7 @@ class MetricsView:
                 fill_w = int(bar_w_val * norm)
                 pygame.draw.rect(screen, bar_color, (bar_x_pos, bar_y_pos, fill_w, bar_h), border_radius=6)
                 min_surface = font.render(f"{min_v:.1f}", True, (180, 180, 180))
-                max_surface = font.render(f"{v_max_val:.1f}", True, (180, 180, 180))
+                max_surface = font.render(f"{max_v:.1f}", True, (180, 180, 180))
                 screen.blit(min_surface, (bar_x_pos - min_surface.get_width() - 5, bar_y_pos + bar_h//2 - min_surface.get_height()//2))
                 screen.blit(max_surface, (bar_x_pos + bar_w_val + 5, bar_y_pos + bar_h//2 - max_surface.get_height()//2))
                 val_surface = small_font.render(f"{last_val:.2f}", True, (220, 220, 220, 160))

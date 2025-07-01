@@ -72,18 +72,7 @@ class StatusBar:
         self.surface.blit(runtime_surface, (x, y_center - runtime_surface.get_height() // 2))
         x += runtime_surface.get_width() + SECTION_MARGIN
 
-        # Latency (next to runtime)
-        if latency < LOW_LATENCY_THRESHOLD:
-            latency_color = OK_COLOR
-        elif latency < HIGH_LATENCY_THRESHOLD:
-            latency_color = WARNING_COLOR
-        else:
-            latency_color = ERROR_COLOR
-        latency_ms = latency * 1000
-        latency_text = f"Latency: {latency_ms:.1f} ms"
-        latency_surface = self.font.render(latency_text, True, latency_color)
-        self.surface.blit(latency_surface, (x, y_center - latency_surface.get_height() // 2))
-        x += latency_surface.get_width() + SECTION_MARGIN
+        # NOTE: Latency display removed per user request
 
         # Signal info (centered if available)
         if signal_times and len(signal_times) > 0:
