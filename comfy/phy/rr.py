@@ -174,9 +174,21 @@ class RRNode:
         #--- Initialize signal registry and buffers ---
         registry = SignalRegistry.get_instance()
         fs = 1000  # RR typical sampling frequency
-        viz_window_sec = 60
+        viz_window_sec = 30  # Changed to 30 seconds as requested
         viz_buffer_size = fs * viz_window_sec
-        feature_buffer_size = viz_buffer_size + fs
+        
+        # Feature buffer should preserve 30 seconds but accounting for downsampling
+        feature_window_sec = 30  # Also 30 seconds for features
+        # Calculate decimation factor first to determine actual feature buffer size
+        nyquist_fs = fs / 2
+        max_frequency_interest = 1000  # RR rarely above 1 Hz (60 bpm)
+        decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
+        use_decimation = decimation_factor > 1
+        
+        # Feature buffer size accounts for downsampling - preserves 30 seconds of downsampled data
+        effective_fs_after_decimation = fs // decimation_factor if use_decimation else fs
+        feature_buffer_size = effective_fs_after_decimation * feature_window_sec + effective_fs_after_decimation  # +1 second safety margin
+        
         feature_values_deque = deque(maxlen=feature_buffer_size)
         feature_timestamps_deque = deque(maxlen=feature_buffer_size)
         viz_values_deque = deque(maxlen=viz_buffer_size)
@@ -187,13 +199,14 @@ class RRNode:
         processing_interval = 0.033 # 30 Hz processing rate
         start_time = None
         # --- Filtering parameters for RR, adapted for decimation if needed ---
-        nyquist_fs = fs / 2
-        max_frequency_interest = 1000  # RR rarely above 1 Hz (60 bpm)
-        decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
-        use_decimation = decimation_factor > 1
 
-        # Deque for storing (timestamp, rr_value) for RR_METRIC
-        rr_metrics_deque = deque(maxlen=viz_buffer_size) # Match viz buffer size for now
+        # RR metrics buffer: preserve 30 seconds of RR data 
+        # For RR metrics, we need much fewer samples - typical RR is 10-30 breaths/min
+        # So for 30 seconds, we need max ~15 RR values, but use buffer for safety
+        rr_metrics_window_sec = 30.0    # 30 seconds for RR metrics
+        rr_metrics_update_rate = 3.0    # Approximately 3 Hz for RR updates (conservative)
+        rr_metrics_buffer_size = int(rr_metrics_window_sec * rr_metrics_update_rate)  
+        rr_metrics_deque = deque(maxlen=rr_metrics_buffer_size)
 
         while not stop_flag[0]:
             current_time = time.time()
@@ -221,45 +234,47 @@ class RRNode:
             meta_start_time = meta['start_time'] if meta and 'start_time' in meta else None
             if start_time is None and len(feature_timestamps_deque) > 0:
                 start_time = time.time() - feature_timestamps_deque[0]
-            # Only append new data
-            if len(viz_timestamps_deque) > 0 and len(timestamps) > 0:
-                last_ts = viz_timestamps_deque[-1]
-                new_data_idx = np.searchsorted(timestamps, last_ts, side='right')
-                if new_data_idx < len(timestamps):
-                    if use_decimation:
-                        remaining_points = min(len(timestamps), len(values)) - new_data_idx
-                        if remaining_points > 0:
-                            max_index = new_data_idx + remaining_points
-                            new_timestamps = timestamps[new_data_idx:max_index]
-                            new_values = values[new_data_idx:max_index]
-                            decimated_values = NumpySignalProcessor.robust_decimate(new_values, decimation_factor)
-                            decimated_timestamps = np.linspace(new_timestamps[0], new_timestamps[-1], num=len(decimated_values)) if len(new_timestamps) > 1 else new_timestamps
-                            viz_timestamps_deque.extend(decimated_timestamps)
-                            viz_values_deque.extend(decimated_values)
-                            # Ensure feature deques also get decimated data if decimation is used
-                            feature_timestamps_deque.extend(decimated_timestamps)
-                            feature_values_deque.extend(decimated_values)
+            # Process all new data - simplified logic for rotating deques
+            # When deques are full, they automatically rotate old data out
+            if use_decimation:
+                if len(timestamps) > 1:
+                    decimated_values = NumpySignalProcessor.robust_decimate(values, decimation_factor)
+                    decimated_timestamps = np.linspace(timestamps[0], timestamps[-1], num=len(decimated_values)) if len(timestamps) > 1 else timestamps
+                    
+                    # For rotating deques, we need to check if we have genuinely new data
+                    # Compare with the last few timestamps to avoid duplicate processing
+                    if len(viz_timestamps_deque) > 0:
+                        last_processed_time = viz_timestamps_deque[-1]
+                        # Only add data that's newer than what we last processed
+                        new_mask = decimated_timestamps > last_processed_time
+                        if np.any(new_mask):
+                            new_decimated_timestamps = decimated_timestamps[new_mask]
+                            new_decimated_values = decimated_values[new_mask]
+                            viz_timestamps_deque.extend(new_decimated_timestamps)
+                            viz_values_deque.extend(new_decimated_values)
+                            feature_timestamps_deque.extend(new_decimated_timestamps)
+                            feature_values_deque.extend(new_decimated_values)
                     else:
-                        viz_timestamps_deque.extend(timestamps[new_data_idx:])
-                        viz_values_deque.extend(values[new_data_idx:])
-                        feature_timestamps_deque.extend(timestamps[new_data_idx:])
-                        feature_values_deque.extend(values[new_data_idx:])
-            else: # Initial fill of the deques
-                if use_decimation:
-                    if len(timestamps) > 1:
-                        decimated_values = NumpySignalProcessor.robust_decimate(values, decimation_factor)
-                        decimated_timestamps = np.linspace(timestamps[0], timestamps[-1], num=len(decimated_values))
+                        # First time processing - add all data
                         viz_timestamps_deque.extend(decimated_timestamps)
                         viz_values_deque.extend(decimated_values)
-                        # Ensure feature deques also get decimated data if decimation is used
                         feature_timestamps_deque.extend(decimated_timestamps)
                         feature_values_deque.extend(decimated_values)
-                    # If len(timestamps) <= 1, robust_decimate might not be ideal,
-                    # and extending with non-decimated (original) points might be safer
-                    # or simply skip if not enough points for decimation.
-                    # Current logic correctly handles if len(timestamps) > 1.
-                    # If timestamps has 1 point, it won't decimate, deques remain empty until more data.
+            else:
+                # For rotating deques, check for new data based on timestamps
+                if len(viz_timestamps_deque) > 0:
+                    last_processed_time = viz_timestamps_deque[-1]
+                    # Only add data that's newer than what we last processed
+                    new_mask = timestamps > last_processed_time
+                    if np.any(new_mask):
+                        new_timestamps = timestamps[new_mask]
+                        new_values = values[new_mask]
+                        viz_timestamps_deque.extend(new_timestamps)
+                        viz_values_deque.extend(new_values)
+                        feature_timestamps_deque.extend(new_timestamps)
+                        feature_values_deque.extend(new_values)
                 else:
+                    # First time processing - add all data
                     viz_timestamps_deque.extend(timestamps)
                     viz_values_deque.extend(values)
                     feature_timestamps_deque.extend(timestamps)
@@ -383,11 +398,16 @@ class RRNode:
 
   
 
+            # Hash for registry update optimization - include deque length and range to detect rotation
             data_hash = hash((
-                tuple(viz_timestamps_window[-5:]),
-                tuple(filtered_viz_rr[-5:]),
+                len(viz_timestamps_window),  # Length changes when deque rotates
+                tuple(viz_timestamps_window[-5:]) if len(viz_timestamps_window) >= 5 else tuple(viz_timestamps_window),
+                tuple(viz_timestamps_window[:3]) if len(viz_timestamps_window) >= 3 else tuple(),  # First few values change on rotation
+                tuple(filtered_viz_rr[-5:]) if len(filtered_viz_rr) >= 5 else tuple(filtered_viz_rr),
                 tuple(peak_timestamps_in_window[-3:] if peak_timestamps_in_window else []),
-                avg_rr
+                avg_rr,
+                viz_timestamps_window[0] if len(viz_timestamps_window) > 0 else 0,  # First timestamp changes on rotation
+                viz_timestamps_window[-1] if len(viz_timestamps_window) > 0 else 0  # Last timestamp always changes
             ))
             # if data_hash == last_registry_data_hash: # Reverted debug change
             # time.sleep(0.01) # Reverted debug change

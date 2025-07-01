@@ -50,20 +50,32 @@ class EDANode:
         nyquist_fs = fs / 2
         viz_window_sec = 40
         viz_buffer_size = fs * viz_window_sec
-        feature_buffer_size = viz_buffer_size + fs
+        
+        # Feature buffer should preserve 1 minute (60 seconds) of data, accounting for decimation
+        feature_window_sec = 60  # 1 minute for EDA features
+        max_frequency_interest = 10  # EDA rarely above 10 Hz
+        decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
+        use_decimation = decimation_factor > 1
+        
+        # Feature buffer size accounts for downsampling - preserves 60 seconds of decimated data
+        effective_fs_after_decimation = fs // decimation_factor if use_decimation else fs
+        feature_buffer_size = effective_fs_after_decimation * feature_window_sec + effective_fs_after_decimation  # +1 second safety margin
+        
         feature_values_deque = deque(maxlen=feature_buffer_size)
         feature_timestamps_deque = deque(maxlen=feature_buffer_size)
         viz_values_deque = deque(maxlen=viz_buffer_size)
         viz_timestamps_deque = deque(maxlen=viz_buffer_size)
-        metrics_buffer_size = 300  # e.g., 5 minutes at 1Hz
+        
+        # EDA metrics buffer: preserve 2 minutes of metric data at ~1Hz rate  
+        eda_metrics_window_sec = 120.0  # 2 minutes for EDA metrics
+        eda_metrics_update_rate = 1.0   # Approximately 1 Hz for metrics
+        eda_metrics_buffer_size = int(eda_metrics_window_sec * eda_metrics_update_rate)
+        metrics_deque = deque(maxlen=eda_metrics_buffer_size)
+        
         last_registry_data_hash = None
         last_process_time = time.time()
         processing_interval = 0.033
         start_time = None
-        metrics_deque = deque(maxlen=metrics_buffer_size)
-        max_frequency_interest = 250  # EDA is low freq, but keep for decimation logic
-        decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
-        use_decimation = decimation_factor > 1
         while not stop_flag[0]:
             current_time = time.time()
             if current_time - last_process_time < processing_interval:
@@ -89,38 +101,47 @@ class EDANode:
             if start_time is None and len(feature_timestamps_deque) > 0:
                 start_time = time.time() - feature_timestamps_deque[0]
 
-            # Only append new data (timestamp-based, like ECG)
-            if len(viz_timestamps_deque) > 0 and len(timestamps) > 0:
-                last_ts = viz_timestamps_deque[-1]
-                new_data_idx = np.searchsorted(timestamps, last_ts, side='right')
-                if new_data_idx < len(timestamps):
-                    if use_decimation:
-                        remaining_points = min(len(timestamps), len(values)) - new_data_idx
-                        if remaining_points > 0:
-                            max_index = new_data_idx + remaining_points
-                            new_timestamps = timestamps[new_data_idx:max_index]
-                            new_values = values[new_data_idx:max_index]
-                            decimated_values = NumpySignalProcessor.robust_decimate(new_values, decimation_factor)
-                            decimated_timestamps = np.linspace(new_timestamps[0], new_timestamps[-1], num=len(decimated_values)) if len(new_timestamps) > 1 else new_timestamps
-                            viz_timestamps_deque.extend(decimated_timestamps)
-                            viz_values_deque.extend(decimated_values)
-                            feature_timestamps_deque.extend(decimated_timestamps)
-                            feature_values_deque.extend(decimated_values)
+            # Process all new data - simplified logic for rotating deques
+            # When deques are full, they automatically rotate old data out
+            if use_decimation:
+                if len(timestamps) > 1:
+                    decimated_values = NumpySignalProcessor.robust_decimate(values, decimation_factor)
+                    decimated_timestamps = np.linspace(timestamps[0], timestamps[-1], num=len(decimated_values)) if len(timestamps) > 1 else timestamps
+                    
+                    # For rotating deques, we need to check if we have genuinely new data
+                    # Compare with the last few timestamps to avoid duplicate processing
+                    if len(viz_timestamps_deque) > 0:
+                        last_processed_time = viz_timestamps_deque[-1]
+                        # Only add data that's newer than what we last processed
+                        new_mask = decimated_timestamps > last_processed_time
+                        if np.any(new_mask):
+                            new_decimated_timestamps = decimated_timestamps[new_mask]
+                            new_decimated_values = decimated_values[new_mask]
+                            viz_timestamps_deque.extend(new_decimated_timestamps)
+                            viz_values_deque.extend(new_decimated_values)
+                            feature_timestamps_deque.extend(new_decimated_timestamps)
+                            feature_values_deque.extend(new_decimated_values)
                     else:
-                        viz_timestamps_deque.extend(timestamps[new_data_idx:])
-                        viz_values_deque.extend(values[new_data_idx:])
-                        feature_timestamps_deque.extend(timestamps[new_data_idx:])
-                        feature_values_deque.extend(values[new_data_idx:])
-            else:
-                if use_decimation:
-                    if len(timestamps) > 1:
-                        decimated_values = NumpySignalProcessor.robust_decimate(values, decimation_factor)
-                        decimated_timestamps = np.linspace(timestamps[0], timestamps[-1], num=len(decimated_values))
+                        # First time processing - add all data
                         viz_timestamps_deque.extend(decimated_timestamps)
                         viz_values_deque.extend(decimated_values)
                         feature_timestamps_deque.extend(decimated_timestamps)
                         feature_values_deque.extend(decimated_values)
+            else:
+                # For rotating deques, check for new data based on timestamps
+                if len(viz_timestamps_deque) > 0:
+                    last_processed_time = viz_timestamps_deque[-1]
+                    # Only add data that's newer than what we last processed
+                    new_mask = timestamps > last_processed_time
+                    if np.any(new_mask):
+                        new_timestamps = timestamps[new_mask]
+                        new_values = values[new_mask]
+                        viz_timestamps_deque.extend(new_timestamps)
+                        viz_values_deque.extend(new_values)
+                        feature_timestamps_deque.extend(new_timestamps)
+                        feature_values_deque.extend(new_values)
                 else:
+                    # First time processing - add all data
                     viz_timestamps_deque.extend(timestamps)
                     viz_values_deque.extend(values)
                     feature_timestamps_deque.extend(timestamps)

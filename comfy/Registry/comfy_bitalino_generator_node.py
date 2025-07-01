@@ -8,6 +8,7 @@ import numpy as np
 from ...src.registry.signal_registry import SignalRegistry
 import threading
 import time
+import atexit
 from ...src.utils.bitalino_receiver_PIC import BitalinoReceiver
 from ...src.registry.signal_registry import SignalRegistry
 
@@ -18,10 +19,28 @@ class BITSignalGeneratorNode:
     _bitalino_instances = {}
     _last_registry_index = {}  # Track last index per (key, channel)
     _signal_buffer_sizes = {}  # Track individual buffer sizes per signal
+    _cleanup_registered = False  # Track if cleanup is registered
+    
+    @classmethod
+    def _register_cleanup(cls):
+        """Register cleanup on exit if not already registered"""
+        if not cls._cleanup_registered:
+            atexit.register(cls._cleanup_all)
+            cls._cleanup_registered = True
+    
+    @classmethod  
+    def _cleanup_all(cls):
+        """Cleanup all instances on program exit"""
+        print("[BitalinoGenerator] Program exit cleanup")
+        # Create a temporary instance to call cleanup
+        temp_instance = cls()
+        temp_instance.cleanup()
 
     def __init__(self):
         # Step 19: Initializing LRBitalinoReceiver
         print("Step 19: Initializing LRBitalinoReceiver")
+        # Register cleanup on first instance creation
+        self._register_cleanup()
 
 
     @classmethod
@@ -70,23 +89,25 @@ class BITSignalGeneratorNode:
         if key not in self._last_registry_index:
             self._last_registry_index[key] = [0] * 6  # up to 6 channels
             
-        # Set appropriate update interval based on sampling frequency
-        # Fast updates for good signal quality while preventing flickering
+        # Set faster update intervals for better responsiveness
         if update_interval is None:
             # Get sampling_freq from key (it's the second element in the tuple)
             sampling_freq = key[1]
             if sampling_freq >= 1000:
-                update_interval = 0.02  # 50Hz updates for 1000Hz sampling
+                update_interval = 0.01  # 100Hz updates for 1000Hz sampling
             elif sampling_freq >= 100:
-                update_interval = 0.05  # 20Hz updates for 100Hz sampling
+                update_interval = 0.02  # 50Hz updates for 100Hz sampling
             else:
-                update_interval = 0.1   # 10Hz updates for slower sampling
+                update_interval = 0.05  # 20Hz updates for slower sampling
             
         # Get sampling frequency from key for metadata
         sampling_freq = key[1]
         
         start_time = None
         last_buffer_sizes = [0] * len(signal_ids)  # Track buffer sizes to detect significant changes
+        last_forced_update = [0.0] * len(signal_ids)  # Track last forced update time per signal
+        forced_update_interval = 0.1  # Force update every 100ms when buffer is rotating
+        
         while not stop_flag['stop']:
             update_start = time.perf_counter()
             
@@ -99,13 +120,32 @@ class BITSignalGeneratorNode:
                 buf = buffers[i]
                 current_size = len(buf) if buf else 0
                 
-                # Only update if buffer size changed by more than 1% to reduce flickering
-                size_change_threshold = max(5, last_buffer_sizes[i] * 0.01)
+                # Individual buffer size for this signal
+                signal_buffer_size = buffer_sizes[i]
+                
+                # More sensitive updates for faster response
+                size_change_threshold = max(2, last_buffer_sizes[i] * 0.005)  # 0.5% change threshold
                 significant_change = abs(current_size - last_buffer_sizes[i]) > size_change_threshold
                 
-                if significant_change and current_size > 0:
-                    # Use individual buffer size for this signal
-                    signal_buffer_size = buffer_sizes[i]
+                # CRITICAL FIX: When deque is at max capacity, it rotates data but size stays constant
+                # We need to check if the buffer content has changed, not just size
+                at_max_capacity = current_size >= signal_buffer_size * 0.95  # 95% of max capacity
+                buffer_is_rotating = current_size == signal_buffer_size  # Deque at exact max size means rotation
+                
+                # Time-based forced update for rotating buffers
+                time_since_last_forced = update_start - last_forced_update[i]
+                needs_forced_update = buffer_is_rotating and time_since_last_forced > forced_update_interval
+                
+                # Always update when:
+                # 1. Significant size change (buffer growing)
+                # 2. Buffer is rotating and needs time-based update
+                # 3. Buffer has any data and we haven't updated recently
+                should_update = (significant_change or needs_forced_update) and current_size > 0
+                
+                if needs_forced_update:
+                    last_forced_update[i] = update_start
+                
+                if should_update:
                     
                     # NEVER downsample during acquisition - preserve all raw data
                     # Send all data from the buffer
@@ -134,9 +174,9 @@ class BITSignalGeneratorNode:
                     registry.register_signal(sid, {"t": [], "v": []})
                     last_buffer_sizes[i] = 0
             
-            # Fast updates for good signal quality
+            # Very fast updates for maximum responsiveness
             elapsed = time.perf_counter() - update_start
-            sleep_time = max(0.005, update_interval - elapsed)  # Minimum 5ms sleep for responsiveness
+            sleep_time = max(0.001, update_interval - elapsed)  # Minimum 1ms sleep for maximum speed
             time.sleep(sleep_time)
 
     def generate_bitalino(self, sampling_freq, duration_sec, bitalino_mac_address,
@@ -192,7 +232,30 @@ class BITSignalGeneratorNode:
         return tuple(ids)
 
     def __del__(self):
+        self.cleanup()
+    
+    def cleanup(self):
+        """Properly cleanup all Bitalino instances and stop all threads"""
+        print("[BitalinoGenerator] Cleanup called - stopping all instances")
+        
+        # Stop all background threads first
         for stop_flag in self._stop_flags.values():
             stop_flag['stop'] = True
+        
+        # Stop all Bitalino receiver instances
+        for key, bitalino_instance in self._bitalino_instances.items():
+            try:
+                print(f"[BitalinoGenerator] Stopping Bitalino instance: {key}")
+                if hasattr(bitalino_instance, 'stop'):
+                    bitalino_instance.stop()
+                if hasattr(bitalino_instance, 'data_compiler') and bitalino_instance.data_compiler:
+                    bitalino_instance.data_compiler.stop()
+            except Exception as e:
+                print(f"[BitalinoGenerator] Error stopping Bitalino instance {key}: {e}")
+        
+        # Clear all instances
+        self._bitalino_instances.clear()
+        self._stop_flags.clear()
+        print("[BitalinoGenerator] All instances stopped")
 
 

@@ -60,7 +60,17 @@ class ECGNode:
         nyquist_fs = fs / 2  # Nyquist frequency
         viz_window_sec = 10
         viz_buffer_size = fs * viz_window_sec
-        feature_buffer_size = viz_buffer_size + fs
+        
+        # --- define decimation_factor and use_decimation ---
+        max_frequency_interest = 400  # Hz for QRS complex
+        decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
+        use_decimation = decimation_factor > 1
+        
+        # ECG feature buffer: preserve 15 seconds of data, accounting for decimation
+        feature_window_sec = 15.0  # 15 seconds for ECG features
+        effective_fs = fs / decimation_factor if use_decimation else fs
+        feature_buffer_size = int(effective_fs * feature_window_sec)
+        
         feature_values_deque = deque(maxlen=feature_buffer_size)
         feature_timestamps_deque = deque(maxlen=feature_buffer_size)
         viz_values_deque = deque(maxlen=viz_buffer_size)
@@ -69,12 +79,11 @@ class ECGNode:
         last_registry_data_hash = None
         last_process_time = time.time()
         processing_interval = 0.033
-        # --- define decimation_factor and use_decimation ---
-        max_frequency_interest = 400  # Hz for QRS complex
-        decimation_factor = max(1, int(nyquist_fs / max_frequency_interest))
-        use_decimation = decimation_factor > 1
         start_time = None
-        metrics_buffer_size = 300  # e.g., 5 minutes at 1Hz
+        # ECG metrics buffer: preserve 5 minutes of HR data at ~1Hz update rate
+        metrics_window_sec = 300.0  # 5 minutes for HR metrics
+        metrics_update_rate = 1.0   # Approximately 1 Hz for metrics
+        metrics_buffer_size = int(metrics_window_sec * metrics_update_rate)
         metrics_deque = deque(maxlen=metrics_buffer_size)
         while not stop_flag[0]:
             current_time = time.time()
@@ -103,38 +112,47 @@ class ECGNode:
             if start_time is None and len(feature_timestamps_deque) > 0:
                 start_time = time.time() - feature_timestamps_deque[0]
                 
-            # Only append new data
-            if len(viz_timestamps_deque) > 0 and len(timestamps) > 0:
-                last_ts = viz_timestamps_deque[-1]
-                new_data_idx = np.searchsorted(timestamps, last_ts, side='right')
-                if new_data_idx < len(timestamps):
-                    if use_decimation:
-                        remaining_points = min(len(timestamps), len(values)) - new_data_idx
-                        if remaining_points > 0:
-                            max_index = new_data_idx + remaining_points
-                            new_timestamps = timestamps[new_data_idx:max_index]
-                            new_values = values[new_data_idx:max_index]
-                            decimated_values = NumpySignalProcessor.robust_decimate(new_values, decimation_factor)
-                            decimated_timestamps = np.linspace(new_timestamps[0], new_timestamps[-1], num=len(decimated_values)) if len(new_timestamps) > 1 else new_timestamps
-                            viz_timestamps_deque.extend(decimated_timestamps)
-                            viz_values_deque.extend(decimated_values)
-                            feature_timestamps_deque.extend(decimated_timestamps)
-                            feature_values_deque.extend(decimated_values)
+            # Process all new data - simplified logic for rotating deques
+            # When deques are full, they automatically rotate old data out
+            if use_decimation:
+                if len(timestamps) > 1:
+                    decimated_values = NumpySignalProcessor.robust_decimate(values, decimation_factor)
+                    decimated_timestamps = np.linspace(timestamps[0], timestamps[-1], num=len(decimated_values)) if len(timestamps) > 1 else timestamps
+                    
+                    # For rotating deques, we need to check if we have genuinely new data
+                    # Compare with the last few timestamps to avoid duplicate processing
+                    if len(viz_timestamps_deque) > 0:
+                        last_processed_time = viz_timestamps_deque[-1]
+                        # Only add data that's newer than what we last processed
+                        new_mask = decimated_timestamps > last_processed_time
+                        if np.any(new_mask):
+                            new_decimated_timestamps = decimated_timestamps[new_mask]
+                            new_decimated_values = decimated_values[new_mask]
+                            viz_timestamps_deque.extend(new_decimated_timestamps)
+                            viz_values_deque.extend(new_decimated_values)
+                            feature_timestamps_deque.extend(new_decimated_timestamps)
+                            feature_values_deque.extend(new_decimated_values)
                     else:
-                        viz_timestamps_deque.extend(timestamps[new_data_idx:])
-                        viz_values_deque.extend(values[new_data_idx:])
-                        feature_timestamps_deque.extend(timestamps[new_data_idx:])
-                        feature_values_deque.extend(values[new_data_idx:])
-            else:
-                if use_decimation:
-                    if len(timestamps) > 1:
-                        decimated_values = NumpySignalProcessor.robust_decimate(values, decimation_factor)
-                        decimated_timestamps = np.linspace(timestamps[0], timestamps[-1], num=len(decimated_values))
+                        # First time processing - add all data
                         viz_timestamps_deque.extend(decimated_timestamps)
                         viz_values_deque.extend(decimated_values)
                         feature_timestamps_deque.extend(decimated_timestamps)
                         feature_values_deque.extend(decimated_values)
+            else:
+                # For rotating deques, check for new data based on timestamps
+                if len(viz_timestamps_deque) > 0:
+                    last_processed_time = viz_timestamps_deque[-1]
+                    # Only add data that's newer than what we last processed
+                    new_mask = timestamps > last_processed_time
+                    if np.any(new_mask):
+                        new_timestamps = timestamps[new_mask]
+                        new_values = values[new_mask]
+                        viz_timestamps_deque.extend(new_timestamps)
+                        viz_values_deque.extend(new_values)
+                        feature_timestamps_deque.extend(new_timestamps)
+                        feature_values_deque.extend(new_values)
                 else:
+                    # First time processing - add all data
                     viz_timestamps_deque.extend(timestamps)
                     viz_values_deque.extend(values)
                     feature_timestamps_deque.extend(timestamps)
@@ -224,12 +242,16 @@ class ECGNode:
                 if filtered_max != filtered_min and viz_max != viz_min:
                     filtered_viz_ecg = (filtered_viz_ecg - filtered_min) / (filtered_max - filtered_min) * (viz_max - viz_min) + viz_min
                   
-            # Hash for registry update optimization - use fewer samples for hashing
+            # Hash for registry update optimization - include deque length and range to detect rotation
             data_hash = hash((
-                tuple(viz_timestamps_window[-5:]), 
-                tuple(filtered_viz_ecg[-5:]), 
+                len(viz_timestamps_window),  # Length changes when deque rotates
+                tuple(viz_timestamps_window[-5:]) if len(viz_timestamps_window) >= 5 else tuple(viz_timestamps_window), 
+                tuple(viz_timestamps_window[:3]) if len(viz_timestamps_window) >= 3 else tuple(),  # First few values change on rotation
+                tuple(filtered_viz_ecg[-5:]) if len(filtered_viz_ecg) >= 5 else tuple(filtered_viz_ecg), 
                 tuple(peak_timestamps_in_window[-3:] if peak_timestamps_in_window else []), 
-                avg_hr
+                avg_hr,
+                viz_timestamps_window[0] if len(viz_timestamps_window) > 0 else 0,  # First timestamp changes on rotation
+                viz_timestamps_window[-1] if len(viz_timestamps_window) > 0 else 0  # Last timestamp always changes
             ))
             
             if data_hash == last_registry_data_hash:
