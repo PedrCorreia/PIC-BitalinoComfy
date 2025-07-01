@@ -2,6 +2,45 @@ import pygame
 import numpy as np
 from src.plot.constants import TEXT_COLOR
 
+class YAxisStabilizer:
+    def __init__(self, smoothing_factor=0.95, margin_factor=0.05):
+        self.smoothing_factor = smoothing_factor
+        self.margin_factor = margin_factor
+        self.current_min = None
+        self.current_max = None
+
+    def update(self, v_min, v_max):
+        # Calculate margin based on the range of the data
+        data_range = v_max - v_min
+        if data_range < 1e-6:  # Handle flat line
+            data_range = 1.0
+        
+        margin = data_range * self.margin_factor
+        target_min = v_min - margin
+        target_max = v_max + margin
+
+        if self.current_min is None or self.current_max is None:
+            self.current_min = target_min
+            self.current_max = target_max
+        else:
+            # Smoothly update the current min and max
+            self.current_min = self.smoothing_factor * self.current_min + (1 - self.smoothing_factor) * target_min
+            self.current_max = self.smoothing_factor * self.current_max + (1 - self.smoothing_factor) * target_max
+        
+        # Ensure min and max are not the same
+        if abs(self.current_max - self.current_min) < 1e-6:
+            self.current_max = self.current_min + 1.0
+
+        return self.current_min, self.current_max
+
+# Global registry for Y-axis stabilizers
+y_axis_stabilizers = {}
+
+def get_stabilizer(signal_id):
+    if signal_id not in y_axis_stabilizers:
+        y_axis_stabilizers[signal_id] = YAxisStabilizer()
+    return y_axis_stabilizers[signal_id]
+
 def draw_signal_plot(screen, font, signal, x, y, w, h, show_time_markers=False, window_sec=None,mode='default'):
 
     if mode == 'default':

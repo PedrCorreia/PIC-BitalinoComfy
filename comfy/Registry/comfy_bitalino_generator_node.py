@@ -17,6 +17,7 @@ class BITSignalGeneratorNode:
     _stop_flags = {}
     _bitalino_instances = {}
     _last_registry_index = {}  # Track last index per (key, channel)
+    _signal_buffer_sizes = {}  # Track individual buffer sizes per signal
 
     def __init__(self):
         # Step 19: Initializing LRBitalinoReceiver
@@ -36,7 +37,12 @@ class BITSignalGeneratorNode:
                 "channel_4": ("BOOLEAN", {"default": False}),
                 "channel_5": ("BOOLEAN", {"default": False}),
                 "channel_6": ("BOOLEAN", {"default": False}),
-                "buffer_size": ("INT", {"default": 1000, "min": 10, "max": 10000}),
+                "buffer_size_1": ("INT", {"default": 1000, "min": 10, "max": 1000000}),
+                "buffer_size_2": ("INT", {"default": 1000, "min": 10, "max": 1000000}),
+                "buffer_size_3": ("INT", {"default": 1000, "min": 10, "max": 1000000}),
+                "buffer_size_4": ("INT", {"default": 1000, "min": 10, "max": 1000000}),
+                "buffer_size_5": ("INT", {"default": 1000, "min": 10, "max": 1000000}),
+                "buffer_size_6": ("INT", {"default": 1000, "min": 10, "max": 1000000}),
                 "signal_id_1": ("STRING", {"default": "BIT_1"}),
                 "signal_id_2": ("STRING", {"default": "BIT_2"}),
                 "signal_id_3": ("STRING", {"default": "BIT_3"}),
@@ -52,7 +58,7 @@ class BITSignalGeneratorNode:
     CATEGORY = "Registry/SignalGen"
     OUTPUT_NODE = True
 
-    def _background_update(self, key, channel_bools, signal_ids, update_interval=None):
+    def _background_update(self, key, channel_bools, signal_ids, buffer_sizes, update_interval=None):
         """
         Update signal registry with BITalino data in real-time.
         Adapts update rate to sampling frequency to prevent data loss.
@@ -65,20 +71,22 @@ class BITSignalGeneratorNode:
             self._last_registry_index[key] = [0] * 6  # up to 6 channels
             
         # Set appropriate update interval based on sampling frequency
+        # Fast updates for good signal quality while preventing flickering
         if update_interval is None:
             # Get sampling_freq from key (it's the second element in the tuple)
             sampling_freq = key[1]
             if sampling_freq >= 1000:
-                update_interval = 0.01  # 100Hz updates for 1000Hz sampling
+                update_interval = 0.02  # 50Hz updates for 1000Hz sampling
             elif sampling_freq >= 100:
-                update_interval = 0.02  # 50Hz updates for 100Hz sampling
+                update_interval = 0.05  # 20Hz updates for 100Hz sampling
             else:
-                update_interval = 0.04  # 25Hz updates for slower sampling
+                update_interval = 0.1   # 10Hz updates for slower sampling
+            
+        # Get sampling frequency from key for metadata
+        sampling_freq = key[1]
         
-        # Pre-allocate these lists for efficiency
-        t_rel_lists = [[] for _ in range(len(signal_ids))]
-        v_lists = [[] for _ in range(len(signal_ids))]
         start_time = None
+        last_buffer_sizes = [0] * len(signal_ids)  # Track buffer sizes to detect significant changes
         while not stop_flag['stop']:
             update_start = time.perf_counter()
             
@@ -86,75 +94,101 @@ class BITSignalGeneratorNode:
             if len(buffers) < len(signal_ids):
                 buffers.extend([[] for _ in range(len(signal_ids) - len(buffers))])
                 
-            # Batch process all data for all signals
+            # Only update signals when buffer size changes significantly to prevent flickering
             for i, sid in enumerate(signal_ids):
                 buf = buffers[i]
-                if buf:
-                    # Clear previous lists
-                    t_rel_lists[i].clear()
-                    v_lists[i].clear()
+                current_size = len(buf) if buf else 0
+                
+                # Only update if buffer size changed by more than 1% to reduce flickering
+                size_change_threshold = max(5, last_buffer_sizes[i] * 0.01)
+                significant_change = abs(current_size - last_buffer_sizes[i]) > size_change_threshold
+                
+                if significant_change and current_size > 0:
+                    # Use individual buffer size for this signal
+                    signal_buffer_size = buffer_sizes[i]
                     
-                    # Extract all time-value pairs
-                    for ts, val in buf:
-                        t_rel_lists[i].append(ts)
-                        v_lists[i].append(val)
+                    # NEVER downsample during acquisition - preserve all raw data
+                    # Send all data from the buffer
+                    t_arr = [ts for ts, val in buf]
+                    v_arr = [val for ts, val in buf]
                     
                     # Set start_time at the moment the first sample is received
-                    if start_time is None:
+                    if start_time is None and t_arr:
                         start_time = time.time()
-                    if t_rel_lists[i]:
-                        meta = {"id": sid, "sampling_rate": sampling_freq, "start_time": start_time}
-                        registry.register_signal(sid, {"t": t_rel_lists[i], "v": v_lists[i]}, meta)
-                else:
+                        
+                    if t_arr:  # Only register if we have data
+                        meta = {
+                            "id": sid, 
+                            "sampling_rate": sampling_freq, 
+                            "start_time": start_time,
+                            "type": "raw",
+                            "actual_buffer_size": current_size,
+                            "configured_buffer_size": signal_buffer_size,
+                            "all_data_preserved": True  # No downsampling in acquisition
+                        }
+                        registry.register_signal(sid, {"t": t_arr, "v": v_arr}, meta)
+                    
+                    last_buffer_sizes[i] = current_size
+                elif current_size == 0 and last_buffer_sizes[i] != 0:
+                    # Buffer was cleared, register empty signal only once
                     registry.register_signal(sid, {"t": [], "v": []})
+                    last_buffer_sizes[i] = 0
             
-            # Adaptive sleep - only sleep for remaining time in the interval
+            # Fast updates for good signal quality
             elapsed = time.perf_counter() - update_start
-            sleep_time = max(0.001, update_interval - elapsed)  # Minimum 1ms sleep
+            sleep_time = max(0.005, update_interval - elapsed)  # Minimum 5ms sleep for responsiveness
             time.sleep(sleep_time)
 
     def generate_bitalino(self, sampling_freq, duration_sec, bitalino_mac_address,
                         channel_1, channel_2, channel_3, channel_4, channel_5, channel_6,
-                        buffer_size,
+                        buffer_size_1, buffer_size_2, buffer_size_3, buffer_size_4, buffer_size_5, buffer_size_6,
                         signal_id_1, signal_id_2, signal_id_3, signal_id_4, signal_id_5, signal_id_6):
         # Convert sampling_freq from string to integer
         sampling_freq = int(sampling_freq)
-        # Compute buffer size in samples based on duration_sec
         # Compute channel_code from booleans
         channel_bools = [channel_1, channel_2, channel_3, channel_4, channel_5, channel_6]
+        buffer_sizes = [buffer_size_1, buffer_size_2, buffer_size_3, buffer_size_4, buffer_size_5, buffer_size_6]
         channel_code = 0
         for i, active in enumerate(channel_bools):
             if active:
                 channel_code |= (1 << i)
         key = (bitalino_mac_address, sampling_freq, channel_code)
         ids = [signal_id_1, signal_id_2, signal_id_3, signal_id_4, signal_id_5, signal_id_6]
+        
         if key not in self._bitalino_instances:
             self._bitalino_instances[key] = BitalinoReceiver(
-                bitalino_mac_address, duration_sec, sampling_freq, channel_code, buffer_size
+                bitalino_mac_address, duration_sec, sampling_freq, channel_code, buffer_sizes
             )
             # Wait for device to initialize (max 5s)
             receiver = self._bitalino_instances[key]
             if hasattr(receiver, 'device_initialized'):
                 receiver.device_initialized.wait(timeout=5.0)
             self._stop_flags[key] = {'stop': False}
-            thread = threading.Thread(target=self._background_update, args=(key, channel_bools, ids), daemon=True)
+            
+            # Store individual buffer sizes for each signal
+            self._signal_buffer_sizes[key] = buffer_sizes
+            
+            thread = threading.Thread(target=self._background_update, args=(key, channel_bools, ids, buffer_sizes), daemon=True)
             self._generator_threads[key] = thread
             thread.start()
-        bitalino = self._bitalino_instances[key]
-        buffers = bitalino.get_buffers()
-        while len(buffers) < 6:
-            buffers.append([])
+            
+        # The background thread handles continuous signal registration
+        # Just return the signal IDs - initial registration happens in background thread
         registry = SignalRegistry.get_instance()
         ids = [signal_id_1, signal_id_2, signal_id_3, signal_id_4, signal_id_5, signal_id_6]
+        
+        # Only do initial registration if signals don't exist yet
         for i, sid in enumerate(ids):
-            buf = buffers[i]
-            if buf:
-                t, v = zip(*buf)
-                t0 = t[0]
-                t_rel = [float(ts) - float(t0) for ts in t]
-                registry.register_signal(sid, {"t": t_rel, "v": list(v)})
-            else:
-                registry.register_signal(sid, {"t": [], "v": []})
+            if registry.get_signal(sid) is None:
+                # Initial registration with empty values and individual buffer size
+                meta = {
+                    "id": sid, 
+                    "sampling_rate": sampling_freq, 
+                    "type": "raw",
+                    "configured_buffer_size": buffer_sizes[i]
+                }
+                registry.register_signal(sid, {"t": [], "v": []}, meta)
+                
         return tuple(ids)
 
     def __del__(self):

@@ -122,15 +122,23 @@ class NewDevice(plux.SignalsDev):
         return False
 
 class DataCompiler:
-    def __init__(self, device, buffer_size, channels):
+    def __init__(self, device, buffer_sizes, channels):
         """
         Initialize the DataCompiler with deques for the selected channels and a reference to the device.
         :param device: The Bitalino device instance.
-        :param buffer_size: The maximum size of each deque.
+        :param buffer_sizes: List of buffer sizes for each channel.
         :param channels: The number of channels to process (0 to 6).
         """
         self.device = device
-        self.buffers = [deque(maxlen=buffer_size) for _ in range(channels)]
+        # Create buffers with individual sizes for each channel
+        self.buffers = []
+        for i in range(channels):
+            if i < len(buffer_sizes):
+                buffer_size = buffer_sizes[i]
+            else:
+                buffer_size = 1000  # Default if not specified
+            self.buffers.append(deque(maxlen=buffer_size))
+            
         self.running = True
         self.lock = threading.Lock()
         self.start_ts = None
@@ -251,11 +259,18 @@ class DataCompiler:
 
     def get_buffers(self):
         """
-        Retrieve the current state of all buffers.
-        :return: A list of deques containing the compiled data for the selected channels.
+        Retrieve stable copies of buffer contents to prevent flickering.
+        Returns: A list of lists containing stable copies of the buffer data.
         """
         with self.lock:
-            return [deque(buf) for buf in self.buffers]  # Return copies for thread safety
+            # Create stable copies using list() to prevent deque-related flickering
+            stable_buffers = []
+            for buf in self.buffers:
+                if len(buf) > 0:
+                    stable_buffers.append(list(buf))
+                else:
+                    stable_buffers.append([])
+            return stable_buffers
 
     def get_latest_for_registry(self):
         """
@@ -266,11 +281,13 @@ class DataCompiler:
             return [list(buf) for buf in self.buffers]
 
 class BitalinoReceiver():
-    def __init__(self, bitalino_mac_address, acquisition_duration, sampling_freq, channel_code, buffer_size):
-        print(f"[BitalinoReceiver] __init__ called with mac={bitalino_mac_address}, duration={acquisition_duration}, freq={sampling_freq}, channel_code={channel_code}, buffer_size={buffer_size}")
+    def __init__(self, bitalino_mac_address, acquisition_duration, sampling_freq, channel_code, buffer_sizes):
+        print(f"[BitalinoReceiver] __init__ called with mac={bitalino_mac_address}, duration={acquisition_duration}, freq={sampling_freq}, channel_code={channel_code}, buffer_sizes={buffer_sizes}")
         self.device = None
         self.device_initialized = threading.Event()  # Event to signal device initialization
         self.data_compiler = None  # DataCompiler instance
+        self.buffer_sizes = buffer_sizes if isinstance(buffer_sizes, list) else [buffer_sizes] * 6  # Store individual buffer sizes
+        self._last_buffer_access = time.time()  # Track last buffer access time
 
         def bitalinoAcquisition(address, time, freq, code):  # time acquisition for each frequency
             print(f"[BitalinoReceiver] bitalinoAcquisition called with address={address}, time={time}, freq={freq}, code={code}")
@@ -320,7 +337,19 @@ class BitalinoReceiver():
             # Start the DataCompiler for the selected channels
             num_channels = bin(channel_code).count('1')
             print(f"[BitalinoReceiver] Starting DataCompiler with {num_channels} channels")
-            self.data_compiler = DataCompiler(self.device, buffer_size, num_channels)
+            
+            # Extract buffer sizes for active channels only
+            active_buffer_sizes = []
+            channel_idx = 0
+            for i in range(6):
+                if (channel_code >> i) & 1:  # Check if channel i is active
+                    if channel_idx < len(self.buffer_sizes):
+                        active_buffer_sizes.append(self.buffer_sizes[channel_idx])
+                    else:
+                        active_buffer_sizes.append(1000)  # Default
+                    channel_idx += 1
+            
+            self.data_compiler = DataCompiler(self.device, active_buffer_sizes, num_channels)
             compiler_thread = threading.Thread(target=self.data_compiler.compile_data)
             thread_list.append(compiler_thread)
             compiler_thread.start()
