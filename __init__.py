@@ -153,3 +153,14 @@ except ImportError as e:
 except Exception as e:
     print(f"{IMPORT_ERROR_MESSAGE} Geometry Render Node: {type(e).__name__} - {e}")
 
+try:
+    from .comfy.overall_arousal import OverallArousalNode
+    NODE_CLASS_MAPPINGS["OverallArousalNode"] = OverallArousalNode
+    NODE_DISPLAY_NAME_MAPPINGS["OverallArousalNode"] = "🎯 Overall Arousal"
+    NODE_CATEGORY_MAPPINGS["OverallArousalNode"] = "Pedro_PIC/🔬 Bio-Processing"
+    print("Overall Arousal Node loaded successfully")
+except ImportError as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Overall Arousal Node: ImportError - {e}")
+except Exception as e:
+    print(f"{IMPORT_ERROR_MESSAGE} Overall Arousal Node: {type(e).__name__} - {e}")
+

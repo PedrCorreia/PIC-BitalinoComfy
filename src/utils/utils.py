@@ -178,6 +178,7 @@ class Arousal:
                 return float(np.clip(i * 0.2 + norm * 0.2, 0, 1))
         return float(np.clip((scr - min_scr) / (max_scr - min_scr), 0, 1))
 
+    @staticmethod
     def overall_arousal(hr=None, rr=None, scl=None, scr=None):
         """
         Compute overall arousal level based on available HR, RR, SCL, and SCR.

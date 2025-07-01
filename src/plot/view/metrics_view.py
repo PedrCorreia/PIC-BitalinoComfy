@@ -206,23 +206,16 @@ class MetricsView:
             pygame.draw.rect(screen, (60, 60, 60), (bar_x_pos, bar_y_pos, bar_w_val, bar_h), border_radius=6)
             # --- Color-changing, size-varying bar based on 'last' value ---
             last_val = None
-            #try:
-             #   if sig and isinstance(sig, dict):
-              #      if "last" in sig and isinstance(sig["last"], (float, int, np.floating, np.integer)):
-               #         last_val = float(sig["last"])
-                #        #print(f"[MetricsView DEBUG] Metric '{label}': last_val from sig['last']: {last_val}") 
-                 #   elif "last" in sig and isinstance(sig["last"], (list, np.ndarray)) and len(sig["last"]):
-                  #      last_val = float(sig["last"][-1])
-                   #     #print(f"[MetricsView DEBUG] Metric '{label}': last_val from sig['last'][-1]: {last_val}") 
-                    #elif "v" in sig and isinstance(sig["v"], (list, np.ndarray)) and len(sig["v"]):
-                     #   #print(f"[MetricsView DEBUG] Metric '{label}': last_val from sig['v'][-1]: {last_val}") 
-              #      else:
-                        #print(f"[MetricsView DEBUG] Metric '{label}': 'last_val' could not be extracted. Keys: {list(sig.keys()) if sig else 'None'}")
-             #   else:
-            #        #print(f"[MetricsView DEBUG] Metric '{label}': Signal data None or not dict, cannot extract 'last_val'.")
-            #except Exception as e:
-            #    print(f"[MetricsView DEBUG] Metric '{label}': Exception extracting last_val: {e}") 
-           #     pass  # Keep existing pass
+            try:
+                if sig and isinstance(sig, dict):
+                    if "last" in sig and isinstance(sig["last"], (float, int, np.floating, np.integer)):
+                        last_val = float(sig["last"])
+                    elif "last" in sig and isinstance(sig["last"], (list, np.ndarray)) and len(sig["last"]):
+                        last_val = float(sig["last"][-1])
+                    elif "v" in sig and isinstance(sig["v"], (list, np.ndarray)) and len(sig["v"]):
+                        last_val = float(sig["v"][-1])
+            except Exception:
+                pass  # Keep existing pass
             
             if last_val is not None and np.isfinite(last_val):
                 norm = (last_val - min_v) / (max_v - min_v) if (max_v - min_v) != 0 else 0.0
