@@ -39,7 +39,7 @@ class EDA:
         tonic = NumpySignalProcessor.lowpass_filter(eda_signal, cutoff=0.05, fs=fs, order=2)
         
         # Phasic: bandpass filter (0.05-1 Hz)
-        phasic = NumpySignalProcessor.bandpass_filter(eda_signal, lowcut=0.05, highcut=1, fs=fs, order=4)
+        phasic = NumpySignalProcessor.bandpass_filter(eda_signal, lowcut=0.05, highcut=2, fs=fs, order=4)
         
         # Enhanced noise reduction: apply a threshold to eliminate low-level noise
         noise_threshold = 0.01  # 0.01 μS threshold for noise
@@ -71,10 +71,7 @@ class EDA:
         Returns:
         - events: Indices of detected events (peaks) in original signal coordinates.
         """
-        print(f"[EDA_DETECT_DEBUG] Starting peak detection with signal length: {len(phasic_signal)}, fs: {fs}", flush=True)
-        
         if len(phasic_signal) < 20:
-            print(f"[EDA_DETECT_DEBUG] Signal too short (<20 points), returning empty array", flush=True)
             return np.array([], dtype=int)
         
         # Use only central 80% of the signal to avoid edge artifacts
@@ -83,29 +80,17 @@ class EDA:
         start_idx = edge_margin
         end_idx = signal_len - edge_margin
         
-        print(f"[EDA_DETECT_DEBUG] Using central portion: {start_idx}-{end_idx} (total: {end_idx-start_idx} points)", flush=True)
-        
         if end_idx <= start_idx:
             # Signal too short for margins, use full signal
             start_idx = 0
             end_idx = signal_len
-            print(f"[EDA_DETECT_DEBUG] Signal too short for margins, using full signal", flush=True)
         
         # Extract the central portion for event detection
         phasic_center = phasic_signal[start_idx:end_idx]
         
-        # Print phasic signal stats
-        if len(phasic_center) > 0:
-            phasic_min = np.min(phasic_center)
-            phasic_max = np.max(phasic_center)
-            phasic_mean = np.mean(phasic_center)
-            print(f"[EDA_DETECT_DEBUG] Phasic signal stats: min={phasic_min:.4f}, max={phasic_max:.4f}, mean={phasic_mean:.4f}, threshold={threshold}", flush=True)
-        
         # Simple peak detection - no complex validation
         window = int(fs * min_peak_distance_sec)
         events_center = NumpySignalProcessor.find_peaks(phasic_center, fs=fs, threshold=threshold, window=window)
-        
-        print(f"[EDA_DETECT_DEBUG] Found {len(events_center)} peaks in central portion", flush=True)
         
         # Convert back to original signal coordinates
         events_original = events_center + start_idx
@@ -113,7 +98,6 @@ class EDA:
         # Safety check: limit number of peaks to prevent memory issues
         max_peaks = 50  # Reasonable limit for EDA peaks in a window
         if len(events_original) > max_peaks:
-            print(f"[EDA_DETECT_DEBUG] WARNING: Too many peaks detected ({len(events_original)}). Limiting to {max_peaks} highest amplitude peaks.", flush=True)
             # Get peak amplitudes
             peak_amps = np.zeros(len(events_original))
             for i, idx in enumerate(events_original):
@@ -124,27 +108,12 @@ class EDA:
             if len(peak_amps) > 0:
                 top_indices = np.argsort(peak_amps)[-max_peaks:]
                 events_original = events_original[top_indices]
-                print(f"[EDA_DETECT_DEBUG] Filtered to {len(events_original)} highest amplitude peaks", flush=True)
         
-        # Print the indices of events in both coordinate systems
-        if len(events_center) > 0:
-            print(f"[EDA_DETECT_DEBUG] Event indices in center portion: {events_center[:5].tolist()}{' ...' if len(events_center) > 5 else ''}", flush=True)
-            print(f"[EDA_DETECT_DEBUG] Event indices in original signal: {events_original[:5].tolist()}{' ...' if len(events_original) > 5 else ''}", flush=True)
-            
-            # Print the actual values at those indices
-            if len(events_original) > 0:
-                # Check if any indices are out of bounds before accessing
-                out_of_bounds = np.any((events_original < 0) | (events_original >= len(phasic_signal)))
-                if out_of_bounds:
-                    print(f"[EDA_DETECT_DEBUG] WARNING: Some event indices are out of bounds!", flush=True)
-                    # Filter out-of-bounds indices
-                    valid_mask = (events_original >= 0) & (events_original < len(phasic_signal))
-                    events_original = events_original[valid_mask]
-                    print(f"[EDA_DETECT_DEBUG] After filtering, {len(events_original)} valid events remain", flush=True)
-                
-                if len(events_original) > 0:
-                    event_values = phasic_signal[events_original]
-                    print(f"[EDA_DETECT_DEBUG] Event values: {[f'{val:.4f}' for val in event_values[:5]]}{' ...' if len(event_values) > 5 else ''}", flush=True)
+        # Check for out-of-bounds indices and filter them out
+        if len(events_original) > 0:
+            # Filter out-of-bounds indices
+            valid_mask = (events_original >= 0) & (events_original < len(phasic_signal))
+            events_original = events_original[valid_mask]
         
         return events_original
 

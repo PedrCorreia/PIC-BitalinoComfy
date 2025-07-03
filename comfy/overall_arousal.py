@@ -92,8 +92,7 @@ class OverallArousalNode:
             # EDA (combine SCL and SCR as a single value, if at least one weight > 0 and value is available)
             scl_valid = scl is not None and scl_weight > 0
             scr_valid = scr is not None and scr_weight > 0
-            #print(f"scr_weight: {scr_weight}, scr not None: {scr is not None}")
-            #print (f"SCL valid: {scl_valid}, SCR valid: {scr_valid}")
+            # Both SCL and SCR are used in the EDA arousal calculation
             eda_arousal = None
             eda_total_weight = 0.0
             if scl_valid:
@@ -112,12 +111,10 @@ class OverallArousalNode:
                 weighted_scores.append(eda_arousal_final * eda_total_weight)
                 total_weight += eda_total_weight
             # Calculate weighted overall arousal
-            print(f"weighted_scores: {weighted_scores}, total_weight: {total_weight}")
             if weighted_scores and total_weight > 0:
                 overall_arousal = sum(weighted_scores) / total_weight
             else:
                 overall_arousal = 0.5  # Default when no data available
-            print(f"[OverallArousal] Weighted overall arousal: {overall_arousal}")
             return float(overall_arousal)
         except Exception as e:
             print(f"Error calculating weighted arousal metrics: {e}")

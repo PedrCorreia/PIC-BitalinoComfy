@@ -13,35 +13,37 @@ class MetricsView:
         self.signal_registry = signal_registry # Use signal_registry
         # Each config: (label, signal_id, min, max, color_stops)
         self.metric_configs = metric_configs or [
-            ("HR", "HR_METRIC", 35, 125, [
-                (35, (0, 120, 255)),   # blue
-                (60, (0, 200, 80)),    # green
-                (80, (255, 220, 0)),   # yellow
-                (100, (255, 140, 0)),  # orange
-                (120, (255, 40, 40))   # red
+            ("HR", "HR_METRIC", 40, 140, [  # Matches hr_arousal calculation exactly
+                (40, (0, 120, 255)),   # blue - minimum range
+                (50, (0, 120, 255)),   # blue - sleep threshold
+                (70, (0, 200, 80)),    # green - low threshold  
+                (100, (255, 220, 0)),  # yellow - medium threshold
+                (120, (255, 140, 0)),  # orange - high threshold
+                (140, (255, 40, 40))   # red - maximum range
             ]),
-            ("RR", "RR_METRIC", 0, 30, [  # RR = respiration rate (breaths/min), 0 = no peaks detected
-                (0, (0, 120, 255)),    # No breathing detected (blue - sleep/apnea)
-                (8, (0, 200, 80)),     # Very slow breathing (green - relaxed)
-                (12, (255, 220, 0)),   # Normal breathing (yellow - normal)
-                (18, (255, 140, 0)),   # Fast breathing (orange - aroused)
-                (25, (255, 40, 40)),   # Very fast breathing (red - stressed)
-                (30, (255, 40, 40)),   # Max arousal (red)
+            ("RR", "RR_METRIC", 8, 30, [  # Matches rr_arousal calculation exactly
+                (8, (0, 120, 255)),    # blue - minimum range
+                (10, (0, 120, 255)),   # blue - sleep threshold
+                (15, (0, 200, 80)),    # green - low threshold
+                (22, (255, 220, 0)),   # yellow - medium threshold
+                (27, (255, 140, 0)),   # orange - high threshold
+                (30, (255, 40, 40)),   # red - maximum range
             ]),
-            # SCL = Skin Conductance Level (tonic, slow-changing baseline, in uS)
-            ("SCL", "SCL_METRIC", 0, 40, [
-                (0, (0, 120, 255)),     # sleep (blue)
-                (2, (0, 200, 80)),      # relaxed (green)
-                (5, (255, 220, 0)),     # normal (yellow)
-                (12, (255, 140, 0)),    # aroused (orange)
-                (20, (255, 40, 40)),    # stressed (red)
+            ("SCL", "SCL_METRIC", 0.05, 20, [  # Matches scl_arousal calculation exactly
+                (0.05, (0, 120, 255)), # blue - minimum range
+                (0.1, (0, 120, 255)),  # blue - sleep threshold
+                (1, (0, 200, 80)),     # green - low threshold
+                (5, (255, 220, 0)),    # yellow - medium threshold
+                (12, (255, 140, 0)),   # orange - high threshold
+                (20, (255, 40, 40)),   # red - maximum range
             ]),
-            ("SCR Freq", "scr_frequency", 0, 6, [
-                (0, (0, 120, 255)),
-                (2, (0, 200, 80)),
-                (5, (255, 220, 0)),
-                (7, (255, 140, 0)),
-                (10, (255, 40, 40)),
+            ("SCR Freq", "scr_frequency", 0, 10, [  # Matches scr_arousal calculation exactly
+                (0, (0, 120, 255)),    # blue - minimum range
+                (2, (0, 120, 255)),    # blue - sleep threshold
+                (4, (0, 200, 80)),     # green - low threshold
+                (6, (255, 220, 0)),    # yellow - medium threshold
+                (8, (255, 140, 0)),    # orange - high threshold
+                (10, (255, 40, 40)),   # red - maximum range
             ]),
             
             # AROUSAL METRICS - All use 0.0-1.0 range with consistent color mapping
@@ -98,13 +100,10 @@ class MetricsView:
     def _find_matching_signal(self, pattern):
         # Match any signal id in the registry that contains the pattern (case-insensitive, allows suffixes/prefixes)
         all_ids = self.signal_registry.get_all_signal_ids() if hasattr(self.signal_registry, 'get_all_signal_ids') else [] # Use signal_registry
-        #print(f"[MetricsView DEBUG] _find_matching_signal: Searching for pattern '{pattern}' among {len(all_ids)} signals: {all_ids}") # DEBUG PRINT
         regex = re.compile(re.escape(pattern), re.IGNORECASE)
         for sid in all_ids:
             if regex.search(str(sid)):
-                #print(f"[MetricsView DEBUG] _find_matching_signal: Found match for '{pattern}': {sid}") # DEBUG PRINT
                 return self.signal_registry.get_signal(sid) # Use signal_registry
-        #print(f"[MetricsView DEBUG] _find_matching_signal: No matching signal found for '{pattern}'") # DEBUG PRINT
         return None
 
     def draw(self, screen, x, y, width, height, window_sec=30):
@@ -151,9 +150,7 @@ class MetricsView:
             config = padded_configs[idx]
             if config is not None:
                 label, sig_pattern, min_v, max_v, color_stops = config
-                #print(f"[MetricsView DEBUG] Processing metric: Label='{label}', SignalPattern='{sig_pattern}'") 
                 sig = self._find_matching_signal(sig_pattern)
-                #print(f"[MetricsView DEBUG] Metric '{label}': Retrieved signal data: {'Exists' if sig else 'None'}") 
                 if sig and isinstance(sig, dict):
                     pass
                     #print(f"[MetricsView DEBUG] Metric '{label}': Signal keys: {list(sig.keys())}, t_len: {len(sig.get('t', []))}, v_len: {len(sig.get('v', []))}, last: {sig.get('last', 'N/A')}")
@@ -265,15 +262,32 @@ class MetricsView:
                 def color_gradient(val_grad): # Renamed val to val_grad
                     # For regular metrics (HR, RR, SCL, SCR Freq), the color_stops contain actual metric values
                     # For arousal metrics (0.0-1.0), the color_stops contain arousal levels
-                    # We use the actual metric value to find the appropriate color
+                    
+                    # Handle values outside the range
+                    if val_grad <= color_stops[0][0]:
+                        return color_stops[0][1]
+                    if val_grad >= color_stops[-1][0]:
+                        return color_stops[-1][1]
+                    
+                    # Find which segment the value falls into
                     for j_idx in range(len(color_stops) - 1): # Renamed j to j_idx
                         v0, c0 = color_stops[j_idx]
                         v1, c1 = color_stops[j_idx+1]
-                        if val_grad <= v1:
-                            if v1 == v0: t_calc = 0.0 # Renamed t to t_calc
-                            else: t_calc = (val_grad - v0) / (v1 - v0)
+                        
+                        if v0 <= val_grad <= v1:
+                            # Calculate interpolation factor
+                            if v1 == v0: 
+                                t_calc = 0.0 # Renamed t to t_calc
+                            else: 
+                                t_calc = (val_grad - v0) / (v1 - v0)
+                            
+                            # Ensure t is in range [0,1]
                             t_calc = max(0.0, min(1.0, t_calc))
+                            
+                            # Interpolate each RGB component
                             return tuple(int(lerp(c0[k_idx], c1[k_idx], t_calc)) for k_idx in range(3)) # Renamed k to k_idx
+                    
+                    # Fallback to last color (shouldn't reach here if ranges are properly defined)
                     return color_stops[-1][1]
                 bar_color = color_gradient(last_val)
                 fill_w = int(bar_w_val * norm)

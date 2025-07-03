@@ -265,8 +265,15 @@ class EDANode:
             # SCR event (peak) detection and mapping to window (like ECG R-peak logic)
             scr_event_indices = np.array([], dtype=int)
             if len(phasic_viz) > 0:
-                # Explicitly pass the higher threshold for more robust peak detection
-                result = self.eda.detect_events(phasic_viz, effective_fs, threshold=0.1)
+                # Calculate dynamic threshold based on phasic signal baseline
+                phasic_baseline = np.percentile(phasic_viz, 25)  # Use 25th percentile as baseline
+                phasic_std = np.std(phasic_viz)
+                
+                # Dynamic threshold: baseline + 2 standard deviations, with minimum of 0.1
+                dynamic_threshold = max(0.1, phasic_baseline + 2 * phasic_std)
+                
+                # Explicitly pass the dynamic threshold for more robust peak detection
+                result = self.eda.detect_events(phasic_viz, effective_fs, threshold=dynamic_threshold)
                 if isinstance(result, tuple) and len(result) == 2:
                     scr_event_indices_raw, _ = result
                 else:
