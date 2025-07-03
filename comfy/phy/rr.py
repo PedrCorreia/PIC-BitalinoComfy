@@ -288,7 +288,7 @@ class RRNode:
                 effective_fs = fs / decimation_factor
             # Pre-process RR with bandpass filter adapted for RR (0.1-1 Hz)
             lowcut = 0.1
-            highcut = 1
+            highcut = 2
             filtered_rr = NumpySignalProcessor.bandpass_filter(
                 feature_values,
                 lowcut=lowcut,
